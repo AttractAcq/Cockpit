@@ -22,7 +22,7 @@ export interface AgentEvent {
   id: UUID;
   action: AgentAction;
   description: string; // human-readable, e.g. "MJR for Vasco Joinery — 14 competitors"
-  agent_name: "OpenClaw" | "Apify" | "n8n" | "MetaSync"; // which agent
+  agent_name: string; // which agent (OpenClaw, Apify, n8n, MetaSync, Claude Content, …)
   status: "success" | "needs_review" | "failed";
 
   entity_id: UUID | null;
