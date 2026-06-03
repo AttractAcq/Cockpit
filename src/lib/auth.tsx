@@ -1,5 +1,5 @@
 // src/lib/auth.tsx
-// Auth shell: session, current role (via team_members), magic-link sign-in.
+// Auth shell: session, current role (via team_members), email+password sign-in.
 // Roles: admin | distribution | delivery | client. The cockpit is staff-only;
 // the client role is bounced to the portal.
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
@@ -12,7 +12,8 @@ interface AuthState {
   session: Session | null;
   role: Role;
   loading: boolean;
-  signInWithMagicLink: (email: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -45,12 +46,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthState = {
     session, role, loading,
-    signInWithMagicLink: async (email) => {
-      const { error } = await supabase.auth.signInWithOtp({
-        email, options: { emailRedirectTo: window.location.origin + "/aa-cockpit" },
-      });
+
+    signIn: async (email, password) => {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     },
+
+    signUp: async (email, password) => {
+      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      if (signUpError) throw signUpError;
+      // Email confirmation is disabled in the Supabase dashboard, so sign in immediately.
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) throw signInError;
+    },
+
     signOut: async () => { await supabase.auth.signOut(); },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
