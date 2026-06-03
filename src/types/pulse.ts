@@ -27,6 +27,7 @@ export interface PulseMetric {
 
 export type AssetKind =
   | "reel_brief"
+  | "content_brief"
   | "mjr_report"
   | "ad_creative"
   | "pitch_deck"
@@ -49,7 +50,7 @@ export interface Asset {
   file_type: string; // "application/pdf", "video/mp4" etc
   thumbnail_url: string | null;
 
-  status: "draft" | "ready" | "shipped" | "archived";
+  status: "draft" | "ready" | "approved" | "shipped" | "archived";
   generated_by: "human" | "agent";
   agent_name: string | null;
 

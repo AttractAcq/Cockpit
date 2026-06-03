@@ -7,16 +7,20 @@ interface CardProps {
   onClick?: () => void;
   className?: string;
   dashed?: boolean;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
 }
 
-export function Card({ children, onClick, className = "", dashed = false }: CardProps) {
+export function Card({ children, onClick, className = "", dashed = false, draggable, onDragStart }: CardProps) {
   const borderStyle = dashed ? "border-dashed bg-transparent" : "bg-ink-200";
   return (
     <div
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
       className={`rounded-[10px] border border-line p-3 px-3.5 flex flex-col gap-2 transition-colors ${borderStyle} ${
-        onClick ? "cursor-pointer hover:border-line-2 hover:bg-ink-50" : ""
-      } ${className}`}
+        onClick || draggable ? "cursor-pointer hover:border-line-2 hover:bg-ink-50" : ""
+      } ${draggable ? "select-none" : ""} ${className}`}
     >
       {children}
     </div>
