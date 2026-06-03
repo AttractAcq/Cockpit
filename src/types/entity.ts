@@ -1,58 +1,56 @@
-import type { UUID, ISODate, ZAR, PipelineStage, Channel, Tier } from "./common";
+import type { UUID, ISODate, PipelineStage, Channel, Tier } from "./common";
 
 /**
  * Entity = unified record for prospects + clients.
- * In Supabase this maps to the `entities` table; pipeline_stage moves
- * the entity through its lifecycle from cold → delivering.
+ * Maps to the `entities` table in Supabase.
+ * Field names match the real DB columns (stage, niche, city, icp_fit_score).
+ * `kind` distinguishes prospects from clients.
  */
 export interface Entity {
   id: UUID;
   business_name: string;
-  contact_name: string | null;
-  industry: string;
-  location: string; // e.g. "Sea Point, Cape Town"
-  pipeline_stage: PipelineStage;
-  tier: Tier | null;
+  kind: "prospect" | "client";
 
-  // Contact handles
-  instagram_handle: string | null;
-  whatsapp_number: string | null;
-  email: string | null;
-  website: string | null;
+  // Pipeline position
+  stage: PipelineStage;
 
-  // Commercial
-  mrr: ZAR;
-  pipeline_value: ZAR;
+  // Contact (optional — byStage() doesn't select all fields)
+  contact_name?: string | null;
+  whatsapp_number?: string | null;
+  instagram_handle?: string | null;
+  email?: string | null;
+  website?: string | null;
 
-  // Source + scoring
-  source: "apify_maps" | "referral" | "inbound_dm" | "ad_lead" | "manual";
-  icp_score: number; // 0-100, AA fit
-  agent_score: number | null; // 0-1, OpenClaw hotness
+  // Classification
+  niche: string | null;   // industry / category
+  city: string | null;    // city / location
+  tier: Tier | null;      // set on conversion
 
-  // Account ownership
-  account_manager: UUID | null;
-  account_manager_name: string | null;
+  // Scoring
+  icp_fit_score: number | null;  // 0-100 ICP match
+  agent_score: number | null;    // 0-1 OpenClaw hotness (may not exist in DB)
 
-  // Lifecycle timestamps
-  created_at: ISODate;
-  updated_at: ISODate;
-  last_contact_at: ISODate | null;
-  stage_changed_at: ISODate;
+  // Source
+  source: "apify_maps" | "referral" | "inbound_dm" | "ad_lead" | "manual" | string | null;
 
-  // Free text
-  notes: string | null;
-  tags: string[];
-
-  // Last touch summary (derived/denormalized)
+  // Denormalized inbox previews (may not exist in all DB rows)
   last_channel: Channel | null;
   last_message_preview: string | null;
+  last_contact_at: ISODate | null;
+
+  // Lifecycle
+  created_at: ISODate;
+  updated_at: ISODate;
+
+  // Optional fields that exist in full entity records
+  notes: string | null;
+  tags?: string[];
+  account_manager?: UUID | null;
+  account_manager_name?: string | null;
+  stage_changed_at?: ISODate;
+
+  // Revenue — denormalized or joined from contracts
+  mrr?: number;
+  mrr_cents?: number;
+  pipeline_value?: number;
 }
-
-export type ProspectEntity = Entity & {
-  pipeline_stage: Exclude<PipelineStage, "active" | "delivering" | "churned">;
-};
-
-export type ClientEntity = Entity & {
-  pipeline_stage: Extract<PipelineStage, "active" | "delivering" | "churned">;
-  tier: Tier; // clients always have a tier
-};

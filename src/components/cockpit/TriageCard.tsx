@@ -6,6 +6,7 @@ import type { TriageItem, TriageKind } from "@/types";
 
 interface TriageCardProps {
   item: TriageItem;
+  onResolve?: () => void;
 }
 
 const kindToTag: Record<TriageKind, { tag: TagKind; label: string; icon: "reply-arrow" | "alert-circle" | "check-square" | "clock" | "warning" }> = {
@@ -16,7 +17,7 @@ const kindToTag: Record<TriageKind, { tag: TagKind; label: string; icon: "reply-
   anomaly: { tag: "anomaly", label: "Anomaly", icon: "warning" },
 };
 
-export function TriageCard({ item }: TriageCardProps) {
+export function TriageCard({ item, onResolve }: TriageCardProps) {
   const navigate = useNavigate();
   const cfg = kindToTag[item.kind];
 
@@ -26,8 +27,6 @@ export function TriageCard({ item }: TriageCardProps) {
 
   const handlePrimary = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // In Phase 2, this will dispatch the real action. For now, navigate
-    // to the related resource if there is one.
     if (item.related_resource_kind === "conversation" && item.related_resource_id) {
       navigate(ROUTES.conversation(item.related_resource_id));
     } else if (item.related_resource_kind === "campaign" && item.related_resource_id) {
@@ -39,7 +38,6 @@ export function TriageCard({ item }: TriageCardProps) {
 
   return (
     <Card onClick={() => item.entity_id && navigate(ROUTES.entity(item.entity_id))}>
-      {/* Header row */}
       <div className="flex items-center gap-2.5">
         <Tag kind={cfg.tag}>
           <Icon name={cfg.icon} size={10} /> {cfg.label}
@@ -55,18 +53,13 @@ export function TriageCard({ item }: TriageCardProps) {
         <span className="ml-auto font-mono text-2xs text-paper-3">{timeLabel}</span>
       </div>
 
-      {/* Body */}
       <div className="text-sm text-paper-2 leading-relaxed">
         <span className={item.kind === "reply" ? "text-paper italic" : ""}>{item.body}</span>
         {item.body_meta && (
-          <>
-            {" "}
-            <span className="text-paper-3">· {item.body_meta}</span>
-          </>
+          <> <span className="text-paper-3">· {item.body_meta}</span></>
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex items-center gap-1.5 mt-0.5">
         {item.actions.map((a) => (
           <Button
@@ -78,6 +71,15 @@ export function TriageCard({ item }: TriageCardProps) {
             {a.label}
           </Button>
         ))}
+        {onResolve && (
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onResolve(); }}
+          >
+            Resolve
+          </Button>
+        )}
         {item.agent_note && (
           <span className="ml-auto font-mono text-2xs text-paper-3 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-teal shadow-teal-glow" />

@@ -1,23 +1,17 @@
+// src/lib/mock/clients.ts
+// Legacy fixtures — no longer the runtime source (mock/index.ts re-exports the
+// live api). Kept for reference and tests. Field names now match the real DB schema.
 import type { Entity } from "@/types";
-
-/**
- * Unified entity fixtures — prospects + clients share one table,
- * differentiated by `pipeline_stage`.
- *
- * NOTE: Wiring to Supabase later — replace functions below with queries to
- * the `entities` table. RPC names already aligned with AA-OS conventions.
- */
-
-const NOW = new Date().toISOString();
 
 export const ENTITIES: Entity[] = [
   {
     id: "ent_001",
     business_name: "Vasco Joinery",
+    kind: "prospect",
     contact_name: "Vasco Botha",
-    industry: "Joinery",
-    location: "Bellville, Cape Town",
-    pipeline_stage: "engaged",
+    niche: "Joinery",
+    city: "Bellville, Cape Town",
+    stage: "engaged",
     tier: null,
     instagram_handle: "@vascojoinery",
     whatsapp_number: "+27821234421",
@@ -26,7 +20,7 @@ export const ENTITIES: Entity[] = [
     mrr: 0,
     pipeline_value: 12500,
     source: "apify_maps",
-    icp_score: 88,
+    icp_fit_score: 88,
     agent_score: 0.74,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -34,7 +28,7 @@ export const ENTITIES: Entity[] = [
     updated_at: "2026-05-28T11:47:00Z",
     last_contact_at: "2026-05-28T11:47:00Z",
     stage_changed_at: "2026-05-27T15:22:00Z",
-    notes: "Strong before/after content potential. Owner-operated, R1.8M turnover.",
+    notes: "Strong before/after content potential.",
     tags: ["high-icp", "visual-trade"],
     last_channel: "whatsapp",
     last_message_preview: "Sharp, I'll have a look tonight 🙏",
@@ -42,10 +36,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_002",
     business_name: "Roofworx CT",
+    kind: "prospect",
     contact_name: "Mike Daniels",
-    industry: "Roofing",
-    location: "Tokai, Cape Town",
-    pipeline_stage: "engaged",
+    niche: "Roofing",
+    city: "Tokai, Cape Town",
+    stage: "engaged",
     tier: null,
     instagram_handle: "@roofworx_ct",
     whatsapp_number: "+27845551122",
@@ -54,7 +49,7 @@ export const ENTITIES: Entity[] = [
     mrr: 0,
     pipeline_value: 12500,
     source: "inbound_dm",
-    icp_score: 92,
+    icp_fit_score: 92,
     agent_score: 0.84,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -70,10 +65,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_003",
     business_name: "Pool Pros SA",
+    kind: "prospect",
     contact_name: "Lindiwe Ndlovu",
-    industry: "Pool renovation",
-    location: "Constantia, Cape Town",
-    pipeline_stage: "engaged",
+    niche: "Pool renovation",
+    city: "Constantia, Cape Town",
+    stage: "engaged",
     tier: null,
     instagram_handle: "@poolpros_sa",
     whatsapp_number: "+27719988007",
@@ -82,7 +78,7 @@ export const ENTITIES: Entity[] = [
     mrr: 0,
     pipeline_value: 18500,
     source: "inbound_dm",
-    icp_score: 95,
+    icp_fit_score: 95,
     agent_score: 0.71,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -90,7 +86,7 @@ export const ENTITIES: Entity[] = [
     updated_at: "2026-05-28T10:55:00Z",
     last_contact_at: "2026-05-28T10:55:00Z",
     stage_changed_at: "2026-05-26T10:14:00Z",
-    notes: "Pool renovation = top ICP category. Visual proof potential is high.",
+    notes: "Pool renovation = top ICP category.",
     tags: ["top-icp", "inbound"],
     last_channel: "instagram",
     last_message_preview: "Hi, saw your reel — do you work with pool repair...",
@@ -98,10 +94,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_004",
     business_name: "Cape Coast Joinery",
+    kind: "client",
     contact_name: "Themba Mokoena",
-    industry: "Joinery",
-    location: "Milnerton, Cape Town",
-    pipeline_stage: "onboarding",
+    niche: "Joinery",
+    city: "Milnerton, Cape Town",
+    stage: "onboarding",
     tier: "proof_brand",
     instagram_handle: "@capecoastjoinery",
     whatsapp_number: "+27827654321",
@@ -110,7 +107,7 @@ export const ENTITIES: Entity[] = [
     mrr: 4200,
     pipeline_value: 12500,
     source: "apify_maps",
-    icp_score: 86,
+    icp_fit_score: 86,
     agent_score: 0.62,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -118,7 +115,7 @@ export const ENTITIES: Entity[] = [
     updated_at: "2026-05-28T09:14:00Z",
     last_contact_at: "2026-05-28T05:00:00Z",
     stage_changed_at: "2026-05-27T16:30:00Z",
-    notes: "Deposit cleared 09:14. Meta access pending. Onboarding call 3pm today.",
+    notes: "Deposit cleared 09:14. Meta access pending.",
     tags: ["onboarding", "proof-brand"],
     last_channel: "whatsapp",
     last_message_preview: "Looking forward to today!",
@@ -126,10 +123,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_005",
     business_name: "Tile & Grout Studio",
+    kind: "client",
     contact_name: "Janine Roberts",
-    industry: "Tiling",
-    location: "Sea Point, Cape Town",
-    pipeline_stage: "active",
+    niche: "Tiling",
+    city: "Sea Point, Cape Town",
+    stage: "active",
     tier: "proof_brand",
     instagram_handle: "@tilegroutstudio",
     whatsapp_number: "+27834445566",
@@ -138,7 +136,7 @@ export const ENTITIES: Entity[] = [
     mrr: 4200,
     pipeline_value: 0,
     source: "apify_maps",
-    icp_score: 79,
+    icp_fit_score: 79,
     agent_score: null,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -154,10 +152,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_006",
     business_name: "Atlantic Decking Co.",
+    kind: "prospect",
     contact_name: "Sipho Khumalo",
-    industry: "Decking",
-    location: "Camps Bay, Cape Town",
-    pipeline_stage: "contacted",
+    niche: "Decking",
+    city: "Camps Bay, Cape Town",
+    stage: "contacted",
     tier: null,
     instagram_handle: "@atlantic_decking",
     whatsapp_number: "+27831112233",
@@ -166,7 +165,7 @@ export const ENTITIES: Entity[] = [
     mrr: 0,
     pipeline_value: 12500,
     source: "apify_maps",
-    icp_score: 84,
+    icp_fit_score: 84,
     agent_score: 0.41,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -182,10 +181,11 @@ export const ENTITIES: Entity[] = [
   {
     id: "ent_007",
     business_name: "Helderberg Plumbing",
+    kind: "prospect",
     contact_name: "Pieter van Rooyen",
-    industry: "Plumbing",
-    location: "Somerset West, Cape Town",
-    pipeline_stage: "cold",
+    niche: "Plumbing",
+    city: "Somerset West, Cape Town",
+    stage: "cold",
     tier: null,
     instagram_handle: "@helderbergplumb",
     whatsapp_number: "+27828887766",
@@ -194,7 +194,7 @@ export const ENTITIES: Entity[] = [
     mrr: 0,
     pipeline_value: 0,
     source: "apify_maps",
-    icp_score: 71,
+    icp_fit_score: 71,
     agent_score: null,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -206,70 +206,15 @@ export const ENTITIES: Entity[] = [
     tags: [],
     last_channel: null,
     last_message_preview: null,
-  },
-  {
-    id: "ent_008",
-    business_name: "Southern Suburbs Sparks",
-    contact_name: null,
-    industry: "Electrical",
-    location: "Wynberg, Cape Town",
-    pipeline_stage: "cold",
-    tier: null,
-    instagram_handle: null,
-    whatsapp_number: "+27834567890",
-    email: null,
-    website: null,
-    mrr: 0,
-    pipeline_value: 0,
-    source: "apify_maps",
-    icp_score: 64,
-    agent_score: null,
-    account_manager: null,
-    account_manager_name: "Alex Anderson",
-    created_at: "2026-05-28T03:00:00Z",
-    updated_at: "2026-05-28T03:00:00Z",
-    last_contact_at: null,
-    stage_changed_at: "2026-05-28T03:00:00Z",
-    notes: null,
-    tags: [],
-    last_channel: null,
-    last_message_preview: null,
-  },
-  {
-    id: "ent_009",
-    business_name: "Boulders Builders",
-    contact_name: "Naledi Mahlangu",
-    industry: "Building",
-    location: "Simon's Town, Cape Town",
-    pipeline_stage: "booked",
-    tier: null,
-    instagram_handle: "@boulders_builders",
-    whatsapp_number: "+27839988445",
-    email: "naledi@bouldersbuilders.co.za",
-    website: "https://bouldersbuilders.co.za",
-    mrr: 0,
-    pipeline_value: 12500,
-    source: "apify_maps",
-    icp_score: 82,
-    agent_score: 0.68,
-    account_manager: null,
-    account_manager_name: "Alex Anderson",
-    created_at: "2026-05-22T10:00:00Z",
-    updated_at: "2026-05-28T07:00:00Z",
-    last_contact_at: "2026-05-27T16:00:00Z",
-    stage_changed_at: "2026-05-27T16:00:00Z",
-    notes: "Call booked for Tuesday 11:00.",
-    tags: ["booked"],
-    last_channel: "email",
-    last_message_preview: "Confirmed — see you Tuesday.",
   },
   {
     id: "ent_010",
     business_name: "Newlands Window Cleaning",
+    kind: "client",
     contact_name: "Andre Pieterse",
-    industry: "Window cleaning",
-    location: "Newlands, Cape Town",
-    pipeline_stage: "delivering",
+    niche: "Window cleaning",
+    city: "Newlands, Cape Town",
+    stage: "delivering",
     tier: "proof_sprint",
     instagram_handle: "@newlandswindows",
     whatsapp_number: "+27827890123",
@@ -278,7 +223,7 @@ export const ENTITIES: Entity[] = [
     mrr: 8500,
     pipeline_value: 0,
     source: "referral",
-    icp_score: 75,
+    icp_fit_score: 75,
     agent_score: null,
     account_manager: null,
     account_manager_name: "Alex Anderson",
@@ -294,20 +239,12 @@ export const ENTITIES: Entity[] = [
 ];
 
 export const clientsApi = {
-  async list(): Promise<Entity[]> {
-    return ENTITIES;
-  },
-  async byId(id: string): Promise<Entity | null> {
-    return ENTITIES.find((e) => e.id === id) ?? null;
-  },
-  async byStage(stage: Entity["pipeline_stage"]): Promise<Entity[]> {
-    return ENTITIES.filter((e) => e.pipeline_stage === stage);
-  },
-  async stageCounts(): Promise<Record<Entity["pipeline_stage"], number>> {
+  async list(): Promise<Entity[]> { return ENTITIES; },
+  async byId(id: string): Promise<Entity | null> { return ENTITIES.find((e) => e.id === id) ?? null; },
+  async byStage(stage: Entity["stage"]): Promise<Entity[]> { return ENTITIES.filter((e) => e.stage === stage); },
+  async stageCounts(): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
-    for (const e of ENTITIES) {
-      counts[e.pipeline_stage] = (counts[e.pipeline_stage] ?? 0) + 1;
-    }
-    return counts as Record<Entity["pipeline_stage"], number>;
+    for (const e of ENTITIES) { counts[e.stage] = (counts[e.stage] ?? 0) + 1; }
+    return counts;
   },
 };
