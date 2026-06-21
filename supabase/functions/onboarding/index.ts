@@ -5,10 +5,15 @@ Deno.serve(async (req: Request) => {
 
   try {
     const sb = svc();
-    const { entity_id, amount_cents, tier = "proof_brand" } = await req.json() as {
+    const { entity_id, amount_cents, tier = "proof_brand", skip_payment = false } = await req.json() as {
       entity_id: string;
       amount_cents: number;
       tier?: string;
+      // When true, the caller has ALREADY recorded the payment (e.g. payfast-webhook
+      // records the COMPLETE deposit before invoking this). We then only advance the
+      // stage + fire n8n + audit, avoiding a duplicate payments row. Default false
+      // preserves the original behaviour for any direct caller.
+      skip_payment?: boolean;
     };
 
     if (!entity_id) return json({ error: "entity_id required" }, 400);
@@ -26,15 +31,17 @@ Deno.serve(async (req: Request) => {
       return json({ error: "entity already past onboarding gate", stage: ent.stage }, 409);
     }
 
-    // 2. Record deposit payment
-    const { error: payErr } = await sb.from("payments").insert({
-      entity_id,
-      amount_cents,
-      currency: "ZAR",
-      tier,
-      status: "pending",
-    });
-    if (payErr) return json({ error: "failed to record payment", detail: payErr.message }, 500);
+    // 2. Record deposit payment (unless the caller already recorded it — see skip_payment)
+    if (!skip_payment) {
+      const { error: payErr } = await sb.from("payments").insert({
+        entity_id,
+        amount_cents,
+        currency: "ZAR",
+        tier,
+        status: "pending",
+      });
+      if (payErr) return json({ error: "failed to record payment", detail: payErr.message }, 500);
+    }
 
     // 3. Advance entity stage to onboarding
     const { error: stageErr } = await sb
@@ -79,11 +86,12 @@ Deno.serve(async (req: Request) => {
     await agentEvent(sb, entity_id, "onboarding", "onboarding_started", {
       amount_cents,
       tier,
+      skip_payment,
       n8n_ok: n8nResp.ok,
       n8n_status: n8nResp.status,
       n8n_body: n8nBody,
     });
-    await audit(sb, "onboarding_start", "entities", entity_id, { amount_cents, tier });
+    await audit(sb, "onboarding_start", "entities", entity_id, { amount_cents, tier, skip_payment });
 
     if (!n8nResp.ok) {
       return json({
