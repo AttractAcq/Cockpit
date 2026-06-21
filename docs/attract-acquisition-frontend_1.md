@@ -1,4 +1,4 @@
-# Attract Acquisition — Cockpit Frontend Specification (v1.1)
+# Attract Acquisition — Cockpit Frontend Specification (v1.2 · reconciled to live project iwkhdqqgfjtpdhcbpftu on 2026-06-21)
 
 **Part 2 of 3** of the Claude Code build context. Read alongside:
 - `attract-acquisition-system-map.md` — the architecture & every connection (canonical)
@@ -56,7 +56,7 @@ These exist once and wrap every page.
 - **Notification / agent-trail bell** — recent `agent_events` (⟳).
 
 ### 1.4 Global providers & singletons
-- `supabaseClient` initialised from env (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) — **never hardcode the project ref** (see open items).
+- `supabaseClient` initialised from env (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). Project ref is `iwkhdqqgfjtpdhcbpftu` (confirmed) — keep reading it from env; do not hardcode.
 - `RealtimeProvider` — owns channel subscriptions; pages subscribe through it.
 - `RoleProvider` — gates UI.
 - `<ApprovalModal>` — the shared human-in-the-loop confirm dialog (§1.5).
@@ -85,7 +85,7 @@ Each page below lists: **Purpose → Layout & components → Reads → Actions (
 **Purpose.** The morning view: *what needs a human, right now.* Triage queue, in-flight automations, unified inbox preview, live pulse, agent trail. Reads almost everything from Supabase and writes almost nothing — it routes operators into the other pages.
 
 **Layout & components**
-- **Triage queue** (primary, ⟳) — list of `triage_items`, each showing the entity, channel (WhatsApp/IG), OpenClaw score (hot/warm/cold, 0–1) and the suggested draft. This is the heart of the page.
+- **Triage queue** (primary, ⟳) — list of `triage_items`, each showing the entity, `title`, `detail`, `priority`, and `source`. ⚠️ **OPEN QUESTION — triage schema gap:** `score (0–1)` and `suggested_reply` DO NOT EXIST as columns in the live `triage_items` table. It is undecided whether OpenClaw's score and draft reply live in `agent_events.payload` or need columns added. **Do not render a score or suggested reply field until this is resolved with Alex (Stage 1 decision). Do not block on it or paper over it — flag it visibly in the UI.**
 - **In-flight automations** (⟳) — running `automations` (n8n onboarding sequences, outreach cadences) with progress/state.
 - **Unified inbox preview** (⟳) — latest threads from `conversations`/`messages`; "open" deep-links to Conversations.
 - **Live pulse** — KPI tiles from `pulse_metrics` (lead count, reply rate, active campaigns, MRR snapshot).
@@ -94,7 +94,7 @@ Each page below lists: **Purpose → Layout & components → Reads → Actions (
 **Reads.** `triage_items` ⟳, `automations` ⟳, `conversations` ⟳, `messages` ⟳, `pulse_metrics`, `agent_events` ⟳, `audit_log`.
 
 **Actions → edge functions**
-- **Reply to a triaged conversation** ⛔ → ▶ `360dialog-send` (WhatsApp). *IG-DM outbound has no named function in the 16 — flag for backend (see §5).*
+- **Reply to a triaged conversation** ⛔ → ▶ `dialog360-send` (WhatsApp). *IG-DM outbound has no named function in the 16 — flag for backend (see §5).*
 - **Re-score / fetch a fresh suggestion** → ▶ `aicos-act` (routes the message to OpenClaw, returns score + draft).
 - **Generate MJR for this entity** ⛔ → ▶ `mjr-generate` (then continues in Studio).
 - **Advance the entity's stage** → direct write to `entities.stage` (RLS-guarded; `audit-log` fires via DB trigger ◻). The `booked → onboarding` move is **deposit-gated — block it manually** (show "awaiting deposit").
@@ -112,7 +112,7 @@ Each page below lists: **Purpose → Layout & components → Reads → Actions (
 
 **Layout & components**
 - **8-column kanban** (⟳): `source · cold · contacted · engaged · booked · onboarding · active · delivering`. Columns 1–5 grouped visually as *acquisition*, 6–8 as *delivery*, split at the deposit.
-- **Entity card** — name, niche, ICP score, owner, last activity, channel badges, triage flag.
+- **Entity card** — business_name, niche, ICP score, last activity, channel badges, triage flag. *(Note: `owner_id` / `owner` is NOT in the live `entities` schema — do not display an owner field until the column is added.)*
 - **Filters** — niche, ICP score band, owner, stage.
 - **Entity detail drawer** (`/pipeline/:entityId`) — full `entities` record, linked conversation, MJRs/assets, and the stage-transition history from `audit_log`.
 
@@ -142,14 +142,15 @@ Each page below lists: **Purpose → Layout & components → Reads → Actions (
 **Reads.** `conversations` ⟳, `messages` ⟳, `entities`, `triage_items`.
 
 **Actions → edge functions**
-- **Send WhatsApp message** ⛔ → ▶ `360dialog-send` (the function reads the client's number config from the Vault — backend; the frontend just calls it).
+- **Send WhatsApp message** ⛔ → ▶ `dialog360-send` (the function reads the client's number config from the Vault — backend; the frontend just calls it).
 - **Get / refresh AI suggestion** → ▶ `aicos-act` (OpenClaw).
-- **Inbound messages** arrive via ◻ `360dialog-webhook` (WhatsApp) and ◻ `meta-webhook` (IG) and stream in ⟳.
+- **Inbound messages** arrive via ◻ `dialog360-webhook` (WhatsApp) and ◻ `meta-webhook` (IG) and stream in ⟳.
 - *IG-DM outbound: no named send function exists in the 16 — flag for backend (§5).*
+- **Query path note:** `messages` has no direct `entity_id` column in live schema. To load a thread for an entity, join through `conversations`: `messages → conversations` (where `conversations.entity_id = :id`). Do not assume a direct `messages.entity_id` column.
 
 **Cross-surface.** None (channels reach in via webhooks).
 
-**Connections (per the map).** Stages: Contacted, Engaged, Delivering · Edge: 360dialog-send ▶, 360dialog-webhook ◻, meta-webhook ◻, aicos-act ▶, audit-log ◻ · Agents: OpenClaw, MetaSync (◻) · Playbooks: Closer (reference) · Tables: conversations, messages, entities, triage_items · Storage: — · Secrets: Vault (backend-read) · External: 360dialog, Meta · Surfaces: AA Cockpit.
+**Connections (per the map).** Stages: Contacted, Engaged, Delivering · Edge: dialog360-send ▶, dialog360-webhook ◻, meta-webhook ◻, aicos-act ▶, audit-log ◻ · Agents: OpenClaw, MetaSync (◻) · Playbooks: Closer (reference) · Tables: conversations, messages, entities, triage_items · Storage: — · Secrets: Vault (backend-read) · External: 360dialog, Meta · Surfaces: AA Cockpit.
 
 ---
 
@@ -193,7 +194,7 @@ Each page below lists: **Purpose → Layout & components → Reads → Actions (
 - **Generate MJR** ⛔ → ▶ `mjr-generate` (Claude writes copy; PDF lands in Storage + `assets`).
 - **Generate brief** → ▶ `brief-generator` (from the client's brand context).
 - **Approve / reject content** ⛔ → direct write to the asset's status (`audit-log` ◻); decision feeds the editor queue and the Client Portal.
-- **Send an MJR** ⛔ → ▶ `360dialog-send` (often done from Conversations/Booked instead).
+- **Send an MJR** ⛔ → ▶ `dialog360-send` (often done from Conversations/Booked instead).
 - **Field proof** appears via ◻ `proof-capture` (pushed from **AA Upload**).
 - **Asset-name validation** on the frontend (SOP 13 pattern).
 
@@ -278,14 +279,14 @@ Destructive/outbound actions (send, launch, approve, advance) are additionally g
 | Function | Invoked from | User action | Approval |
 |---|---|---|---|
 | `aicos-act` | Cockpit, Conversations, Operations | get OpenClaw score/suggestion; send a command | — |
-| `360dialog-send` | Conversations, Cockpit, Studio | send a WhatsApp reply / MJR / review note | ⛔ |
+| `dialog360-send` | Conversations, Cockpit, Studio | send a WhatsApp reply / MJR / review note | ⛔ |
 | `mjr-generate` | Studio, Cockpit | generate a Missed Jobs Report | ⛔ |
 | `brief-generator` | Studio | generate a reel/content brief | — |
 | `meta-ad-ops` | Campaigns | launch / pause / edit a campaign | ⛔ |
 | `onboarding` | Pipeline, Money (fallback) | manual onboarding kick (normally auto) | ⛔ |
 
 **Only surfaced (never invoked from the cockpit)** — background nodes whose output the UI displays:
-`apify-scrape` (cron) · `lead-score` (insert trigger) · `campaign-flag` (cron) · `mrr-calc` (cron) · `audit-log` (mutation trigger) · `360dialog-webhook` / `meta-webhook` (inbound) · `proof-capture` (from AA Upload) · `client-portal-sync` (from Client Portal) · `public-lead-capture` (from Public Site).
+`apify-scrape` (cron) · `lead-score` (insert trigger) · `campaign-flag` (cron) · `mrr-calc` (cron) · `audit-log` (mutation trigger) · `dialog360-webhook` / `meta-webhook` (inbound) · `proof-capture` (from AA Upload) · `client-portal-sync` (from Client Portal) · `public-lead-capture` (from Public Site).
 
 **Realtime subscriptions the cockpit must hold:** `triage_items`, `conversations`, `messages`, `automations`, `agent_events`, `entities` (Pipeline + strip), `ad_metrics` (Campaigns), `payments` (Money).
 
@@ -293,12 +294,13 @@ Destructive/outbound actions (send, launch, approve, advance) are additionally g
 
 ## 5. Frontend-relevant open items / gaps to flag (do not paper over)
 
-1. **IG-DM outbound has no edge function.** WhatsApp replies use `360dialog-send`; the 16 functions contain no Instagram send path. The Conversations composer needs one — **block IG send and flag** until backend defines it.
+1. **IG-DM outbound has no edge function.** WhatsApp replies use `dialog360-send`; the 16 functions contain no Instagram send path. The Conversations composer needs one — **block IG send and flag** until backend defines it.
 2. **Agent pause/resume has no edge function.** Operations controls map to `automations`/agent state with no named function — confirm the control mechanism in the backend file before wiring toggles.
 3. **Refund / cancellation (SOP 16) has no function.** Money's refund action is unbacked — surface as "manual / TBD".
 4. **Recurring retainer billing does not exist.** Money shows MRR with no collection mechanism. Display it; do not invent billing UI without sign-off.
-5. **Supabase project ref unconfirmed** (`ayfid…` vs `iwkhd…`). The client reads from env; never hardcode.
+5. **Supabase project ref — RESOLVED.** Confirmed `iwkhdqqgfjtpdhcbpftu`. The client still reads from env (do not hardcode); the ambiguity is closed.
 6. **Stage transitions are direct `entities` writes** (no transition function). Enforce the legal stage order and the deposit gate on the frontend; rely on RLS for safety, not on the UI alone.
+7. **Triage schema gap (score / suggested_reply) — OPEN QUESTION.** `triage_items` in the live schema has no `score` or `suggested_reply` columns (live columns: `title`, `detail`, `priority`, `source`, `status`, `assigned_to`, `resolved_at`). The triage queue in §2.1 cannot display OpenClaw's score or draft reply until this is resolved. Do not render these fields; do not invent a workaround. Flag to Alex for a Stage 1 schema decision.
 
 ---
 

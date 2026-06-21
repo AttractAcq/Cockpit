@@ -1,4 +1,4 @@
-# Attract Acquisition — System Connectivity Map (v1.1, text form)
+# Attract Acquisition — System Connectivity Map (v1.2 · reconciled to live project iwkhdqqgfjtpdhcbpftu on 2026-06-21, text form)
 
 This is the text twin of the interactive AA-OS connectivity map (`attract-acquisition-system-map.html`), reconciled to the Operating System Reference Manual and Launch Build Plan (v1.0). It exists to be read as context by Claude Code: every node and every connection in the map is written out below. Where this conflicts with anything else, treat the Reference Manual as canonical and flag the conflict.
 
@@ -26,12 +26,12 @@ Load-bearing rules:
 Enum on `entities`: `source · cold · contacted · engaged · booked · onboarding · active · delivering`. Stages 1–5 = acquisition, 6–8 = delivery; the split is the deposit (`booked → onboarding`).
 
 **03 · Single Source of Truth — Supabase:**
-- *18 tables* — entities, conversations, messages, campaigns, ad_metrics, payments, contracts, triage_items, agent_events, automations, assets, briefs, proof_uploads, pulse_metrics, mrr_snapshots, users, team_members, audit_log
-- *3 storage buckets* (per-client, signed URLs) — MJRs, Reels, Proof Uploads
-- *Secrets & rules* — Vault (`{CLIENT_SLUG}_{SERVICE}_{CREDENTIAL_TYPE}`, service-role only), Row-Level Security
+- *19 tables* — entities, conversations, messages, campaigns, ad_metrics, payments, contracts, triage_items, agent_events, automations, assets, briefs, proof_uploads, pulse_metrics, mrr_snapshots, users, team_members, audit_log, credential_registry
+- *3 storage buckets* (per-client, signed URLs) — MJRs (`mjrs`), Reels (`reels`), Proof Uploads (`proof-uploads`)
+- *Secrets & rules* — Vault (platform keys: `_GLOBAL_{SERVICE}_{CREDENTIAL_TYPE}`; per-client: `{CLIENT_SLUG}_{SERVICE}_{CREDENTIAL_TYPE}`; service-role only), Row-Level Security (all 19 tables)
 
 **04 · Logic Layer:**
-- *16 edge functions* — apify-scrape, lead-score, aicos-act, mjr-generate, brief-generator, 360dialog-send, 360dialog-webhook, meta-webhook, meta-ad-ops, campaign-flag, proof-capture, client-portal-sync, onboarding, mrr-calc, audit-log, public-lead-capture
+- *16 edge functions* — apify-scrape, lead-score, aicos-act, mjr-generate, brief-generator, dialog360-send, dialog360-webhook, meta-webhook, meta-ad-ops, campaign-flag, proof-capture, client-portal-sync, onboarding, mrr-calc, audit-log, public-lead-capture
 - *5 agents* — Apify Scraper, OpenClaw (AICOS), n8n Orchestrator, MetaSync, Claude Content
 - *4 content playbooks* — Ads, Proof, Story, Closer
 
@@ -68,7 +68,7 @@ Enum on `entities`: `source · cold · contacted · engaged · booked · onboard
 ### Conversations
 *The unified inbox across WhatsApp and Instagram DM, threaded per entity.* Unified because every message converges on the same messages and conversations tables.
 - **Stages:** Contacted, Engaged, Delivering
-- **Edge functions:** 360dialog-send, 360dialog-webhook, meta-webhook, aicos-act, audit-log
+- **Edge functions:** dialog360-send, dialog360-webhook, meta-webhook, aicos-act, audit-log
 - **Agents:** OpenClaw, MetaSync
 - **Playbooks:** Closer
 - **Tables:** conversations, messages, entities, triage_items
@@ -136,10 +136,10 @@ Qualified by ICP score, sitting in the queue, not yet contacted. lead-score assi
 - **External:** — · **Surfaces:** AA Cockpit
 
 ### 3 · Contacted — *Acquisition*
-Owner: **VA · Distribution** · Primary systems: `360dialog-send · SOP 01` · People: VA (Distribution) · SOPs: 01
+Owner: **VA · Distribution** · Primary systems: `dialog360-send · SOP 01` · People: VA (Distribution) · SOPs: 01
 First outreach sent; the sequence is running. The VA picks up the cold queue under SOP 01 and begins the five-message WhatsApp sequence — ownership passes machine → human for the first time.
 - **Owned by:** Cockpit, Pipeline, Conversations, Operations
-- **Edge:** 360dialog-send, 360dialog-webhook, audit-log · **Agents:** n8n · **Playbooks:** Closer
+- **Edge:** dialog360-send, dialog360-webhook, audit-log · **Agents:** n8n · **Playbooks:** Closer
 - **Tables:** messages, conversations, entities, automations, audit_log · **Storage:** — · **Secrets:** Vault
 - **External:** 360dialog · **Surfaces:** AA Cockpit
 
@@ -147,7 +147,7 @@ First outreach sent; the sequence is running. The VA picks up the cold queue und
 Owner: **Alex** · Primary systems: `aicos-act · triage_items` · People: Alex · SOPs: 02
 The lead has replied; the conversation is scored and triaged. OpenClaw scores the reply hot/warm/cold and surfaces it as a triage item in the cockpit for a human decision.
 - **Owned by:** Cockpit, Pipeline, Conversations, Operations
-- **Edge:** aicos-act, meta-webhook, 360dialog-webhook, audit-log · **Agents:** OpenClaw · **Playbooks:** —
+- **Edge:** aicos-act, meta-webhook, dialog360-webhook, audit-log · **Agents:** OpenClaw · **Playbooks:** —
 - **Tables:** triage_items, agent_events, messages, conversations, entities, audit_log · **Storage:** — · **Secrets:** Vault
 - **External:** Meta, 360dialog, OpenAI, Telegram · **Surfaces:** AA Cockpit
 
@@ -155,7 +155,7 @@ The lead has replied; the conversation is scored and triaged. OpenClaw scores th
 Owner: **Alex** · Primary systems: `mjr-generate · SOP 04` · People: Alex · SOPs: 03, 04
 Sales call scheduled; the MJR is generated and shared ahead of the call as the proof artifact that earns the meeting. The highest-leverage transition in the business.
 - **Owned by:** Cockpit, Pipeline, Studio, Money, Operations
-- **Edge:** mjr-generate, 360dialog-send, audit-log · **Agents:** Claude Content, OpenClaw · **Playbooks:** Closer
+- **Edge:** mjr-generate, dialog360-send, audit-log · **Agents:** Claude Content, OpenClaw · **Playbooks:** Closer
 - **Tables:** assets, messages, entities, audit_log · **Storage:** MJRs · **Secrets:** Vault
 - **External:** Anthropic, 360dialog · **Surfaces:** AA Cockpit, AA Studio
 
@@ -179,7 +179,7 @@ Ads launching, first content shipped (week 1–2). The first campaign goes live 
 Owner: **Alex / portal** · Primary systems: `client-portal-sync · SOP 09` · People: Alex, Editor, Client · SOPs: 09, 10, 12, 17
 Steady-state retainer; ongoing optimisation and reporting. ~25 reels/month, continuous CPA-drift watch, and weekly reviews backed by the client's live dashboard. The tier-upgrade watch (Proof → Authority) sits here under SOP 12.
 - **Owned by:** Cockpit, Pipeline, Conversations, Campaigns, Studio, Money, Operations
-- **Edge:** client-portal-sync, meta-ad-ops, campaign-flag, proof-capture, brief-generator, mjr-generate, mrr-calc, 360dialog-send, audit-log · **Agents:** MetaSync, Claude Content, n8n · **Playbooks:** Ads, Proof, Story, Closer
+- **Edge:** client-portal-sync, meta-ad-ops, campaign-flag, proof-capture, brief-generator, mjr-generate, mrr-calc, dialog360-send, audit-log · **Agents:** MetaSync, Claude Content, n8n · **Playbooks:** Ads, Proof, Story, Closer
 - **Tables:** campaigns, ad_metrics, assets, briefs, proof_uploads, pulse_metrics, mrr_snapshots, contracts, audit_log · **Storage:** Reels, Proof Uploads, MJRs · **Secrets:** Vault, Row-Level Security
 - **External:** Meta, 360dialog, Anthropic, Cloudflare R2 · **Surfaces:** AA Cockpit, AA Client Portal, AA Upload, AA Studio
 
@@ -196,8 +196,8 @@ Steady-state retainer; ongoing optimisation and reporting. ~25 reels/month, cont
 | aicos-act | INVOKE | Cockpit, Conversations, Operations | Engaged |
 | mjr-generate | INVOKE | Studio | Booked, Delivering |
 | brief-generator | INVOKE | Studio | Active, Delivering |
-| 360dialog-send | INVOKE | Conversations | Contacted, Booked, Delivering |
-| 360dialog-webhook | WEBHOOK | Conversations | Contacted, Engaged |
+| dialog360-send | INVOKE | Conversations | Contacted, Booked, Delivering |
+| dialog360-webhook | WEBHOOK | Conversations | Contacted, Engaged |
 | meta-webhook | WEBHOOK | Conversations, Campaigns | Engaged, Active |
 | meta-ad-ops | INVOKE | Campaigns | Active, Delivering |
 | campaign-flag | CRON | Cockpit, Campaigns, Operations | Active, Delivering |
@@ -213,10 +213,10 @@ Steady-state retainer; ongoing optimisation and reporting. ~25 reels/month, cont
 | Agent | Runtime / cadence | Used by workspaces | Acts in stages |
 |---|---|---|---|
 | Apify Scraper | Apify · daily 03:00 SAST | Cockpit, Pipeline, Operations | Source |
-| OpenClaw (AICOS) | GPT-4.1 mini · event-driven | Cockpit, Pipeline, Conversations, Studio, Operations | Cold, Engaged, Booked |
+| OpenClaw (AICOS) | `gpt-5.4-mini` · event-driven | Cockpit, Pipeline, Conversations, Studio, Operations | Cold, Engaged, Booked |
 | n8n Orchestrator | Docker self-host · cron + event | Cockpit, Operations | Contacted, Onboarding, Delivering |
 | MetaSync | Meta Graph API · hourly | Cockpit, Conversations, Campaigns, Operations | Active, Delivering |
-| Claude Content | Claude Sonnet · on request | Cockpit, Studio, Operations | Booked, Active, Delivering |
+| Claude Content | `claude-sonnet-4-6` · on request | Cockpit, Studio, Operations | Booked, Active, Delivering |
 
 ### External services
 
@@ -261,6 +261,16 @@ Steady-state retainer; ongoing optimisation and reporting. ~25 reels/month, cont
 
 ---
 
+## Reconciliation notes (v1.1 → v1.2, 2026-06-21)
+
+- **Project ref confirmed** — `iwkhdqqgfjtpdhcbpftu` is the live ACTIVE_HEALTHY project. `ayfidvycgqorxmlczyxl` is INACTIVE. Open item closed.
+- **19 tables** — `credential_registry` added (maps credential lookups to vault_name; 8 global rows; RLS enabled).
+- **Function naming** — `360dialog-send` and `360dialog-webhook` renamed to `dialog360-send` and `dialog360-webhook` throughout (live deployed names have the prefix order reversed from the spec).
+- **Agent model strings** — OpenClaw: `gpt-5.4-mini`; Claude Content: `claude-sonnet-4-6`.
+- **Vault convention** — platform credentials use `_GLOBAL_{SERVICE}_{CREDENTIAL_TYPE}` (leading underscore); `GLOBAL_SUPABASE_SERVICE_ROLE_KEY` is the documented exception.
+- **Storage bucket slug** — `proof-uploads` (not `proof`).
+- **New P0 open item** — PayFast ITN: no handler function + vault key registered but not stored. Added as item 3.
+
 ## Reconciliation notes (v1.0 photo-map → v1.1)
 
 - **Pipeline spine** is now the canonical 8 stages (Source → Delivering), replacing the earlier service-funnel stages.
@@ -273,11 +283,12 @@ Steady-state retainer; ongoing optimisation and reporting. ~25 reels/month, cont
 
 ## Open items — flagged, not resolved (do not silently decide)
 
-1. **Supabase project ref** — docs say `ayfidvycgqorxmlczyxl`; prior live work used `iwkhdqqgfjtpdhcbpftu`. Confirm before building; use env vars meanwhile.
-2. **Recurring billing** — only the deposit gate exists; nothing collects the monthly retainer that `mrr-calc` rolls up.
-3. **Backup / DR** — single Supabase project, no documented backup/PITR/disaster-recovery.
-4. **Monitoring** — no proactive agent/function alerting and no "machine is down" runbook; the Operations workspace is the closest thing.
-5. **Cold WhatsApp + POPIA §69** — outreach (SOP 01) carries account-ban and consent risk, not yet mitigated.
+1. **Supabase project ref — RESOLVED.** Confirmed `iwkhdqqgfjtpdhcbpftu` ("Attract") ACTIVE_HEALTHY eu-west-1. `ayfidvycgqorxmlczyxl` ("Attract Acquisition") is INACTIVE — disregard entirely.
+2. **Recurring billing — STILL OPEN.** Only the deposit gate exists; nothing collects the monthly retainer that `mrr-calc` rolls up. Decide mechanism (recurring PayFast vs invoicing) before onboarding first retainer client.
+3. **PayFast ITN handler — STILL OPEN (P0).** No function receives the ITN. `onboarding` is verify_jwt=true so it cannot accept raw PayFast webhooks. Also: `_GLOBAL_PAYFAST_MERCHANT_KEY` registered in `credential_registry` but not yet in `vault.secrets`. Needs a new `payfast-webhook` function (verify_jwt=false, HMAC-SHA1) + vault key populated before any deposit can clear.
+4. **Backup / DR — STILL OPEN.** Single Supabase project; PITR status unverifiable via SQL — must check Supabase dashboard. No recovery runbook documented.
+5. **Monitoring — STILL OPEN.** No proactive agent/function alerting; pg_cron failures log to `audit_log` only. The Operations workspace is the closest thing to monitoring.
+6. **Cold WhatsApp + POPIA §69 — STILL OPEN.** Outreach (SOP 01) carries account-ban and consent risk, not yet mitigated.
 
 ## Brand tokens (confirmed)
 
