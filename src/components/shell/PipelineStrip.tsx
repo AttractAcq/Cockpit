@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { mockApi } from "@/lib/mock";
+import { api } from "@/lib/api";
 import { PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@/types";
 import { ROUTES } from "@/lib/constants";
 
@@ -28,11 +28,20 @@ export function PipelineStrip() {
   const [counts, setCounts] = useState<Record<PipelineStage, number>>(
     {} as Record<PipelineStage, number>
   );
+  const [error, setError] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    mockApi.clients.stageCounts().then(setCounts);
+    api.clients.stageCounts()
+      .then((rows) => {
+        setCounts(rows as Record<PipelineStage, number>);
+        setError(false);
+      })
+      .catch(() => {
+        setCounts({} as Record<PipelineStage, number>);
+        setError(true);
+      });
   }, []);
 
   // Hide on settings (orthogonal to the pipeline)
@@ -63,7 +72,12 @@ export function PipelineStrip() {
                 }`}
               >
                 {count}
-                {meta.hint && (
+                {error && stage === "source" && (
+                  <small className="text-xs text-neg font-sans ml-1.5">
+                    unavailable
+                  </small>
+                )}
+                {!error && meta.hint && (
                   <small className="text-xs text-paper-3 font-sans ml-1.5">
                     {meta.hint}
                   </small>

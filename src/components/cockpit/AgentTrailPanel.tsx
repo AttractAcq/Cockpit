@@ -1,17 +1,10 @@
 import { useNavigate } from "react-router-dom";
-import { Panel } from "@/components/primitives";
-import { mockApi } from "@/lib/mock";
+import { EmptyState, Panel } from "@/components/primitives";
+import { api } from "@/lib/api";
 import { useRealtimeList } from "@/hooks/useRealtime";
 import { ROUTES } from "@/lib/constants";
 import { fmtAgo } from "@/lib/format";
 import type { AgentEvent } from "@/types";
-
-const DEMO: AgentEvent[] = [
-  { id: "d-ae1", action: "drafted", description: "MJR for **Vasco Joinery** — 14 competitors, R84k gap", agent_name: "OpenClaw", status: "needs_review", entity_id: null, entity_name: "Vasco Joinery", resource_kind: "report", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 14).toISOString(), agent_run_id: null },
-  { id: "d-ae2", action: "flagged", description: "Joinery Test 02 — CPA +40% past 48h, needs decision", agent_name: "OpenClaw", status: "needs_review", entity_id: null, entity_name: null, resource_kind: "campaign", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 36).toISOString(), agent_run_id: null },
-  { id: "d-ae3", action: "scored", description: "3 new replies · Mike (0.84), Lindiwe (0.71)", agent_name: "OpenClaw", status: "success", entity_id: null, entity_name: null, resource_kind: "conversation", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 80).toISOString(), agent_run_id: null },
-  { id: "d-ae4", action: "scraped", description: "23 new Google Maps leads · Sea Point joinery cluster", agent_name: "Apify", status: "success", entity_id: null, entity_name: null, resource_kind: "system", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 21).toISOString(), agent_run_id: null },
-];
 
 function renderDescription(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -25,9 +18,9 @@ function renderDescription(text: string) {
 
 export function AgentTrailPanel() {
   const navigate = useNavigate();
-  const { rows: live, loading } = useRealtimeList<AgentEvent>("agent_events", () => mockApi.operations.agentEvents(6));
+  const { rows: live, loading, error } = useRealtimeList<AgentEvent>("agent_events", () => api.operations.agentEvents(6));
 
-  const events = loading ? [] : (live.length > 0 ? live : DEMO).slice(0, 6);
+  const events = loading ? [] : live.slice(0, 6);
 
   return (
     <Panel
@@ -39,6 +32,14 @@ export function AgentTrailPanel() {
         </span>
       }
     >
+      {error && (
+        <div className="px-3 py-3 text-xs text-neg bg-neg-dim border-b border-neg/30">
+          Agent trail read failed: {error}
+        </div>
+      )}
+      {!loading && !error && events.length === 0 && (
+        <EmptyState icon="ops" title="No agent events" body="Live agent activity will appear here." />
+      )}
       <div className="px-3 py-2 flex flex-col gap-2">
         {events.map((evt) => {
           const isRecent = new Date(evt.created_at).getTime() > Date.now() - 1000 * 60 * 30;

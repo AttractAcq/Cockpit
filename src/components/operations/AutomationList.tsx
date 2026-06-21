@@ -1,30 +1,17 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Panel, StatusDot, Icon } from "@/components/primitives";
-import { mockApi } from "@/lib/mock";
+import { Button, EmptyState, Panel, StatusDot, Icon } from "@/components/primitives";
+import { api } from "@/lib/api";
+import { useRealtimeList } from "@/hooks/useRealtime";
 import { ROUTES } from "@/lib/constants";
 import { fmtAgo } from "@/lib/format";
 import type { Automation } from "@/types";
 
-const DEMO: Automation[] = [
-  { id: "d-op1", name: "Outreach sequence · Joinery Wave 03", kind: "outreach_sequence", status: "live", status_pill: "WA + IG", detail: "step 2 of 4", primary_stat_label: "sent", primary_stat_value: "12", secondary_stats: "3 replied · 1 booked", resource_kind: "sequence", resource_id: null, started_at: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(), last_action_at: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-  { id: "d-op2", name: "Meta ad · Joinery Test 02", kind: "ad_campaign", status: "live", status_pill: "live", detail: "6d running · creative B winning", primary_stat_label: "spent", primary_stat_value: "R 348", secondary_stats: "CTR 1.4% · CPA R 207", resource_kind: "campaign", resource_id: null, started_at: new Date(Date.now() - 1000 * 60 * 60 * 144).toISOString(), last_action_at: new Date(Date.now() - 1000 * 60 * 10).toISOString() },
-  { id: "d-op3", name: "Meta ad · Roofing Retarget", kind: "ad_campaign", status: "warn", status_pill: "flagged", detail: "CPA drift +40% · awaiting decision", primary_stat_label: "spent", primary_stat_value: "R 292", secondary_stats: "2 leads · CPL R 146", resource_kind: "campaign", resource_id: null, started_at: new Date(Date.now() - 1000 * 60 * 60 * 120).toISOString(), last_action_at: new Date(Date.now() - 1000 * 60 * 40).toISOString() },
-];
-
 export function AutomationList() {
-  const [items, setItems] = useState<Automation[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
+  const { rows: items, loading, error } = useRealtimeList<Automation>(
+    "automations",
+    api.operations.automations as () => Promise<Automation[]>,
+  );
   const navigate = useNavigate();
-
-  useEffect(() => {
-    mockApi.operations.automations()
-      .then((rows) => {
-        if (rows.length === 0) { setItems(DEMO); setIsDemo(true); }
-        else { setItems(rows as Automation[]); setIsDemo(false); }
-      })
-      .catch(() => { setItems(DEMO); setIsDemo(true); });
-  }, []);
 
   const live = items.filter((i) => i.status === "live").length;
   const warn = items.filter((i) => i.status === "warn").length;
@@ -32,8 +19,24 @@ export function AutomationList() {
   return (
     <Panel
       title="Automations"
-      meta={<span>{live} live{warn ? ` · ${warn} need review` : ""}{isDemo ? " · demo" : ""}</span>}
+      meta={loading ? "loading" : `${live} live${warn ? ` · ${warn} need review` : ""}`}
     >
+      {error && (
+        <div className="px-3 py-2 text-xs text-neg bg-neg-dim border-b border-neg/30">
+          Automations load failed: {error}
+        </div>
+      )}
+
+      {!loading && !error && items.length === 0 && (
+        <div className="px-3 py-8">
+          <EmptyState
+            icon="ops"
+            title="No automations yet"
+            body="Running automations appear here — outreach sequences, Meta ads, and scheduled jobs."
+          />
+        </div>
+      )}
+
       {items.map((item, i) => (
         <div
           key={item.id}

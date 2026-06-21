@@ -1,0 +1,628 @@
+{
+  "name": "AA-OS — 5-Message Cold Outreach Cadence",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [{ "name": "aa-os" }, { "name": "outreach" }],
+  "nodes": [
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000001",
+      "name": "Outreach Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "aa-outreach-cadence-v1",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aa-outreach",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000002",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 260],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true, \"workflow\": \"outreach\", \"entity_id\": \"{{ $json.entity_id }}\" }"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000003",
+      "name": "Set Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [460, 460],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "entity_id",     "value": "={{ $json.entity_id }}",     "type": "string" },
+            { "id": "2", "name": "business_name", "value": "={{ $json.business_name }}", "type": "string" },
+            { "id": "3", "name": "contact_phone", "value": "={{ $json.contact_phone }}", "type": "string" },
+            { "id": "4", "name": "contact_name",  "value": "={{ $json.contact_name }}",  "type": "string" }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000004",
+      "name": "Msg 1 — Initial outreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 460],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/dialog360-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Set Context').item.json.contact_phone }}\",\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"template\": \"cold_outreach_1\",\n  \"params\": { \"business_name\": \"{{ $('Set Context').item.json.business_name }}\" }\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000005",
+      "name": "Log Msg 1 sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [920, 460],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"agent\": \"n8n-outreach\",\n  \"event_type\": \"outreach_msg_1_sent\",\n  \"payload\": { \"template\": \"cold_outreach_1\" },\n  \"status\": \"processed\"\n}"
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000006",
+      "name": "Wait 3 days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1140, 460],
+      "parameters": { "resume": "timeInterval", "unit": "days", "amount": 3 }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000007",
+      "name": "Check reply after Msg 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1360, 460],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?conversation_id=in.(select id from conversations where entity_id='{{ $('Set Context').item.json.entity_id }}')&direction=eq.inbound&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000008",
+      "name": "Replied after Msg 1?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1580, 460],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000009",
+      "name": "Advance to Engaged",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 300],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/entities?id=eq.{{ $('Set Context').item.json.entity_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"stage\": \"engaged\" }"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000010",
+      "name": "Log engaged + End",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2020, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"agent\": \"n8n-outreach\",\n  \"event_type\": \"outreach_reply_received\",\n  \"payload\": { \"advanced_to\": \"engaged\" },\n  \"status\": \"processed\"\n}"
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000011",
+      "name": "Msg 2 — Follow-up 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1800, 560],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/dialog360-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Set Context').item.json.contact_phone }}\",\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"template\": \"cold_followup_1\",\n  \"params\": { \"business_name\": \"{{ $('Set Context').item.json.business_name }}\" }\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000012",
+      "name": "Wait 4 days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2020, 560],
+      "parameters": { "resume": "timeInterval", "unit": "days", "amount": 4 }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000013",
+      "name": "Check reply after Msg 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2240, 560],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?conversation_id=in.(select id from conversations where entity_id='{{ $('Set Context').item.json.entity_id }}')&direction=eq.inbound&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000014",
+      "name": "Replied after Msg 2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2460, 560],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000015",
+      "name": "Msg 3 — Checking in",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2680, 660],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/dialog360-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Set Context').item.json.contact_phone }}\",\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"template\": \"cold_followup_2_checkin\",\n  \"params\": { \"business_name\": \"{{ $('Set Context').item.json.business_name }}\" }\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000016",
+      "name": "Wait 7 days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2900, 660],
+      "parameters": { "resume": "timeInterval", "unit": "days", "amount": 7 }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000017",
+      "name": "Check reply after Msg 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3120, 660],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?conversation_id=in.(select id from conversations where entity_id='{{ $('Set Context').item.json.entity_id }}')&direction=eq.inbound&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000018",
+      "name": "Replied after Msg 3?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3340, 660],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000019",
+      "name": "Msg 4 — Still interested?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3560, 760],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/dialog360-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Set Context').item.json.contact_phone }}\",\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"template\": \"cold_followup_3_still_interested\",\n  \"params\": { \"business_name\": \"{{ $('Set Context').item.json.business_name }}\" }\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000020",
+      "name": "Wait 7 days (2)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3780, 760],
+      "parameters": { "resume": "timeInterval", "unit": "days", "amount": 7 }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000021",
+      "name": "Check reply after Msg 4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4000, 760],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?conversation_id=in.(select id from conversations where entity_id='{{ $('Set Context').item.json.entity_id }}')&direction=eq.inbound&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000022",
+      "name": "Replied after Msg 4?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [4220, 760],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000023",
+      "name": "Msg 5 — Break-up message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4440, 860],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/dialog360-send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Set Context').item.json.contact_phone }}\",\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"template\": \"cold_breakup\",\n  \"params\": { \"business_name\": \"{{ $('Set Context').item.json.business_name }}\" }\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000024",
+      "name": "Wait 3 days (final)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [4660, 860],
+      "parameters": { "resume": "timeInterval", "unit": "days", "amount": 3 }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000025",
+      "name": "Check reply after Msg 5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4880, 860],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?conversation_id=in.(select id from conversations where entity_id='{{ $('Set Context').item.json.entity_id }}')&direction=eq.inbound&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000026",
+      "name": "Replied after Msg 5?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [5100, 860],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000027",
+      "name": "Dead Letter — Exhaust outreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [5320, 980],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/agent_events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"agent\": \"n8n-outreach\",\n  \"event_type\": \"outreach_exhausted\",\n  \"payload\": { \"messages_sent\": 5, \"total_days\": 24, \"result\": \"no_reply\" },\n  \"status\": \"processed\"\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000028",
+      "name": "Dead Letter — Triage item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [5540, 980],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/triage_items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"entity_id\": \"{{ $('Set Context').item.json.entity_id }}\",\n  \"source\": \"n8n\",\n  \"priority\": \"normal\",\n  \"status\": \"open\",\n  \"title\": \"Outreach exhausted — {{ $('Set Context').item.json.business_name }}\",\n  \"detail\": \"5 messages sent over 24 days with no reply. Consider removing from cold pool or revisiting in 60 days.\"\n}"
+      }
+    },
+    {
+      "id": "b2c3d4e5-0001-0001-0001-000000000029",
+      "name": "Dead Letter — Return to Source",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [5760, 980],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/entities?id=eq.{{ $('Set Context').item.json.entity_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"stage\": \"source\" }"
+      }
+    }
+  ],
+  "connections": {
+    "Outreach Webhook": {
+      "main": [[
+        { "node": "Respond OK",   "type": "main", "index": 0 },
+        { "node": "Set Context",  "type": "main", "index": 0 }
+      ]]
+    },
+    "Set Context": {
+      "main": [[ { "node": "Msg 1 — Initial outreach", "type": "main", "index": 0 } ]]
+    },
+    "Msg 1 — Initial outreach": {
+      "main": [[ { "node": "Log Msg 1 sent", "type": "main", "index": 0 } ]]
+    },
+    "Log Msg 1 sent": {
+      "main": [[ { "node": "Wait 3 days", "type": "main", "index": 0 } ]]
+    },
+    "Wait 3 days": {
+      "main": [[ { "node": "Check reply after Msg 1", "type": "main", "index": 0 } ]]
+    },
+    "Check reply after Msg 1": {
+      "main": [[ { "node": "Replied after Msg 1?", "type": "main", "index": 0 } ]]
+    },
+    "Replied after Msg 1?": {
+      "main": [
+        [ { "node": "Advance to Engaged",     "type": "main", "index": 0 } ],
+        [ { "node": "Msg 2 — Follow-up 1",    "type": "main", "index": 0 } ]
+      ]
+    },
+    "Advance to Engaged": {
+      "main": [[ { "node": "Log engaged + End", "type": "main", "index": 0 } ]]
+    },
+    "Msg 2 — Follow-up 1": {
+      "main": [[ { "node": "Wait 4 days", "type": "main", "index": 0 } ]]
+    },
+    "Wait 4 days": {
+      "main": [[ { "node": "Check reply after Msg 2", "type": "main", "index": 0 } ]]
+    },
+    "Check reply after Msg 2": {
+      "main": [[ { "node": "Replied after Msg 2?", "type": "main", "index": 0 } ]]
+    },
+    "Replied after Msg 2?": {
+      "main": [
+        [ { "node": "Advance to Engaged",   "type": "main", "index": 0 } ],
+        [ { "node": "Msg 3 — Checking in",  "type": "main", "index": 0 } ]
+      ]
+    },
+    "Msg 3 — Checking in": {
+      "main": [[ { "node": "Wait 7 days", "type": "main", "index": 0 } ]]
+    },
+    "Wait 7 days": {
+      "main": [[ { "node": "Check reply after Msg 3", "type": "main", "index": 0 } ]]
+    },
+    "Check reply after Msg 3": {
+      "main": [[ { "node": "Replied after Msg 3?", "type": "main", "index": 0 } ]]
+    },
+    "Replied after Msg 3?": {
+      "main": [
+        [ { "node": "Advance to Engaged",         "type": "main", "index": 0 } ],
+        [ { "node": "Msg 4 — Still interested?",  "type": "main", "index": 0 } ]
+      ]
+    },
+    "Msg 4 — Still interested?": {
+      "main": [[ { "node": "Wait 7 days (2)", "type": "main", "index": 0 } ]]
+    },
+    "Wait 7 days (2)": {
+      "main": [[ { "node": "Check reply after Msg 4", "type": "main", "index": 0 } ]]
+    },
+    "Check reply after Msg 4": {
+      "main": [[ { "node": "Replied after Msg 4?", "type": "main", "index": 0 } ]]
+    },
+    "Replied after Msg 4?": {
+      "main": [
+        [ { "node": "Advance to Engaged",       "type": "main", "index": 0 } ],
+        [ { "node": "Msg 5 — Break-up message", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Msg 5 — Break-up message": {
+      "main": [[ { "node": "Wait 3 days (final)", "type": "main", "index": 0 } ]]
+    },
+    "Wait 3 days (final)": {
+      "main": [[ { "node": "Check reply after Msg 5", "type": "main", "index": 0 } ]]
+    },
+    "Check reply after Msg 5": {
+      "main": [[ { "node": "Replied after Msg 5?", "type": "main", "index": 0 } ]]
+    },
+    "Replied after Msg 5?": {
+      "main": [
+        [ { "node": "Advance to Engaged",               "type": "main", "index": 0 } ],
+        [ { "node": "Dead Letter — Exhaust outreach",   "type": "main", "index": 0 } ]
+      ]
+    },
+    "Dead Letter — Exhaust outreach": {
+      "main": [[ { "node": "Dead Letter — Triage item", "type": "main", "index": 0 } ]]
+    },
+    "Dead Letter — Triage item": {
+      "main": [[ { "node": "Dead Letter — Return to Source", "type": "main", "index": 0 } ]]
+    }
+  }
+}

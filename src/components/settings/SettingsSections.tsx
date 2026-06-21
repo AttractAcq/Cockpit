@@ -1,48 +1,20 @@
 import { Avatar, Button, Icon, Panel, StatusDot, Tag } from "@/components/primitives";
 import type { SettingsSection } from "./SettingsNav";
-
-interface IntegrationStatus {
-  name: string;
-  status: "connected" | "idle" | "disconnected";
-  detail: string;
-}
-
-const INTEGRATIONS: IntegrationStatus[] = [
-  {
-    name: "Supabase",
-    status: "connected",
-    detail: "project ayfidvycgqorxmlczyxl · realtime on",
-  },
-  { name: "Meta Business", status: "connected", detail: "2 ad accounts linked" },
-  { name: "360dialog (WhatsApp)", status: "connected", detail: "BSP webhook configured" },
-  { name: "Instagram Graph", status: "connected", detail: "DM read + send enabled" },
-  { name: "n8n", status: "idle", detail: "self-hosted, Docker · idle" },
-  { name: "Apify", status: "connected", detail: "Google Maps scraper scheduled 03:00" },
-  { name: "Anthropic API", status: "connected", detail: "Claude Sonnet 4 default" },
-  { name: "OpenClaw", status: "connected", detail: "GPT-4.1 mini on Telegram transport" },
-];
-
-const TEAM = [
-  { name: "Alex Anderson", role: "admin", email: "alex@attractacquisition.co.za", initials: "AA" },
-  {
-    name: "VA — Distribution",
-    role: "distribution",
-    email: "open seat",
-    initials: "VA",
-  },
-];
+import { useSettingsData, type IntegrationPill, type IntegrationStatus, type TeamMember } from "@/hooks/useSettingsData";
 
 interface SettingsSectionsProps {
   section: SettingsSection;
 }
 
 export function SettingsSections({ section }: SettingsSectionsProps) {
+  const data = useSettingsData();
+
   return (
     <div className="flex-1 overflow-y-auto px-5 py-5 max-w-[820px]">
       {section === "profile" && <ProfileSection />}
-      {section === "team" && <TeamSection />}
+      {section === "team" && <TeamSection data={data} />}
       {section === "brand" && <BrandSection />}
-      {section === "integrations" && <IntegrationsSection />}
+      {section === "integrations" && <IntegrationsSection data={data} />}
       {section === "billing" && <BillingSection />}
       {section === "advanced" && <AdvancedSection />}
     </div>
@@ -81,29 +53,87 @@ function ProfileSection() {
   );
 }
 
-function TeamSection() {
+interface LiveSectionProps {
+  data: ReturnType<typeof useSettingsData>;
+}
+
+function TeamSection({ data }: LiveSectionProps) {
+  if (data.loading) return <SectionLoader />;
+  if (data.error) return <SectionError message={data.error} />;
+
+  const members: TeamMember[] = data.team;
+
   return (
     <div className="flex flex-col gap-5">
-      <SectionTitle title="Team" action={<Button variant="primary" size="sm">Invite member</Button>} />
-      <Panel title="Members" meta={`${TEAM.length} total`}>
-        {TEAM.map((m, i) => (
+      <SectionTitle
+        title="Team"
+        action={<Button variant="primary" size="sm">Invite member</Button>}
+      />
+      <Panel title="Members" meta={`${members.length} total`}>
+        {members.length === 0 ? (
+          <div className="px-4 py-4 text-xs text-paper-3">No team members found.</div>
+        ) : (
+          members.map((m, i) => (
+            <div
+              key={`${m.email}-${i}`}
+              className={`px-4 py-3 flex items-center gap-3 ${
+                i < members.length - 1 ? "border-b border-line" : ""
+              }`}
+            >
+              <Avatar initials={m.initials} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-paper">{m.full_name}</div>
+                <div className="text-xs text-paper-3 font-mono mt-0.5">{m.email}</div>
+              </div>
+              <Tag kind={roleTagKind(m.role)}>{m.role}</Tag>
+              <Button variant="subtle" size="sm">
+                <Icon name="more" size={13} />
+              </Button>
+            </div>
+          ))
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function IntegrationsSection({ data }: LiveSectionProps) {
+  if (data.loading) return <SectionLoader />;
+  if (data.error) return <SectionError message={data.error} />;
+
+  const integrations: IntegrationStatus[] = data.integrations;
+  const connectedCount = integrations.filter((i) => i.pill === "connected").length;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <SectionTitle title="Integrations" />
+      <Panel
+        title="Connected services"
+        meta={`${connectedCount} of ${integrations.length} live · credential_registry`}
+      >
+        {integrations.map((item, idx) => (
           <div
-            key={m.email}
+            key={item.service}
             className={`px-4 py-3 flex items-center gap-3 ${
-              i < TEAM.length - 1 ? "border-b border-line" : ""
+              idx < integrations.length - 1 ? "border-b border-line" : ""
             }`}
           >
-            <Avatar initials={m.initials} size="md" />
+            <StatusDot status={pillDotStatus(item.pill)} />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-paper">{m.name}</div>
-              <div className="text-xs text-paper-3 font-mono mt-0.5">{m.email}</div>
+              <div className="text-sm text-paper">{item.label}</div>
+              <div className="text-2xs text-paper-3 font-mono mt-0.5">{item.detail}</div>
             </div>
-            <Tag kind={m.role === "admin" ? "approve" : "muted"}>{m.role}</Tag>
-            <Button variant="subtle" size="sm">
-              <Icon name="more" size={13} />
-            </Button>
+            <IntegrationPillBadge pill={item.pill} />
           </div>
         ))}
+      </Panel>
+      <Panel title="Credential policy">
+        <div className="px-4 py-3 text-xs text-paper-3 leading-relaxed">
+          Secret values are never rendered here. Names and presence are read from{" "}
+          <span className="font-mono text-paper-2">credential_registry</span>. Actual values
+          live in Supabase Vault or Edge Function env vars and are only accessible
+          server-side.
+        </div>
       </Panel>
     </div>
   );
@@ -134,35 +164,6 @@ function BrandSection() {
           direct, opinionated, mobile-friendly. Always close with the next concrete
           action.
         </div>
-      </Panel>
-    </div>
-  );
-}
-
-function IntegrationsSection() {
-  return (
-    <div className="flex flex-col gap-5">
-      <SectionTitle title="Integrations" />
-      <Panel title="Connected services" meta="8 total · Supabase Vault for credentials">
-        {INTEGRATIONS.map((i, idx) => (
-          <div
-            key={i.name}
-            className={`px-4 py-3 flex items-center gap-3 ${
-              idx < INTEGRATIONS.length - 1 ? "border-b border-line" : ""
-            }`}
-          >
-            <StatusDot
-              status={
-                i.status === "connected" ? "live" : i.status === "idle" ? "idle" : "error"
-              }
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm text-paper">{i.name}</div>
-              <div className="text-2xs text-paper-3 font-mono mt-0.5">{i.detail}</div>
-            </div>
-            <Button variant="subtle" size="sm">Configure</Button>
-          </div>
-        ))}
       </Panel>
     </div>
   );
@@ -206,7 +207,46 @@ function AdvancedSection() {
   );
 }
 
-/* ─────────────────────── helpers ─────────────────────── */
+/* ─────────────────────── pill helpers ─────────────────────── */
+
+function pillDotStatus(pill: IntegrationPill): "live" | "warn" | "error" {
+  if (pill === "connected") return "live";
+  if (pill === "registered") return "warn";
+  return "error";
+}
+
+function IntegrationPillBadge({ pill }: { pill: IntegrationPill }) {
+  if (pill === "connected") return <Tag kind="approve">connected</Tag>;
+  if (pill === "registered") return <Tag kind="decision">registered (no value shown)</Tag>;
+  return <Tag kind="anomaly">BLOCKED — external</Tag>;
+}
+
+function roleTagKind(role: string): import("@/components/primitives").TagKind {
+  if (role === "admin") return "approve";
+  if (role === "client") return "muted";
+  return "task";
+}
+
+/* ─────────────────────── loading / error states ─────────────────────── */
+
+function SectionLoader() {
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="h-8 w-32 rounded bg-ink-100 animate-pulse" />
+      <div className="h-40 rounded-lg bg-ink-100 animate-pulse" />
+    </div>
+  );
+}
+
+function SectionError({ message }: { message: string }) {
+  return (
+    <div className="px-4 py-4 text-xs text-neg font-mono">
+      Error: {message}
+    </div>
+  );
+}
+
+/* ─────────────────────── shared helpers ─────────────────────── */
 
 function SectionTitle({ title, action }: { title: string; action?: React.ReactNode }) {
   return (

@@ -16,9 +16,9 @@ import { CommandBar } from "./CommandBar";
  */
 export function AppShell() {
   return (
-    <div className="grid grid-cols-[56px_1fr] h-screen overflow-hidden bg-ink">
+    <div className="grid grid-cols-[56px_1fr] h-dvh overflow-hidden bg-ink">
       <LeftRail />
-      <main className="flex flex-col min-w-0 bg-ink">
+      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-ink">
         <TopBar />
         <PipelineStrip />
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

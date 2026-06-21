@@ -30,8 +30,8 @@ export interface Entity {
   icp_fit_score: number | null;  // 0-100 ICP match
   agent_score: number | null;    // 0-1 OpenClaw hotness (may not exist in DB)
 
-  // Source
-  source: "apify_maps" | "referral" | "inbound_dm" | "ad_lead" | "manual" | string | null;
+  // Legacy/demo-only; not present on the canonical entities table.
+  source?: "apify_maps" | "referral" | "inbound_dm" | "ad_lead" | "manual" | string | null;
 
   // Denormalized inbox previews (may not exist in all DB rows)
   last_channel: Channel | null;

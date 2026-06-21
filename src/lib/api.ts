@@ -11,6 +11,7 @@
 //   campaigns    : daily_budget_cents/100→budget_daily + spend/perf defaults
 //   automations  : status/last_run_at → Automation shape
 import { supabase, invokeFn } from "./supabase";
+import type { PulseMetric } from "@/types";
 
 // Helper: normalise entity_name from Supabase FK join
 function entityName(row: Record<string, unknown>): string | null {
@@ -26,6 +27,27 @@ function priorityNum(p: string | null | undefined): number {
   // Legacy: already a number baked in as string
   const n = parseInt(String(p ?? ""), 10);
   return isNaN(n) ? 50 : n;
+}
+
+function metric(
+  key: string,
+  label: string,
+  value: number,
+  displayValue: string,
+  trendIsGood = true,
+): PulseMetric {
+  return {
+    key,
+    label,
+    value,
+    display_value: displayValue,
+    delta_value: 0,
+    delta_display: "live",
+    delta_label: "now",
+    trend: "flat",
+    trend_is_good: trendIsGood,
+    sparkline: [value],
+  };
 }
 
 export const api = {
@@ -111,7 +133,7 @@ export const api = {
     async byStage() {
       const { data, error } = await supabase
         .from("entities")
-        .select("id, business_name, kind, stage, niche, city, icp_fit_score, contact_name, contact_phone, contact_email, source, created_at, updated_at, notes");
+        .select("id, business_name, kind, stage, niche, city, icp_fit_score, contact_name, contact_phone, contact_email, created_at, updated_at, notes");
       if (error) { console.error("[api] entities.byStage:", error.message); throw error; }
       // Map DB cols to Entity shape; add nullable fields absent from byStage select
       return (data ?? []).map((row) => ({
@@ -130,6 +152,16 @@ export const api = {
     async advanceStage(id: string, stage: string) {
       const { error } = await supabase.from("entities").update({ stage }).eq("id", id);
       if (error) { console.error("[api] entities.advanceStage:", error.message); throw error; }
+    },
+    async update(id: string, patch: Record<string, unknown>) {
+      const { data, error } = await supabase
+        .from("entities")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (error) { console.error("[api] entities.update:", error.message); throw error; }
+      return data;
     },
   },
 
@@ -361,7 +393,38 @@ export const api = {
         .from("pulse_metrics").select("*")
         .order("metric_date", { ascending: false }).limit(200);
       if (error) { console.error("[api] pulse.metrics:", error.message); throw error; }
-      return data ?? [];
+      if ((data ?? []).length > 0) {
+        const latestByKey = new Map<string, NonNullable<typeof data>[number]>();
+        for (const row of data ?? []) {
+          const key = String(row.metric_key ?? "metric");
+          if (!latestByKey.has(key)) latestByKey.set(key, row);
+        }
+
+        return Array.from(latestByKey.values()).slice(0, 4).map((row) => {
+          const value = Number(row.metric_value ?? 0);
+          const label = String(row.metric_key ?? "metric").replace(/_/g, " ");
+          return metric(String(row.metric_key), label, value, value.toLocaleString());
+        });
+      }
+
+      const [
+        { count: prospects },
+        { count: clients },
+        { count: openTriage },
+        { count: activeCampaigns },
+      ] = await Promise.all([
+        supabase.from("entities").select("id", { count: "exact", head: true }).eq("kind", "prospect"),
+        supabase.from("entities").select("id", { count: "exact", head: true }).eq("kind", "client"),
+        supabase.from("triage_items").select("id", { count: "exact", head: true }).eq("status", "open"),
+        supabase.from("campaigns").select("id", { count: "exact", head: true }).in("status", ["active", "live", "running"]),
+      ]);
+
+      return [
+        metric("prospects", "Prospects", prospects ?? 0, String(prospects ?? 0)),
+        metric("clients", "Clients", clients ?? 0, String(clients ?? 0)),
+        metric("triage", "Open triage", openTriage ?? 0, String(openTriage ?? 0), false),
+        metric("campaigns", "Campaigns", activeCampaigns ?? 0, String(activeCampaigns ?? 0)),
+      ];
     },
   },
   money: {

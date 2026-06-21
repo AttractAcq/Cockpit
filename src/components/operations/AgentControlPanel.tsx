@@ -1,26 +1,21 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Panel } from "@/components/primitives";
-import { mockApi } from "@/lib/mock";
+import { Button, EmptyState, Panel } from "@/components/primitives";
+import { api } from "@/lib/api";
+import { useRealtimeList } from "@/hooks/useRealtime";
 import { ROUTES } from "@/lib/constants";
 import { fmtAgo } from "@/lib/format";
 import type { AgentEvent } from "@/types";
 
 const AGENTS = [
-  { id: "apify", name: "Apify", description: "Google Maps scraper · nightly SAST 03:00", status: "idle" as const },
-  { id: "openclaw", name: "OpenClaw", description: "Scoring, MJR drafting, CPA flagging", status: "live" as const },
-  { id: "n8n", name: "n8n", description: "Workflow automation · outreach sequences", status: "live" as const },
-  { id: "metasync", name: "MetaSync", description: "Meta Ads sync · creative + spend pull", status: "live" as const },
-  { id: "claude_content", name: "Claude Content", description: "Brief generation · ad copy · captions", status: "idle" as const },
+  { id: "apify",         eventName: "Apify",         name: "Apify",         description: "Google Maps scraper · nightly SAST 03:00" },
+  { id: "openclaw",      eventName: "OpenClaw",       name: "OpenClaw",      description: "Scoring, MJR drafting, CPA flagging" },
+  { id: "n8n",           eventName: "n8n",            name: "n8n",           description: "Workflow automation · outreach sequences" },
+  { id: "metasync",      eventName: "MetaSync",       name: "MetaSync",      description: "Meta Ads sync · creative + spend pull" },
+  { id: "claude_content",eventName: "Claude Content", name: "Claude Content",description: "Brief generation · ad copy · captions" },
 ];
 
-const DEMO_EVENTS: AgentEvent[] = [
-  { id: "d-e1", action: "drafted", description: "MJR for **Vasco Joinery** — 14 competitors, R84k gap", agent_name: "OpenClaw", status: "needs_review", entity_id: null, entity_name: "Vasco Joinery", resource_kind: "report", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 14).toISOString(), agent_run_id: null },
-  { id: "d-e2", action: "flagged", description: "Joinery Test 02 — CPA +40% over 48h", agent_name: "OpenClaw", status: "needs_review", entity_id: null, entity_name: null, resource_kind: "campaign", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 36).toISOString(), agent_run_id: null },
-  { id: "d-e3", action: "scored", description: "3 new replies · Mike (0.84), Lindiwe (0.71), Themba (0.43)", agent_name: "OpenClaw", status: "success", entity_id: null, entity_name: null, resource_kind: "conversation", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 80).toISOString(), agent_run_id: null },
-  { id: "d-e4", action: "sent", description: "Step 2 · Joinery Wave 03 to 12 prospects via WhatsApp", agent_name: "n8n", status: "success", entity_id: null, entity_name: null, resource_kind: "system", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 110).toISOString(), agent_run_id: null },
-  { id: "d-e5", action: "scraped", description: "23 new Google Maps leads · Sea Point joinery cluster", agent_name: "Apify", status: "success", entity_id: null, entity_name: null, resource_kind: "system", resource_id: null, created_at: new Date(Date.now() - 1000 * 60 * 60 * 21).toISOString(), agent_run_id: null },
-];
+const CUTOFF_24H = () => Date.now() - 24 * 60 * 60 * 1000;
 
 function renderDescription(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -33,27 +28,32 @@ function renderDescription(text: string) {
 }
 
 export function AgentControlPanel() {
-  const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
+  const { rows: events, loading: eventsLoading, error: eventsError } = useRealtimeList<AgentEvent>(
+    "agent_events",
+    () => api.agentEvents.list(100) as Promise<AgentEvent[]>,
+  );
+
+  const [scrapeConfirm, setScrapeConfirm] = useState(false);
   const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState<{ kind: "done" | "error"; text: string } | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    mockApi.operations.agentEvents()
-      .then((rows) => {
-        if (rows.length === 0) { setEvents(DEMO_EVENTS); setIsDemo(true); }
-        else { setEvents(rows as AgentEvent[]); setIsDemo(false); }
-      })
-      .catch(() => { setEvents(DEMO_EVENTS); setIsDemo(true); });
-  }, []);
+  // Derive live status from events in the last 24h
+  function agentIsLive(eventName: string): boolean {
+    return events.some(
+      (e) => e.agent_name === eventName && new Date(e.created_at).getTime() > CUTOFF_24H(),
+    );
+  }
 
   async function handleRunScrape() {
     setScraping(true);
+    setScrapeMsg(null);
     try {
-      await mockApi.operations.runScrape();
-      alert("Scrape job triggered — new entities will appear in Pipeline as they arrive.");
+      await api.operations.runScrape();
+      setScrapeMsg({ kind: "done", text: "Scrape triggered — new entities will appear in Pipeline as they arrive." });
+      setScrapeConfirm(false);
     } catch (e) {
-      alert("Scrape failed: " + String(e));
+      setScrapeMsg({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
       setScraping(false);
     }
@@ -62,33 +62,85 @@ export function AgentControlPanel() {
   return (
     <div className="flex flex-col gap-3.5">
       {/* Agent status grid */}
-      <Panel title="Agents" meta="5 configured">
+      <Panel title="Agents" meta={`${AGENTS.length} configured`}>
         <div className="px-3 py-2 grid grid-cols-1 gap-0">
-          {AGENTS.map((agent, i) => (
-            <div
-              key={agent.id}
-              className={`py-2.5 flex items-center gap-3 ${i < AGENTS.length - 1 ? "border-b border-line" : ""}`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                agent.status === "live" ? "bg-teal shadow-teal-glow animate-pulse-dot" : "bg-ink-50 border border-line"
-              }`} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-paper font-medium">{agent.name}</div>
-                <div className="text-xs text-paper-3 font-mono">{agent.description}</div>
+          {AGENTS.map((agent, i) => {
+            const live = agentIsLive(agent.eventName);
+            return (
+              <div
+                key={agent.id}
+                className={`py-2.5 flex items-center gap-3 ${i < AGENTS.length - 1 ? "border-b border-line" : ""}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  live ? "bg-teal shadow-teal-glow animate-pulse-dot" : "bg-ink-50 border border-line"
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-paper font-medium">{agent.name}</div>
+                  <div className="text-xs text-paper-3 font-mono">{agent.description}</div>
+                </div>
+                <span className={`font-mono text-[9px] uppercase tracking-cap px-1.5 py-px rounded-[3px] ${
+                  live ? "text-teal border border-[rgba(0,229,195,0.3)]" : "text-paper-3 border border-line"
+                }`}>
+                  {live ? "live" : "idle"}
+                </span>
+
+                {agent.id === "apify" && !scrapeConfirm && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => { setScrapeConfirm(true); setScrapeMsg(null); }}
+                    disabled={scraping}
+                  >
+                    Run now
+                  </Button>
+                )}
               </div>
-              <span className={`font-mono text-[9px] uppercase tracking-cap px-1.5 py-px rounded-[3px] ${
-                agent.status === "live" ? "text-teal border border-[rgba(0,229,195,0.3)]" : "text-paper-3 border border-line"
-              }`}>
-                {agent.status}
-              </span>
-              {agent.id === "apify" && (
-                <Button variant="secondary" size="sm" onClick={handleRunScrape} disabled={scraping}>
-                  {scraping ? "Running…" : "Run now"}
-                </Button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {/* Inline scrape confirmation panel */}
+        {scrapeConfirm && (
+          <div className="mx-3 mb-3 bg-warn-dim border border-warn/30 rounded-lg px-3 py-3 flex flex-col gap-2.5">
+            <div className="text-xs text-warn font-medium">
+              This launches a real Apify scrape and may incur cost. Continue?
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleRunScrape}
+                disabled={scraping}
+                className={scraping ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                {scraping ? "Launching…" : "Yes, run scrape"}
+              </Button>
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => { setScrapeConfirm(false); setScrapeMsg(null); }}
+                disabled={scraping}
+              >
+                Cancel
+              </Button>
+            </div>
+            {scrapeMsg && (
+              <div className={`text-xs font-mono ${scrapeMsg.kind === "done" ? "text-teal" : "text-neg"}`}>
+                {scrapeMsg.kind === "done" ? "✓" : "✗"} {scrapeMsg.text}
+              </div>
+            )}
+          </div>
+        )}
+
+        {scrapeMsg && !scrapeConfirm && (
+          <div className={`mx-3 mb-3 px-3 py-2 rounded-lg text-xs font-mono ${
+            scrapeMsg.kind === "done"
+              ? "bg-teal-dim border border-[rgba(0,229,195,0.25)] text-teal"
+              : "bg-neg-dim border border-neg/30 text-neg"
+          }`}>
+            {scrapeMsg.kind === "done" ? "✓" : "✗"} {scrapeMsg.text}
+          </div>
+        )}
       </Panel>
 
       {/* Agent trail */}
@@ -97,7 +149,7 @@ export function AgentControlPanel() {
         meta={
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 bg-teal rounded-full shadow-teal-glow animate-pulse-dot" />
-            live{isDemo ? " · demo" : ""}
+            live
           </span>
         }
       >
@@ -111,6 +163,22 @@ export function AgentControlPanel() {
             <Button variant="subtle" size="sm">Pause agent</Button>
           </div>
         </div>
+
+        {eventsError && (
+          <div className="px-3 py-2 text-xs text-neg bg-neg-dim border-b border-neg/30">
+            Trail load failed: {eventsError}
+          </div>
+        )}
+
+        {!eventsLoading && !eventsError && events.length === 0 && (
+          <div className="px-3 py-6">
+            <EmptyState
+              icon="ops"
+              title="No agent activity yet"
+              body="Events from OpenClaw, Apify, n8n, and other agents will appear here."
+            />
+          </div>
+        )}
 
         <div className="px-3 py-3 flex flex-col gap-2.5">
           {events.map((evt) => (
