@@ -91,6 +91,23 @@ export const fmtPhoneMasked = (phone: string): string => {
   return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ••• ${digits.slice(-4)}`;
 };
 
+/** Human-readable relative time — "2m ago", "3h ago", "yesterday" */
+export const fmtRelative = (iso: string): string => {
+  const then = new Date(iso).getTime();
+  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (diffSec < 60)  return "just now";
+  const m = Math.floor(diffSec / 60);
+  if (m < 60)        return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)        return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d === 1)       return "yesterday";
+  if (d < 7)         return `${d}d ago`;
+  const w = Math.floor(d / 7);
+  if (w < 5)         return `${w}w ago`;
+  return `${Math.floor(d / 30)}mo ago`;
+};
+
 /** "2.4 MB", "640 KB" */
 export const fmtBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;

@@ -457,3 +457,272 @@ export const api = {
 };
 
 export type Api = typeof api;
+
+// ── V1 CLIENT API (new schema) ────────────────────────────────────────────────
+// These functions target the v1 `clients` table and related views.
+
+import type { Client, CreateClientPayload, ClientHealth, ActivityLogEntry, ReviewState } from "@/types/client";
+
+export async function fetchClients(): Promise<Client[]> {
+  const { data, error } = await supabase.from("clients").select("*").order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchClientHealth(): Promise<ClientHealth[]> {
+  const { data, error } = await supabase
+    .from("client_health_v")
+    .select("*")
+    .order("health_score", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchClient(id: string): Promise<Client | null> {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function createClient(payload: CreateClientPayload): Promise<Client> {
+  const { data, error } = await supabase
+    .from("clients")
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateClient(id: string, updates: Partial<Client>): Promise<Client> {
+  const { data, error } = await supabase
+    .from("clients")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export function generateSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
+}
+
+export async function fetchActivityLog(opts?: {
+  clientId?: string;
+  limit?: number;
+}): Promise<ActivityLogEntry[]> {
+  let query = supabase
+    .from("activity_log")
+    .select("*, clients(name, slug), users(full_name, email)")
+    .order("created_at", { ascending: false })
+    .limit(opts?.limit ?? 100);
+  if (opts?.clientId) query = query.eq("client_id", opts.clientId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ActivityLogEntry[];
+}
+
+// ── PHASE 1 / 2 STUB API ─────────────────────────────────────────────────────
+
+import type {
+  ClientInputs, ClientContextFile, ClientExecutionFile,
+  OrganicMasterRow, StoryMasterRow, AdsMasterRow, ProofMasterRow,
+  AssetBriefRow, CalendarCellRow,
+  Phase1Result, Phase2Result,
+} from "@/types/phase";
+
+export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
+  const { data, error } = await supabase
+    .from("client_inputs")
+    .select("*")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as ClientInputs | null;
+}
+
+export async function upsertClientInputs(
+  clientId: string,
+  patch: Partial<Omit<ClientInputs, "id" | "client_id" | "created_at" | "updated_at">>
+): Promise<ClientInputs> {
+  const { data, error } = await supabase
+    .from("client_inputs")
+    .upsert(
+      { client_id: clientId, ...patch, updated_at: new Date().toISOString() },
+      { onConflict: "client_id" }
+    )
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ClientInputs;
+}
+
+export async function logActivity(
+  clientId: string | null,
+  eventType: string,
+  message: string,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  const { error } = await supabase.from("activity_log").insert({
+    client_id: clientId,
+    event_type: eventType,
+    plain_english_message: message,
+    metadata,
+  });
+  if (error) console.error("[logActivity]", error.message);
+}
+
+export async function runPhase1(clientId: string): Promise<Phase1Result> {
+  try {
+    return await invokeFn<Phase1Result>("generate-phase-1", { client_id: clientId });
+  } catch (e) {
+    const msg = `Failed to invoke generate-phase-1: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_1_error", msg).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingInputs: [], error: String(e) };
+  }
+}
+
+export async function fetchClientContextFiles(clientId: string): Promise<ClientContextFile[]> {
+  const { data, error } = await supabase
+    .from("client_context_files")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("file_number");
+  if (error) throw error;
+  return (data ?? []) as ClientContextFile[];
+}
+
+export async function runPhase2(clientId: string, executionMonth: string): Promise<Phase2Result> {
+  try {
+    return await invokeFn<Phase2Result>("generate-phase-2", { client_id: clientId, execution_month: executionMonth });
+  } catch (e) {
+    const msg = `Failed to invoke generate-phase-2: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_2_error", msg).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function fetchClientExecutionFiles(
+  clientId: string,
+  month: string
+): Promise<ClientExecutionFile[]> {
+  const { data, error } = await supabase
+    .from("client_execution_files")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("month", month)
+    .order("file_number");
+  if (error) throw error;
+  return (data ?? []) as ClientExecutionFile[];
+}
+
+export async function fetchOrganicMasterRows(
+  clientId: string,
+  month: string
+): Promise<OrganicMasterRow[]> {
+  const { data, error } = await supabase
+    .from("organic_master")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("month", month)
+    .order("ref");
+  if (error) throw error;
+  return (data ?? []) as OrganicMasterRow[];
+}
+
+export async function fetchStoryMasterRows(
+  clientId: string,
+  month: string
+): Promise<StoryMasterRow[]> {
+  const { data, error } = await supabase
+    .from("story_master")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("month", month)
+    .order("ref");
+  if (error) throw error;
+  return (data ?? []) as StoryMasterRow[];
+}
+
+export async function fetchAdsMasterRows(
+  clientId: string,
+  month: string
+): Promise<AdsMasterRow[]> {
+  const { data, error } = await supabase
+    .from("ads_master")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("month", month)
+    .order("ref");
+  if (error) throw error;
+  return (data ?? []) as AdsMasterRow[];
+}
+
+export async function fetchProofMasterRows(
+  clientId: string,
+  month?: string
+): Promise<ProofMasterRow[]> {
+  let q = supabase.from("proof_master").select("*").eq("client_id", clientId);
+  if (month) q = q.eq("month", month);
+  const { data, error } = await q.order("ref");
+  if (error) throw error;
+  return (data ?? []) as ProofMasterRow[];
+}
+
+export async function fetchAssetBriefRows(
+  clientId: string,
+  month: string
+): Promise<AssetBriefRow[]> {
+  const { data, error } = await supabase
+    .from("asset_brief_index")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("execution_month", month)
+    .order("brief_id");
+  if (error) throw error;
+  return (data ?? []) as AssetBriefRow[];
+}
+
+export async function fetchCalendarCells(
+  clientId: string,
+  month: string
+): Promise<CalendarCellRow[]> {
+  const { data, error } = await supabase
+    .from("calendar_cells")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("month", month)
+    .order("date");
+  if (error) throw error;
+  return (data ?? []) as CalendarCellRow[];
+}
+
+const REVIEW_TABLES = [
+  "organic_master",
+  "story_master",
+  "ads_master",
+  "proof_master",
+  "asset_brief_index",
+  "calendar_cells",
+] as const;
+export type ReviewTable = (typeof REVIEW_TABLES)[number];
+
+export async function updateReviewState(
+  tableName: ReviewTable,
+  rowId: string,
+  reviewState: ReviewState
+): Promise<void> {
+  // asset_brief_index stores review state in `status`, not `review_state`
+  const column = tableName === "asset_brief_index" ? "status" : "review_state";
+  const { error } = await supabase
+    .from(tableName)
+    .update({ [column]: reviewState, updated_at: new Date().toISOString() })
+    .eq("id", rowId);
+  if (error) throw error;
+}

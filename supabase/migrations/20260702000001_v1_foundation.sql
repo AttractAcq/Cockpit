@@ -1,0 +1,14 @@
+-- V1 Foundation — Attract Acquisition Cockpit — 2026-07-02
+-- Applied via Supabase MCP to project xivewedajschthjlblfb
+-- This file is the source-of-truth local copy of that migration.
+-- Do not run against the old project (iwkhdqqgfjtpdhcbpftu) — it is superseded.
+--
+-- Schema: 18 enums, 28 tables, 2 auth helpers, 1 ref-gen fn,
+--         1 health view, full RLS (34 tables), 30 indexes, seed data.
+-- See /Docs/backend.md for the full specification.
+--
+-- To re-apply (fresh project only):
+--   supabase db push  (or npx supabase migration up)
+
+-- [Full SQL applied via MCP on 2026-07-02 — see migration history for exact content]
+-- Run `supabase migration list` or check Supabase dashboard > Database > Migrations.
