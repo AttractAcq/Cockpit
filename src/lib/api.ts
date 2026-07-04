@@ -588,6 +588,32 @@ export async function runPhase1(clientId: string): Promise<Phase1Result> {
   }
 }
 
+export async function generatePhase1File(
+  clientId: string,
+  fileNumber: number
+): Promise<Phase1Result> {
+  try {
+    return await invokeFn<Phase1Result>("generate-phase-1-file", {
+      client_id: clientId,
+      file_number: fileNumber,
+    });
+  } catch (e) {
+    const msg = `Failed to invoke generate-phase-1-file (file ${fileNumber}): ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_1_file_error", msg, { file_number: fileNumber }).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingInputs: [], error: String(e) };
+  }
+}
+
+export async function finalizePhase1(clientId: string): Promise<Phase1Result> {
+  try {
+    return await invokeFn<Phase1Result>("finalize-phase-1", { client_id: clientId });
+  } catch (e) {
+    const msg = `Failed to invoke finalize-phase-1: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_1_error", msg).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingInputs: [], error: String(e) };
+  }
+}
+
 export async function fetchClientContextFiles(clientId: string): Promise<ClientContextFile[]> {
   const { data, error } = await supabase
     .from("client_context_files")

@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Icon, EmptyState } from "@/components/primitives";
 import { Button } from "@/components/primitives";
-import { fetchClient, runPhase1, runPhase2 } from "@/lib/api";
+import { fetchClient, runPhase1, generatePhase1File, finalizePhase1, runPhase2 } from "@/lib/api";
 import type { Client } from "@/types/client";
 import type { Phase1Result, Phase2Result } from "@/types/phase";
+import { CONTEXT_FILE_DEFS } from "@/types/phase";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
@@ -130,7 +131,10 @@ type PhaseResult =
   | null;
 
 function modeColour(mode: string): string {
-  if (mode === "contract_ready" || mode === "generated") return "teal";
+  if (
+    mode === "contract_ready" || mode === "generated" || mode === "started" ||
+    mode === "generation_started" || mode === "file_generated"
+  ) return "teal";
   if (mode === "blocked") return "warn";
   return "neg";
 }
@@ -138,6 +142,8 @@ function modeColour(mode: string): string {
 function modeLabel(mode: string): string {
   if (mode === "contract_ready") return "contract ready — no AI generation yet";
   if (mode === "generated") return "generated";
+  if (mode === "generation_started") return "generation prepared — files generate sequentially";
+  if (mode === "file_generated") return "file generated";
   if (mode === "blocked") return "blocked";
   if (mode === "error") return "error";
   return mode;
@@ -209,6 +215,7 @@ export function ClientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [phase1Running, setPhase1Running] = useState(false);
+  const [phase1Progress, setPhase1Progress] = useState<{ current: number; total: number } | null>(null);
   const [phase2Running, setPhase2Running] = useState(false);
   const [phaseResult, setPhaseResult] = useState<PhaseResult>(null);
   const [contextFilesKey, setContextFilesKey] = useState(0);
@@ -249,11 +256,53 @@ export function ClientDetailPage() {
     if (!id) return;
     setPhase1Running(true);
     setPhaseResult(null);
+    setPhase1Progress(null);
+
     try {
-      const result = await runPhase1(id);
-      setPhaseResult({ kind: "phase1", result });
-      setContextFilesKey((k) => k + 1);
+      // 1. Prepare — validates inputs and the AI gate, returns the file list.
+      const prep = await runPhase1(id);
+
+      if (prep.mode !== "generation_started") {
+        // blocked / contract_ready / error — show and stop.
+        setPhaseResult({ kind: "phase1", result: prep });
+        return;
+      }
+
+      const files =
+        (prep.data?.files as Array<{ file_number: number; file_name: string }> | undefined) ??
+        CONTEXT_FILE_DEFS.map((d) => ({ file_number: d.number, file_name: d.file_name }));
+      const total = files.length;
+
+      // 2. Generate sequentially — one edge invocation per file. Sequential
+      //    keeps each call inside the edge-function time limit and avoids
+      //    Anthropic rate pressure.
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        setPhase1Progress({ current: i + 1, total });
+        const res = await generatePhase1File(id, f.file_number);
+        if (!res.ok) {
+          setPhaseResult({
+            kind: "phase1",
+            result: {
+              ...res,
+              message: `Phase 1 stopped at file ${i + 1} of ${total} (${f.file_name}): ${res.message}`,
+            },
+          });
+          return;
+        }
+        setContextFilesKey((k) => k + 1);
+      }
+
+      // 3. Finalize — sets stage1_status = complete only if all 21 exist.
+      const fin = await finalizePhase1(id);
+      setPhaseResult({ kind: "phase1", result: fin });
+      if (fin.ok && fin.mode === "generated") {
+        setContextFilesKey((k) => k + 1);
+        const refreshed = await fetchClient(id).catch(() => null);
+        if (refreshed) setClient(refreshed);
+      }
     } finally {
+      setPhase1Progress(null);
       setPhase1Running(false);
     }
   }
@@ -360,7 +409,11 @@ export function ClientDetailPage() {
               }
               onClick={handleRunPhase1}
             >
-              {phase1Running ? "Running…" : "Run Phase 1"}
+              {phase1Running
+                ? phase1Progress
+                  ? `Generating ${phase1Progress.current}/${phase1Progress.total}…`
+                  : "Running…"
+                : "Run Phase 1"}
             </Button>
             <Button
               variant="primary"
@@ -377,6 +430,19 @@ export function ClientDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Phase 1 sequential generation progress */}
+      {phase1Progress && (
+        <div className="mx-4 mt-3 px-4 py-3 rounded-[10px] border bg-teal/5 border-teal/20 text-xs flex items-center gap-3">
+          <span className="font-mono text-2xs text-teal shrink-0">PHASE 1</span>
+          <span className="flex-1 text-paper">
+            Generating Phase 1 file {phase1Progress.current} of {phase1Progress.total}…
+          </span>
+          <span className="font-mono text-2xs text-paper-3 shrink-0">
+            {Math.round(((phase1Progress.current - 1) / phase1Progress.total) * 100)}%
+          </span>
+        </div>
+      )}
 
       {/* Phase result banner */}
       {phaseResult && (

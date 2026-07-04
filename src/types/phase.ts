@@ -153,7 +153,15 @@ export interface CalendarCellRow {
   updated_at: string;
 }
 
-export type PhaseMode = "stub" | "contract_ready" | "blocked" | "generated" | "error";
+export type PhaseMode =
+  | "stub"
+  | "contract_ready"
+  | "blocked"
+  | "generated"
+  | "started"
+  | "generation_started"
+  | "file_generated"
+  | "error";
 
 export interface Phase1Result {
   ok: boolean;

@@ -1,18 +1,25 @@
 // generate-phase-1 — Attract Acquisition Cockpit
 //
-// Real final behaviour: client_inputs → 21 Client Context OS files in client_context_files.
+// PREPARATION ONLY. Validates the client and inputs, verifies the AI gate and
+// Anthropic key, logs phase_1_generation_started, and returns the 21 canonical
+// file definitions for the frontend to generate sequentially via
+// generate-phase-1-file. It does NOT call Anthropic and does NOT write context
+// files. finalize-phase-1 sets stage1_status = complete after all 21 exist.
 //
-// Batch C safe behaviour: full server-side contract, deterministic validation, and write
-// envelope. AI generation requires AA_AI_GENERATION_ENABLED=true (NOT set by default).
-// When disabled, the function returns mode: "contract_ready" and writes nothing.
+// Split design rationale: Supabase edge functions enforce a hard ~150s
+// wall-clock limit per invocation. Generating all 21 files in one model call
+// exceeds it; one file per invocation completes well inside it.
+//
+// When AA_AI_GENERATION_ENABLED is absent/false: returns mode "contract_ready"
+// (no writes, no AI call).
 //
 // Core law: never fabricate context, proof, strategy, or client facts.
-// If AI is disabled or inputs are insufficient, fail safely — never create placeholder
-// content that could be mistaken for real generated output.
 
 import { svc, json, cors } from "../_shared/aa.ts";
+import { isAiEnabled, hasAnthropicKey } from "../_shared/anthropic.ts";
 
-// Must stay in sync with CONTEXT_FILE_DEFS in src/types/phase.ts
+// Must stay in sync with CONTEXT_FILE_DEFS in src/types/phase.ts and
+// generate-phase-1-file/index.ts
 const CONTEXT_FILE_DEFS = [
   { number: 0,  file_name: "00_Master_Client_Context.md",                 title: "Master Client Context" },
   { number: 1,  file_name: "01_Business_Context.md",                      title: "Business Context" },
@@ -38,8 +45,6 @@ const CONTEXT_FILE_DEFS = [
 ] as const;
 
 // The three fields whose absence hard-blocks Phase 1 generation.
-// W4: The AI function reads ALL client_inputs fields when present;
-// only these three gate the contract_ready check.
 const REQUIRED_FIELDS: Array<{ field: string; label: string }> = [
   { field: "business_description", label: "Business Overview" },
   { field: "offer_details",        label: "Offer / Services" },
@@ -64,7 +69,9 @@ async function writeActivity(
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method !== "POST") return json({ ok: false, mode: "error", message: "POST only", warnings: [], missingInputs: [] }, 405);
+  if (req.method !== "POST") {
+    return json({ ok: false, mode: "error", message: "POST only", warnings: [], missingInputs: [] }, 405);
+  }
 
   try {
     const body = await req.json() as { client_id?: string };
@@ -78,24 +85,35 @@ Deno.serve(async (req: Request) => {
     // 1. Validate client exists
     const { data: client, error: clientErr } = await sb
       .from("clients")
-      .select("id, name, stage1_status")
+      .select("id, name, package_tier, stage1_status")
       .eq("id", clientId)
       .maybeSingle();
+
     if (clientErr || !client) {
-      return json({ ok: false, mode: "error", client_id: clientId, message: "Client not found.", warnings: [], missingInputs: [], error: clientErr?.message ?? "not found" }, 404);
+      return json({
+        ok: false, mode: "error", client_id: clientId,
+        message: "Client not found.",
+        warnings: [], missingInputs: [], error: clientErr?.message ?? "not found",
+      }, 404);
     }
 
     await writeActivity(sb, clientId, "phase_1_requested", `Phase 1 requested for "${client.name}".`);
 
-    // 2. Load client_inputs (read all fields — W4)
+    // 2. Load client_inputs
     const { data: inputs, error: inputsErr } = await sb
       .from("client_inputs")
       .select("*")
       .eq("client_id", clientId)
       .maybeSingle();
+
     if (inputsErr) {
-      await writeActivity(sb, clientId, "phase_1_error", `Phase 1 error loading client inputs: ${inputsErr.message}`);
-      return json({ ok: false, mode: "error", client_id: clientId, message: "Failed to load client inputs.", warnings: [], missingInputs: [], error: inputsErr.message }, 500);
+      await writeActivity(sb, clientId, "phase_1_error",
+        `Phase 1 error loading client inputs: ${inputsErr.message}`);
+      return json({
+        ok: false, mode: "error", client_id: clientId,
+        message: "Failed to load client inputs.",
+        warnings: [], missingInputs: [], error: inputsErr.message,
+      }, 500);
     }
 
     // 3. Determine required input completeness
@@ -112,25 +130,17 @@ Deno.serve(async (req: Request) => {
       const msg = `Phase 1 blocked: required inputs missing (${missingInputs.join(", ")}). Complete the Context Inputs section first.`;
       await writeActivity(sb, clientId, "phase_1_blocked_missing_inputs", msg, { missing_inputs: missingInputs });
       return json({
-        ok: false,
-        mode: "blocked",
-        client_id: clientId,
-        message: msg,
-        warnings: [],
-        missingInputs,
+        ok: false, mode: "blocked", client_id: clientId,
+        message: msg, warnings: [], missingInputs,
       });
     }
 
-    // 5. Check AI generation flag
-    const aiEnabled = (Deno.env.get("AA_AI_GENERATION_ENABLED") ?? "false").toLowerCase() === "true";
-
-    if (!aiEnabled) {
-      const msg = "Phase 1 server contract is ready. Required inputs are present. AI generation is not enabled in this build — set AA_AI_GENERATION_ENABLED=true and implement the AI generation path to produce the 21 context files.";
+    // 5. Check AI generation gate
+    if (!isAiEnabled()) {
+      const msg = "Phase 1 server contract is ready. Required inputs are present. AI generation is not enabled in this build — set AA_AI_GENERATION_ENABLED=true and ANTHROPIC_API_KEY to produce the 21 context files.";
       await writeActivity(sb, clientId, "phase_1_contract_ready", msg);
       return json({
-        ok: true,
-        mode: "contract_ready",
-        client_id: clientId,
+        ok: true, mode: "contract_ready", client_id: clientId,
         message: msg,
         warnings: [
           "AA_AI_GENERATION_ENABLED is not true. No context files have been created.",
@@ -146,33 +156,44 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // 6. AI generation path — TODO: implement in Batch D+
-    //
-    // When AA_AI_GENERATION_ENABLED=true:
-    //   a. Load Stage 0 authority files from storage bucket.
-    //   b. Assemble prompt: client_inputs (all fields) + authority context.
-    //   c. For each of the 21 files:
-    //      - Call AI model (via ANTHROPIC_API_KEY or OPENAI_API_KEY).
-    //      - Validate: no ZAR pricing, no fabricated proof, no deprecated offers.
-    //      - Upsert to client_context_files with status = "needs_review".
-    //      - If input data is clearly missing for a file, set status = "needs_client_input".
-    //   d. Update clients.stage1_status = "complete" ONLY after all 21 files upserted.
-    //   e. Log phase_1_generated with file count and gap count.
-    //
-    // PROOF HONESTY RULE: the AI must mark any claim it cannot substantiate from
-    // real client_inputs as "Missing / Not Yet Proven / Needs Client Input".
-    // Never invent testimonials, results, or proof.
-    await writeActivity(sb, clientId, "phase_1_error", "Phase 1 AI generation path reached but not yet implemented (Batch D+).");
+    // 6. Check API key — fail closed
+    if (!hasAnthropicKey()) {
+      const msg = "AA_AI_GENERATION_ENABLED is true but ANTHROPIC_API_KEY is not set. Cannot generate context files. Add the secret to the function environment.";
+      await writeActivity(sb, clientId, "phase_1_error", msg);
+      return json({
+        ok: false, mode: "error", client_id: clientId,
+        message: msg, warnings: [], missingInputs: [],
+        error: "ANTHROPIC_API_KEY missing",
+      }, 500);
+    }
+
+    // 7. Preparation complete — hand off to sequential per-file generation.
+    //    stage1_status is intentionally left unchanged here: the frontend
+    //    orchestrates the 21 generate-phase-1-file calls, and finalize-phase-1
+    //    sets `complete`. Leaving it out of "running" keeps a mid-run failure
+    //    recoverable (the Run Phase 1 button stays enabled for a retry).
+    await writeActivity(sb, clientId, "phase_1_generation_started",
+      `Phase 1 generation prepared for "${client.name}". ${CONTEXT_FILE_DEFS.length} files will be generated sequentially.`,
+      { total_files: CONTEXT_FILE_DEFS.length });
+
     return json({
-      ok: false,
-      mode: "error",
+      ok: true,
+      mode: "generation_started",
       client_id: clientId,
-      message: "AI generation is enabled but the generation path is not yet implemented. Implement generate-phase-1 AI logic in Batch D+.",
-      warnings: ["AI generation path requires Batch D+ implementation."],
+      message: "Phase 1 generation prepared. Generate files sequentially.",
+      warnings: [],
       missingInputs: [],
-    }, 501);
+      data: {
+        total_files: CONTEXT_FILE_DEFS.length,
+        files: CONTEXT_FILE_DEFS.map((d) => ({ file_number: d.number, file_name: d.file_name })),
+      },
+    });
 
   } catch (e) {
-    return json({ ok: false, mode: "error", message: `Unexpected server error: ${String(e)}`, warnings: [], missingInputs: [], error: String(e) }, 500);
+    return json({
+      ok: false, mode: "error",
+      message: `Unexpected server error: ${String(e)}`,
+      warnings: [], missingInputs: [], error: String(e),
+    }, 500);
   }
 });
