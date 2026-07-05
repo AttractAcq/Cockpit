@@ -228,6 +228,30 @@ export type Phase3Section =
 export type MasterTable = "organic_master" | "story_master" | "ads_master";
 export type MasterRow = OrganicMasterRow | StoryMasterRow | AdsMasterRow;
 
+export type AssetFormat = "ad_static" | "reel_video" | "story_sequence" | "carousel" | "feed_post";
+export type ProductionMode = "human" | "ai";
+export type ProductionStatus = "brief" | "assigned_human" | "ai_ready" | "producing" | "produced" | "failed";
+
+export interface ProductionBriefRow {
+  id: string;
+  client_id: string;
+  execution_month: string;
+  source_table: MasterTable;
+  source_row_id: string;
+  source_ref: string;
+  asset_format: AssetFormat;
+  title: string;
+  content_md: string;
+  status: ReviewState;
+  production_mode: ProductionMode | null;
+  production_status: ProductionStatus;
+  version: number;
+  generated_by_function: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Phase1Result {
   ok: boolean;
   mode: PhaseMode;

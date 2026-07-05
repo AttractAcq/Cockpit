@@ -15,6 +15,7 @@ import { MastersPanel } from "@/components/client/MastersPanel";
 import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
 import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
 import { SopsLawsPanel } from "@/components/client/SopsLawsPanel";
+import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -27,6 +28,7 @@ type Section =
   | "overview"
   | "pipeline"
   | "masters"
+  | "content_creation"
   | "automations"
   | "assets"
   | "analytics"
@@ -41,6 +43,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Execution Files",  section: "execution_files" },
   { label: "Masters",          section: "masters" },
   { label: "Calendar",         section: "calendar" },
+  { label: "Content Creation", section: "content_creation" },
   { label: "Automations",      section: "automations" },
   { label: "Assets",           section: "assets" },
   { label: "Analytics",        section: "analytics" },
@@ -592,6 +595,8 @@ export function ClientDetailPage() {
         return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
         return <Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+      case "content_creation":
+        return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (

@@ -561,7 +561,7 @@ import type {
   OrganicMasterRow, StoryMasterRow, AdsMasterRow, ProofMasterRow,
   AssetBriefRow, CalendarCellRow,
   Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section,
-  MasterRow, MasterTable,
+  MasterRow, MasterTable, ProductionBriefRow,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -933,12 +933,42 @@ export async function updateMasterRow(
   row: MasterRow,
   patch: Record<string, string | null>,
 ): Promise<MasterRow> {
+  const updatedAt = new Date().toISOString();
+  if (row.review_state === "approved") {
+    const { error: calendarError } = await supabase.from("calendar_cells").update({
+      review_state: "needs_review",
+      updated_at: updatedAt,
+    }).eq("client_id", row.client_id).eq("month", row.month).eq("ref", row.ref);
+    if (calendarError) throw calendarError;
+  }
   const { data, error } = await supabase.from(table).update({
     ...patch,
     review_state: row.review_state === "approved" ? "needs_review" : row.review_state,
-    updated_at: new Date().toISOString(),
+    updated_at: updatedAt,
   }).eq("id", row.id).eq("client_id", row.client_id).select("*").single();
+  if (error) {
+    if (row.review_state === "approved") await supabase.from("calendar_cells").update({ review_state: "approved", updated_at: row.updated_at })
+      .eq("client_id", row.client_id).eq("month", row.month).eq("ref", row.ref);
+    throw error;
+  }
+  return data as MasterRow;
+}
+
+export async function updateMasterReviewState(
+  table: MasterTable,
+  row: MasterRow,
+  reviewState: ReviewState,
+): Promise<MasterRow> {
+  const updatedAt = new Date().toISOString();
+  const { data, error } = await supabase.from(table).update({ review_state: reviewState, updated_at: updatedAt })
+    .eq("id", row.id).eq("client_id", row.client_id).select("*").single();
   if (error) throw error;
+  const { error: calendarError } = await supabase.from("calendar_cells").update({ review_state: reviewState, updated_at: updatedAt })
+    .eq("client_id", row.client_id).eq("month", row.month).eq("ref", row.ref);
+  if (calendarError) {
+    await supabase.from(table).update({ review_state: row.review_state, updated_at: row.updated_at }).eq("id", row.id).eq("client_id", row.client_id);
+    throw calendarError;
+  }
   return data as MasterRow;
 }
 
@@ -947,6 +977,65 @@ export async function fetchMasterRowByRef(clientId: string, ref: string): Promis
   const { data, error } = await supabase.from(table).select("*").eq("client_id", clientId).eq("ref", ref).maybeSingle();
   if (error) throw error;
   return data ? { table, row: data as MasterRow } : null;
+}
+
+export interface GenerateProductionBriefInput {
+  clientId: string;
+  executionMonth: string;
+  sourceTable: MasterTable;
+  sourceRowId: string;
+  sourceRef: string;
+}
+
+export async function generateProductionBrief(input: GenerateProductionBriefInput): Promise<ProductionBriefRow> {
+  const result = await invokeFn<{ ok: boolean; brief?: ProductionBriefRow; message?: string }>("generate-production-brief", {
+    client_id: input.clientId,
+    execution_month: input.executionMonth,
+    source_table: input.sourceTable,
+    source_row_id: input.sourceRowId,
+    source_ref: input.sourceRef,
+  });
+  if (!result.ok || !result.brief) throw new Error(result.message ?? "generate-production-brief returned no brief.");
+  return result.brief;
+}
+
+export async function fetchProductionBriefs(clientId: string, executionMonth: string): Promise<ProductionBriefRow[]> {
+  const { data, error } = await supabase.from("client_production_briefs").select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProductionBriefRow[];
+}
+
+export async function fetchProductionBrief(briefId: string): Promise<ProductionBriefRow> {
+  const { data, error } = await supabase.from("client_production_briefs").select("*").eq("id", briefId).single();
+  if (error) throw error;
+  return data as ProductionBriefRow;
+}
+
+export async function fetchProductionBriefBySourceRef(clientId: string, executionMonth: string, sourceRef: string): Promise<ProductionBriefRow | null> {
+  const { data, error } = await supabase.from("client_production_briefs").select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).eq("source_ref", sourceRef).maybeSingle();
+  if (error) throw error;
+  return data as ProductionBriefRow | null;
+}
+
+export async function updateProductionBrief(brief: ProductionBriefRow, contentMd: string): Promise<ProductionBriefRow> {
+  const { data, error } = await supabase.from("client_production_briefs").update({
+    content_md: contentMd,
+    status: brief.status === "approved" ? "needs_review" : brief.status,
+    production_status: "brief",
+    version: brief.version + 1,
+    updated_at: new Date().toISOString(),
+  }).eq("id", brief.id).eq("client_id", brief.client_id).select("*").single();
+  if (error) throw error;
+  return data as ProductionBriefRow;
+}
+
+export async function updateProductionBriefReviewState(briefId: string, status: ReviewState): Promise<ProductionBriefRow> {
+  const { data, error } = await supabase.from("client_production_briefs").update({ status, updated_at: new Date().toISOString() })
+    .eq("id", briefId).select("*").single();
+  if (error) throw error;
+  return data as ProductionBriefRow;
 }
 
 const REVIEW_TABLES = [
