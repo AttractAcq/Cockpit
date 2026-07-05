@@ -135,7 +135,45 @@ async function writeActivity(
 }
 
 function str(v: unknown): string {
-  return v && typeof v === "string" && v.trim().length > 0 ? v.trim() : "[NOT PROVIDED]";
+  if (!v || typeof v !== "string" || v.trim().length === 0) return "[NOT PROVIDED]";
+  return v.trim()
+    .replace(/Proof Brand Lite/gi, "[deprecated legacy offer removed]")
+    .replace(/Proof Engine Buildout/gi, "[deprecated legacy offer removed]")
+    .replace(/Authority Brand/gi, "[deprecated legacy offer removed]")
+    .replace(/\bZAR\b/gi, "South African Rand")
+    .replace(/\bR\d{1,3}(?:,\d{3})+\b/g, "[legacy South African Rand amount removed]")
+    .replace(/\bR\d{4,}\b/g, "[legacy South African Rand amount removed]");
+}
+
+function failure(
+  status: number,
+  stage: string,
+  error: string,
+  options: {
+    clientId?: string;
+    def?: typeof CONTEXT_FILE_DEFS[number];
+    details?: string;
+    warnings?: string[];
+    missingInputs?: string[];
+    data?: Record<string, unknown>;
+  } = {},
+): Response {
+  const file = options.def?.file_name ?? null;
+  return json({
+    ok: false,
+    mode: "error",
+    function: "generate-phase-1-file",
+    file,
+    file_number: options.def?.number ?? null,
+    client_id: options.clientId,
+    stage,
+    error,
+    details: options.details,
+    message: file ? `generate-phase-1-file failed for ${file}: ${error}` : error,
+    warnings: options.warnings ?? [],
+    missingInputs: options.missingInputs ?? [],
+    data: options.data,
+  }, status);
 }
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
@@ -192,9 +230,9 @@ ACTIVE OFFER TIERS (reference only these three):
 COMMERCIAL AUTHORITY: Europe / EUR. Never mention ZAR pricing or South African Rand amounts.
 This applies EVEN WHEN STATING PROHIBITIONS: never reproduce the literal currency code "ZAR" or Rand-formatted amounts (e.g. R7,500) anywhere in the content — describe them instead ("South African Rand pricing"). Output containing those literal tokens is rejected automatically.
 
-DEPRECATED — never present as active:
-  - Proof Brand Lite
-  - Proof Engine Buildout
+DEPRECATED COMMERCIAL MATERIAL:
+  - Never name or reproduce deprecated legacy offers, even to describe them as deprecated.
+  - Never name or reproduce previously used package labels outside the three active tiers above.
 
 PRIVATE INTERNAL TOOLS — never present as client-facing:
   - Proof Leak Scorecard
@@ -340,7 +378,7 @@ const ZAR_PATTERNS: RegExp[] = [
   /\bR\d{4,}\b/,
 ];
 
-const DEPRECATED_OFFERS = ["Proof Brand Lite", "Proof Engine Buildout"];
+const DISALLOWED_OFFERS = ["Proof Brand Lite", "Proof Engine Buildout", "Authority Brand"];
 
 const FAKE_CONTENT_PATTERNS: RegExp[] = [
   /lorem ipsum/i,
@@ -393,9 +431,10 @@ function validateFile(
 
   // Deprecated offers
   const lc = content.toLowerCase();
-  for (const offer of DEPRECATED_OFFERS) {
+  for (const offer of DISALLOWED_OFFERS) {
     if (lc.includes(offer.toLowerCase())) {
-      warnings.push(`${tag} mentions "${offer}" — confirm it is not presented as an active offer.`);
+      errors.push(`${tag} contains disallowed legacy offer text. Use only the active Proof Sprint / Proof Brand / Proof Brand Scale ladder.`);
+      break;
     }
   }
 
@@ -415,7 +454,7 @@ function validateFile(
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") {
-    return json({ ok: false, mode: "error", message: "POST only", warnings: [], missingInputs: [] }, 405);
+    return failure(405, "validate_request", "POST only");
   }
 
   try {
@@ -424,15 +463,15 @@ Deno.serve(async (req: Request) => {
     const fileNumber = body?.file_number;
 
     if (!clientId || typeof clientId !== "string") {
-      return json({ ok: false, mode: "error", message: "client_id required", warnings: [], missingInputs: [] }, 400);
+      return failure(400, "validate_request", "client_id required");
     }
     if (typeof fileNumber !== "number" || !Number.isInteger(fileNumber) || fileNumber < 0 || fileNumber > 20) {
-      return json({ ok: false, mode: "error", client_id: clientId, message: "file_number must be an integer 0–20.", warnings: [], missingInputs: [] }, 400);
+      return failure(400, "validate_request", "file_number must be an integer 0–20.", { clientId });
     }
 
     const def = CONTEXT_FILE_DEFS.find((d) => d.number === fileNumber);
     if (!def) {
-      return json({ ok: false, mode: "error", client_id: clientId, message: `No canonical file definition for file_number ${fileNumber}.`, warnings: [], missingInputs: [] }, 400);
+      return failure(400, "resolve_manifest_file", `No canonical file definition for file_number ${fileNumber}.`, { clientId });
     }
 
     const sb = svc();
@@ -445,11 +484,9 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (clientErr || !client) {
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: "Client not found.",
-        warnings: [], missingInputs: [], error: clientErr?.message ?? "not found",
-      }, 404);
+      return failure(404, "load_client", "Client not found.", {
+        clientId, def, details: clientErr?.message ?? "No matching clients row.",
+      });
     }
 
     // 2. Load client_inputs
@@ -460,11 +497,9 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (inputsErr) {
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: "Failed to load client inputs.",
-        warnings: [], missingInputs: [], error: inputsErr.message,
-      }, 500);
+      return failure(500, "load_client_inputs", "Failed to load client inputs.", {
+        clientId, def, details: inputsErr.message,
+      });
     }
 
     // 3. Required inputs must still be present
@@ -476,41 +511,43 @@ Deno.serve(async (req: Request) => {
       }
     }
     if (missingInputs.length > 0) {
-      return json({
-        ok: false, mode: "blocked", client_id: clientId,
-        message: `File generation blocked: required inputs missing (${missingInputs.join(", ")}).`,
-        warnings: [], missingInputs,
+      return failure(400, "validate_client_inputs", `Required inputs missing (${missingInputs.join(", ")}).`, {
+        clientId, def, missingInputs,
       });
     }
 
     // 4. AI gate — fail closed
     if (!isAiEnabled()) {
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: "AA_AI_GENERATION_ENABLED is not true. Cannot generate.",
-        warnings: [], missingInputs: [], error: "AI generation disabled",
-      }, 500);
+      return failure(500, "validate_ai_configuration", "AI generation is disabled.", {
+        clientId, def, details: "AA_AI_GENERATION_ENABLED is not true.",
+      });
     }
     if (!hasAnthropicKey()) {
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: "ANTHROPIC_API_KEY is not set. Cannot generate.",
-        warnings: [], missingInputs: [], error: "ANTHROPIC_API_KEY missing",
-      }, 500);
+      return failure(500, "validate_ai_configuration", "AI provider configuration is incomplete.", {
+        clientId, def, details: "Required server-side provider secret is missing.",
+      });
     }
+
+    const systemPrompt = buildSystemPrompt(def);
+    const userMessage = buildUserMessage(
+      client as unknown as ClientRecord,
+      (inputs ?? {}) as unknown as ClientInputsRow,
+      def,
+    );
 
     await writeActivity(sb, clientId, "phase_1_file_generation_started",
       `Generating Phase 1 file ${def.file_name} for "${client.name}".`,
-      { file_number: def.number, file_name: def.file_name });
+      {
+        file_number: def.number,
+        file_name: def.file_name,
+        system_prompt_chars: systemPrompt.length,
+        client_input_chars: userMessage.length,
+      });
 
     // 5. One model call for one file — comfortably inside the 150s cap
     const aiResult = await callAnthropic({
-      system: buildSystemPrompt(def),
-      user: buildUserMessage(
-        client as unknown as ClientRecord,
-        (inputs ?? {}) as unknown as ClientInputsRow,
-        def,
-      ),
+      system: systemPrompt,
+      user: userMessage,
       model: Deno.env.get("AA_AI_MODEL") ?? "claude-opus-4-8",
       maxTokens: 3000,
       timeoutMs: 120_000,
@@ -520,23 +557,38 @@ Deno.serve(async (req: Request) => {
       await writeActivity(sb, clientId, "phase_1_file_error",
         `Phase 1 file ${def.file_name} AI call failed: ${aiResult.error}`,
         { file_number: def.number, error: aiResult.error });
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: `AI call failed for ${def.file_name}: ${aiResult.error}`,
-        warnings: [], missingInputs: [], error: aiResult.error,
-      }, 500);
+      return failure(aiResult.error.includes("timed out") ? 504 : 502, "call_ai_provider", "AI provider call failed.", {
+        clientId, def, details: aiResult.error,
+      });
     }
 
-    const parsed = extractJson(aiResult.text);
+    let parsed = extractJson(aiResult.text);
     if (!parsed) {
-      await writeActivity(sb, clientId, "phase_1_file_error",
-        `Phase 1 file ${def.file_name} failed: model did not return valid JSON.`,
-        { file_number: def.number, error: "JSON parse failure" });
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: `Model did not return valid JSON for ${def.file_name}.`,
-        warnings: [], missingInputs: [], error: "JSON parse failure",
-      }, 500);
+      await writeActivity(sb, clientId, "phase_1_file_format_retry",
+        `Phase 1 file ${def.file_name} returned invalid JSON. Retrying once with stricter formatting.`,
+        { file_number: def.number, response_chars: aiResult.text.length });
+
+      const retryResult = await callAnthropic({
+        system: `${systemPrompt}\n\nFORMAT RETRY: The previous response was not parseable JSON. Return a single compact JSON object. Escape every newline inside string values as \\n. Do not use markdown fences or text outside the object.`,
+        user: userMessage,
+        model: Deno.env.get("AA_AI_MODEL") ?? "claude-opus-4-8",
+        maxTokens: 3000,
+        timeoutMs: 120_000,
+      });
+      if (!retryResult.ok) {
+        return failure(retryResult.error.includes("timed out") ? 504 : 502, "retry_ai_provider", "AI provider format retry failed.", {
+          clientId, def, details: retryResult.error,
+        });
+      }
+      parsed = extractJson(retryResult.text);
+      if (!parsed) {
+        await writeActivity(sb, clientId, "phase_1_file_error",
+          `Phase 1 file ${def.file_name} failed: model did not return valid JSON after one retry.`,
+          { file_number: def.number, error: "JSON parse failure after retry", response_chars: retryResult.text.length });
+        return failure(502, "parse_ai_response", "AI provider returned invalid JSON after one format retry.", {
+          clientId, def, details: "No file was written. Retry the file generation.",
+        });
+      }
     }
 
     const validation = validateFile(parsed, def);
@@ -544,13 +596,13 @@ Deno.serve(async (req: Request) => {
       await writeActivity(sb, clientId, "phase_1_file_validation_failed",
         `Phase 1 file ${def.file_name} failed validation: ${validation.errors.slice(0, 3).join("; ")}`,
         { file_number: def.number, validation_errors: validation.errors });
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: `Validation failed for ${def.file_name}. The file was not written.`,
-        warnings: validation.warnings, missingInputs: [],
-        error: "Validation failed",
-        data: { file_number: def.number, validation_errors: validation.errors },
-      }, 422);
+      return failure(422, "validate_generated_file", "Generated file failed validation. No file was written.", {
+        clientId,
+        def,
+        details: validation.errors.slice(0, 3).join("; "),
+        warnings: validation.warnings,
+        data: { validation_errors: validation.errors },
+      });
     }
 
     // 6. Upsert exactly one row — canonical name/number from the definition,
@@ -573,11 +625,9 @@ Deno.serve(async (req: Request) => {
       await writeActivity(sb, clientId, "phase_1_file_error",
         `Phase 1 file ${def.file_name} DB write failed: ${upsertErr.message}`,
         { file_number: def.number, error: upsertErr.message });
-      return json({
-        ok: false, mode: "error", client_id: clientId,
-        message: `DB write failed for ${def.file_name}: ${upsertErr.message}`,
-        warnings: [], missingInputs: [], error: upsertErr.message,
-      }, 500);
+      return failure(500, "write_context_file", "Database write failed.", {
+        clientId, def, details: [upsertErr.message, upsertErr.code, upsertErr.details].filter(Boolean).join(" · "),
+      });
     }
 
     const allWarnings = [...validation.warnings, ...(parsed.warnings ?? [])];
@@ -611,10 +661,6 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (e) {
-    return json({
-      ok: false, mode: "error",
-      message: `Unexpected server error: ${String(e)}`,
-      warnings: [], missingInputs: [], error: String(e),
-    }, 500);
+    return failure(500, "unexpected", "Unexpected server error.", { details: String(e) });
   }
 });

@@ -1,0 +1,167 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/primitives";
+import {
+  fetchAdsMasterRows,
+  fetchOrganicMasterRows,
+  fetchStoryMasterRows,
+  logActivity,
+  updateMasterRow,
+  updateReviewState,
+} from "@/lib/api";
+import type { MasterRow, MasterTable } from "@/types/phase";
+import type { ReviewState } from "@/types/client";
+
+const TABLE_LABEL: Record<MasterTable, string> = {
+  organic_master: "Organic",
+  story_master: "Story",
+  ads_master: "Ad",
+};
+
+const STATE_STYLE: Record<ReviewState, string> = {
+  needs_review: "border-warn/20 bg-warn/10 text-warn",
+  approved: "border-teal/20 bg-teal/10 text-teal",
+  rejected: "border-neg/20 bg-neg/10 text-neg",
+  archived: "border-line bg-ink text-paper-3",
+};
+
+const PROTECTED = new Set(["id", "client_id", "month", "ref", "review_state", "status", "created_at", "updated_at", "format_proven", "days"]);
+const HIDDEN = new Set(["id", "client_id"]);
+
+function errorText(error: unknown): string {
+  if (error && typeof error === "object") {
+    const value = error as { message?: string; code?: string; details?: string; hint?: string };
+    return [value.message, value.code && `Code: ${value.code}`, value.details, value.hint].filter(Boolean).join(" · ");
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function StateBadge({ state }: { state: ReviewState }) {
+  return <span className={`rounded border px-1.5 py-0.5 text-2xs font-mono ${STATE_STYLE[state]}`}>{state.replaceAll("_", " ")}</span>;
+}
+
+function titleFor(row: MasterRow): string {
+  if ("working_title" in row) return row.working_title ?? row.content_type;
+  if ("story_theme" in row) return row.story_theme ?? row.story_type ?? row.ref;
+  return row.stint_name ?? row.ref;
+}
+
+function valueText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
+}
+
+export function MasterContentModal({ table, initialRow, onClose, onUpdated }: {
+  table: MasterTable;
+  initialRow: MasterRow;
+  onClose: () => void;
+  onUpdated?: (table: MasterTable, row: MasterRow) => void;
+}) {
+  const [row, setRow] = useState(initialRow);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(initialRow).filter(([key, value]) => !PROTECTED.has(key) && (typeof value === "string" || value === null)).map(([key, value]) => [key, value ?? ""])));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ error: boolean; message: string } | null>(null);
+  const editableEntries = Object.entries(row).filter(([key, value]) => !PROTECTED.has(key) && (typeof value === "string" || value === null));
+  const dirty = editableEntries.some(([key, value]) => draft[key] !== (value ?? ""));
+
+  function accept(next: MasterRow) {
+    setRow(next);
+    setDraft(Object.fromEntries(Object.entries(next).filter(([key, value]) => !PROTECTED.has(key) && (typeof value === "string" || value === null)).map(([key, value]) => [key, value ?? ""])));
+    onUpdated?.(table, next);
+  }
+
+  function close() {
+    if (dirty && !window.confirm("Discard unsaved master-row changes?")) return;
+    onClose();
+  }
+
+  function reset() {
+    setDraft(Object.fromEntries(editableEntries.map(([key, value]) => [key, value ?? ""])));
+  }
+
+  async function save() {
+    const patch = Object.fromEntries(editableEntries.filter(([key, value]) => draft[key] !== (value ?? "")).map(([key]) => [key, draft[key].trim() || null]));
+    if (Object.keys(patch).length === 0) return;
+    setBusy("save"); setNotice(null);
+    try {
+      const next = await updateMasterRow(table, row, patch);
+      accept(next); setEditing(false);
+      setNotice({ error: false, message: `Changes saved.${row.review_state === "approved" ? " Review reset to needs_review." : ""}` });
+      void logActivity(row.client_id, "master_row_saved", `${row.ref} edited in ${table}.`, { table, row_id: row.id, fields: Object.keys(patch) });
+    } catch (error) { setNotice({ error: true, message: errorText(error) }); }
+    finally { setBusy(null); }
+  }
+
+  async function approve() {
+    if (dirty || !window.confirm("Approve this Phase 3 master row?")) return;
+    setBusy("approve"); setNotice(null);
+    try {
+      await updateReviewState(table, row.id, "approved");
+      const next = { ...row, review_state: "approved", updated_at: new Date().toISOString() } as MasterRow;
+      accept(next);
+      setNotice({ error: false, message: "Master row approved." });
+      void logActivity(row.client_id, "master_row_approved", `${row.ref} approved in ${table}.`, { table, row_id: row.id });
+    } catch (error) { setNotice({ error: true, message: errorText(error) }); }
+    finally { setBusy(null); }
+  }
+
+  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center" onClick={close}>
+    <div className="flex h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:h-[88vh] sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
+      <header className="shrink-0 border-b border-line px-5 py-4"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">{row.ref}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{TABLE_LABEL[table]}</span><StateBadge state={row.review_state} /></div><h2 className="mt-2 break-words text-base font-medium text-paper">{titleFor(row)}</h2></div><button className="text-paper-3 hover:text-paper" onClick={close}>✕</button></div></header>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2.5"><Button size="sm" variant={editing ? "secondary" : "subtle"} onClick={() => setEditing((value) => !value)}>{editing ? "View Details" : "Edit"}</Button>{editing && <><Button size="sm" variant="ghost" disabled={!dirty || busy !== null} onClick={reset}>Reset Changes</Button><Button size="sm" variant="primary" disabled={!dirty || busy !== null} onClick={() => void save()}>{busy === "save" ? "Saving…" : "Save Changes"}</Button></>}{row.review_state === "needs_review" && <Button size="sm" variant="secondary" disabled={dirty || busy !== null} onClick={() => void approve()}>{busy === "approve" ? "Approving…" : "Approve Review"}</Button>}<span className="ml-auto text-2xs font-mono text-paper-3">Updated {new Date(row.updated_at).toLocaleString()}</span></div>
+      {notice && <div role={notice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
+      <div className="min-h-0 flex-1 overflow-y-auto p-5"><div className="grid min-w-0 gap-3 md:grid-cols-2">{Object.entries(row).filter(([key]) => !HIDDEN.has(key)).map(([key, value]) => {
+        const canEdit = editing && !PROTECTED.has(key) && (typeof value === "string" || value === null);
+        const long = canEdit && (draft[key]?.length > 100 || ["notes", "caption_script", "core_message", "storyboard_outline", "production_brief"].includes(key));
+        return <div key={key} className={`min-w-0 rounded-lg border border-line bg-ink p-3 ${["caption_script", "core_message", "storyboard_outline", "notes", "frame_1", "frame_2", "frame_3"].includes(key) ? "md:col-span-2" : ""}`}><label className="mb-1.5 block text-2xs font-mono uppercase tracking-wide text-paper-3">{key.replaceAll("_", " ")}</label>{canEdit ? long ? <textarea className="min-h-28 w-full resize-y rounded border border-line bg-ink-200 p-2 text-xs leading-5 text-paper outline-none focus:border-teal/50" value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} /> : <input className="w-full rounded border border-line bg-ink-200 px-2 py-1.5 text-xs text-paper outline-none focus:border-teal/50" value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} /> : <div className="whitespace-pre-wrap break-words text-xs leading-5 text-paper-2">{valueText(value)}</div>}</div>;
+      })}</div></div>
+    </div>
+  </div>;
+}
+
+function MasterCard({ table, row, onOpen, updating, onApprove }: { table: MasterTable; row: MasterRow; onOpen: () => void; updating: boolean; onApprove: () => void }) {
+  const hook = "hook" in row ? row.hook : "hook_angle" in row ? row.hook_angle : row.frame_1;
+  const type = "content_type" in row ? row.content_type : "story_type" in row ? row.story_type : row.lane;
+  return <div className="min-w-0 border-b border-line px-4 py-3.5 last:border-b-0"><div className="flex flex-col gap-2 sm:flex-row sm:items-start"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">{row.ref}</span><span className="text-2xs font-mono text-paper-3">{type ?? "—"}</span><StateBadge state={row.review_state} /></div><h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{titleFor(row)}</h3>{hook && <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-paper-3">{hook}</p>}</div><div className="flex shrink-0 gap-2"><Button size="sm" variant="ghost" onClick={onOpen}>View</Button>{row.review_state === "needs_review" && <Button size="sm" variant="subtle" disabled={updating} onClick={onApprove}>Approve</Button>}</div></div></div>;
+}
+
+export function MastersPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
+  const [rows, setRows] = useState<Array<{ table: MasterTable; row: MasterRow }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [open, setOpen] = useState<{ table: MasterTable; row: MasterRow } | null>(null);
+  const [expanded, setExpanded] = useState<Record<MasterTable, boolean>>({ organic_master: true, story_master: true, ads_master: true });
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [organic, stories, ads] = await Promise.all([fetchOrganicMasterRows(clientId, executionMonth), fetchStoryMasterRows(clientId, executionMonth), fetchAdsMasterRows(clientId, executionMonth)]);
+      setRows([...organic.map((row) => ({ table: "organic_master" as const, row })), ...stories.map((row) => ({ table: "story_master" as const, row })), ...ads.map((row) => ({ table: "ads_master" as const, row }))]);
+    } catch (value) { setError(errorText(value)); }
+    finally { setLoading(false); }
+  }, [clientId, executionMonth]);
+  useEffect(() => { void load(); }, [load]);
+
+  const grouped = useMemo(() => ({ organic_master: rows.filter((item) => item.table === "organic_master"), story_master: rows.filter((item) => item.table === "story_master"), ads_master: rows.filter((item) => item.table === "ads_master") }), [rows]);
+  const approved = rows.filter((item) => item.row.review_state === "approved").length;
+  function accept(table: MasterTable, next: MasterRow) { setRows((current) => current.map((item) => item.table === table && item.row.id === next.id ? { table, row: next } : item)); setOpen({ table, row: next }); }
+  async function approve(table: MasterTable, row: MasterRow) { if (!window.confirm(`Approve ${row.ref}?`)) return; setUpdating(true); try { await updateReviewState(table, row.id, "approved"); accept(table, { ...row, review_state: "approved", updated_at: new Date().toISOString() } as MasterRow); } catch (value) { setError(errorText(value)); } finally { setUpdating(false); } }
+
+  if (loading && rows.length === 0) return <div className="p-6 text-xs text-paper-3">Loading Phase 3 masters…</div>;
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4"><div className="shrink-0 rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex flex-wrap gap-4 text-xs"><span className="text-paper">{rows.length} master rows</span><span className="text-teal">{approved} approved</span><span className="text-warn">{rows.length - approved} require review</span></div></div>{error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}{(["organic_master", "story_master", "ads_master"] as MasterTable[]).map((table) => {
+    const items = grouped[table];
+    const tableApproved = items.filter(({ row }) => row.review_state === "approved").length;
+    return <section key={table} className="min-w-0 shrink-0 overflow-hidden rounded-[10px] border border-line bg-ink-200">
+      <button aria-expanded={expanded[table]} onClick={() => setExpanded((current) => ({ ...current, [table]: !current[table] }))} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-ink-100">
+        <span className="text-2xs text-paper-3">{expanded[table] ? "▼" : "▶"}</span>
+        <span className="text-2xs font-medium uppercase tracking-wide text-paper-2">{TABLE_LABEL[table]} Master</span>
+        <span className="ml-auto font-mono text-2xs text-paper-3">{items.length} rows</span>
+        <span className="font-mono text-2xs text-teal">{tableApproved} approved</span>
+        <span className="font-mono text-2xs text-warn">{items.length - tableApproved} need review</span>
+      </button>
+      {expanded[table] && <div className="border-t border-line">{items.map(({ row }) => <MasterCard key={row.id} table={table} row={row} updating={updating} onOpen={() => setOpen({ table, row })} onApprove={() => void approve(table, row)} />)}</div>}
+    </section>;
+  })}{open && <MasterContentModal table={open.table} initialRow={open.row} onClose={() => setOpen(null)} onUpdated={accept} />}</div>;
+}

@@ -462,6 +462,7 @@ export type Api = typeof api;
 // These functions target the v1 `clients` table and related views.
 
 import type { Client, CreateClientPayload, ClientHealth, ActivityLogEntry, ReviewState } from "@/types/client";
+import { deriveStage3Status, EMPTY_STAGE3_SNAPSHOT, expectedCalendarCellCount, type Stage3Snapshot, type Stage3Status } from "@/lib/stage3";
 
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
@@ -486,6 +487,31 @@ export async function fetchClient(id: string): Promise<Client | null> {
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+export async function fetchStage3StatusMap(month: string): Promise<Record<string, Stage3Status>> {
+  const [organic, story, ads, calendar] = await Promise.all([
+    supabase.from("organic_master").select("client_id, review_state").eq("month", month),
+    supabase.from("story_master").select("client_id, review_state").eq("month", month),
+    supabase.from("ads_master").select("client_id, review_state").eq("month", month),
+    supabase.from("calendar_cells").select("client_id, review_state").eq("month", month),
+  ]);
+  const queryError = [organic, story, ads, calendar].find((result) => result.error)?.error;
+  if (queryError) throw queryError;
+  const snapshots = new Map<string, Stage3Snapshot>();
+  function add(rows: Array<{ client_id: string; review_state: string }>, countKey: keyof Stage3Snapshot, approvedKey: keyof Stage3Snapshot) {
+    for (const row of rows) {
+      const snapshot = snapshots.get(row.client_id) ?? { ...EMPTY_STAGE3_SNAPSHOT, expectedCalendarCount: expectedCalendarCellCount(month) };
+      snapshot[countKey] += 1;
+      if (row.review_state === "approved") snapshot[approvedKey] += 1;
+      snapshots.set(row.client_id, snapshot);
+    }
+  }
+  add((organic.data ?? []) as Array<{ client_id: string; review_state: string }>, "organicCount", "organicApproved");
+  add((story.data ?? []) as Array<{ client_id: string; review_state: string }>, "storyCount", "storyApproved");
+  add((ads.data ?? []) as Array<{ client_id: string; review_state: string }>, "adsCount", "adsApproved");
+  add((calendar.data ?? []) as Array<{ client_id: string; review_state: string }>, "calendarCount", "calendarApproved");
+  return Object.fromEntries([...snapshots].map(([clientId, snapshot]) => [clientId, deriveStage3Status(snapshot)]));
 }
 
 export async function createClient(payload: CreateClientPayload): Promise<Client> {
@@ -531,10 +557,11 @@ export async function fetchActivityLog(opts?: {
 // ── PHASE 1 / 2 STUB API ─────────────────────────────────────────────────────
 
 import type {
-  ClientInputs, ClientContextFile, ClientExecutionFile,
+  ClientInputs, ClientContextFile, ClientExecutionFile, ContextFileStatus,
   OrganicMasterRow, StoryMasterRow, AdsMasterRow, ProofMasterRow,
   AssetBriefRow, CalendarCellRow,
-  Phase1Result, Phase2Result,
+  Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section,
+  MasterRow, MasterTable,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -547,20 +574,43 @@ export async function fetchClientInputs(clientId: string): Promise<ClientInputs 
   return data as ClientInputs | null;
 }
 
-export async function upsertClientInputs(
+export async function saveClientInputs(
   clientId: string,
-  patch: Partial<Omit<ClientInputs, "id" | "client_id" | "created_at" | "updated_at">>
+  patch: Partial<Omit<ClientInputs, "id" | "client_id" | "created_at" | "updated_at">>,
 ): Promise<ClientInputs> {
+  const existing = await fetchClientInputs(clientId);
+  const payload = { ...patch, updated_at: new Date().toISOString() };
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("client_inputs")
+      .update(payload)
+      .eq("client_id", clientId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ClientInputs;
+  }
+
   const { data, error } = await supabase
     .from("client_inputs")
-    .upsert(
-      { client_id: clientId, ...patch, updated_at: new Date().toISOString() },
-      { onConflict: "client_id" }
-    )
+    .insert({ client_id: clientId, ...payload })
     .select()
     .single();
-  if (error) throw error;
-  return data as ClientInputs;
+  if (!error) return data as ClientInputs;
+
+  // Another writer may have created the unique client_id row after our read.
+  if (error.code === "23505") {
+    const { data: retried, error: retryError } = await supabase
+      .from("client_inputs")
+      .update(payload)
+      .eq("client_id", clientId)
+      .select()
+      .single();
+    if (retryError) throw retryError;
+    return retried as ClientInputs;
+  }
+  throw error;
 }
 
 export async function logActivity(
@@ -590,7 +640,8 @@ export async function runPhase1(clientId: string): Promise<Phase1Result> {
 
 export async function generatePhase1File(
   clientId: string,
-  fileNumber: number
+  fileNumber: number,
+  fileName?: string,
 ): Promise<Phase1Result> {
   try {
     return await invokeFn<Phase1Result>("generate-phase-1-file", {
@@ -598,8 +649,9 @@ export async function generatePhase1File(
       file_number: fileNumber,
     });
   } catch (e) {
-    const msg = `Failed to invoke generate-phase-1-file (file ${fileNumber}): ${e instanceof Error ? e.message : String(e)}`;
-    await logActivity(clientId, "phase_1_file_error", msg, { file_number: fileNumber }).catch(() => {});
+    const fileLabel = fileName ?? `file #${String(fileNumber).padStart(2, "0")}`;
+    const msg = `generate-phase-1-file failed for ${fileLabel}: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_1_file_error", msg, { file_number: fileNumber, file_name: fileName }).catch(() => {});
     return { ok: false, mode: "error", message: msg, warnings: [], missingInputs: [], error: String(e) };
   }
 }
@@ -624,12 +676,129 @@ export async function fetchClientContextFiles(clientId: string): Promise<ClientC
   return (data ?? []) as ClientContextFile[];
 }
 
+export async function fetchClientContextFile(
+  clientId: string,
+  fileNumber: number,
+): Promise<ClientContextFile> {
+  const { data, error } = await supabase
+    .from("client_context_files")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("file_number", fileNumber)
+    .single();
+  if (error) throw error;
+  return data as ClientContextFile;
+}
+
+export async function updateContextFileContent(
+  file: Pick<ClientContextFile, "id" | "client_id" | "file_number" | "version">,
+  contentMd: string,
+): Promise<ClientContextFile> {
+  const { data, error } = await supabase
+    .from("client_context_files")
+    .update({
+      content_md: contentMd,
+      version: file.version + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", file.id)
+    .eq("client_id", file.client_id)
+    .eq("file_number", file.file_number)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ClientContextFile;
+}
+
+export async function updateContextFileStatus(
+  file: Pick<ClientContextFile, "id" | "client_id" | "file_number">,
+  status: Extract<ContextFileStatus, "needs_review" | "approved">,
+): Promise<ClientContextFile> {
+  const { data, error } = await supabase
+    .from("client_context_files")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", file.id)
+    .eq("client_id", file.client_id)
+    .eq("file_number", file.file_number)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ClientContextFile;
+}
+
 export async function runPhase2(clientId: string, executionMonth: string): Promise<Phase2Result> {
   try {
-    return await invokeFn<Phase2Result>("generate-phase-2", { client_id: clientId, execution_month: executionMonth });
+    return await invokeFn<Phase2Result>("generate-phase-2", {
+      client_id: clientId,
+      execution_month: executionMonth,
+      action: "prepare",
+    });
   } catch (e) {
     const msg = `Failed to invoke generate-phase-2: ${e instanceof Error ? e.message : String(e)}`;
     await logActivity(clientId, "phase_2_error", msg).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function generatePhase2Section(
+  clientId: string,
+  executionMonth: string,
+  section: Phase2Section,
+): Promise<Phase2Result> {
+  try {
+    return await invokeFn<Phase2Result>("generate-phase-2", {
+      client_id: clientId,
+      execution_month: executionMonth,
+      action: "section",
+      section,
+    });
+  } catch (e) {
+    const msg = `generate-phase-2 failed for ${section}: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_2_error", msg, { execution_month: executionMonth, section }).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function finalizePhase2(clientId: string, executionMonth: string): Promise<Phase2Result> {
+  try {
+    return await invokeFn<Phase2Result>("generate-phase-2", {
+      client_id: clientId,
+      execution_month: executionMonth,
+      action: "finalize",
+    });
+  } catch (e) {
+    const msg = `Failed to finalize Phase 2: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_2_error", msg, { execution_month: executionMonth, stage: "finalize" }).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function runPhase3(clientId: string, executionMonth: string): Promise<Phase3Result> {
+  try {
+    return await invokeFn<Phase3Result>("generate-phase-3", { client_id: clientId, execution_month: executionMonth, action: "prepare" });
+  } catch (e) {
+    const msg = `Failed to invoke generate-phase-3: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_3_error", msg).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function generatePhase3Section(clientId: string, executionMonth: string, section: Phase3Section): Promise<Phase3Result> {
+  try {
+    return await invokeFn<Phase3Result>("generate-phase-3", { client_id: clientId, execution_month: executionMonth, action: "section", section });
+  } catch (e) {
+    const msg = `generate-phase-3 failed for ${section}: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_3_error", msg, { execution_month: executionMonth, section }).catch(() => {});
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+  }
+}
+
+export async function finalizePhase3(clientId: string, executionMonth: string): Promise<Phase3Result> {
+  try {
+    return await invokeFn<Phase3Result>("generate-phase-3", { client_id: clientId, execution_month: executionMonth, action: "finalize" });
+  } catch (e) {
+    const msg = `Failed to finalize Phase 3: ${e instanceof Error ? e.message : String(e)}`;
+    await logActivity(clientId, "phase_3_error", msg, { execution_month: executionMonth, stage: "finalize" }).catch(() => {});
     return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
   }
 }
@@ -646,6 +815,36 @@ export async function fetchClientExecutionFiles(
     .order("file_number");
   if (error) throw error;
   return (data ?? []) as ClientExecutionFile[];
+}
+
+export async function fetchClientExecutionFile(clientId: string, month: string, fileNumber: number): Promise<ClientExecutionFile> {
+  const { data, error } = await supabase.from("client_execution_files").select("*")
+    .eq("client_id", clientId).eq("month", month).eq("file_number", fileNumber).single();
+  if (error) throw error;
+  return data as ClientExecutionFile;
+}
+
+export async function updateExecutionFileContent(file: ClientExecutionFile, contentMd: string): Promise<ClientExecutionFile> {
+  const { data, error } = await supabase.from("client_execution_files").update({
+    content_md: contentMd,
+    version: file.version + 1,
+    review_state: file.review_state === "approved" ? "needs_review" : file.review_state,
+    updated_at: new Date().toISOString(),
+  }).eq("id", file.id).eq("client_id", file.client_id).eq("month", file.month).eq("file_number", file.file_number).select("*").single();
+  if (error) throw error;
+  return data as ClientExecutionFile;
+}
+
+export async function updateExecutionFileReviewState(fileId: string, reviewState: ReviewState): Promise<ClientExecutionFile> {
+  const { data, error } = await supabase.from("client_execution_files")
+    .update({ review_state: reviewState, updated_at: new Date().toISOString() })
+    .eq("id", fileId).select("*").single();
+  if (error) throw error;
+  return data as ClientExecutionFile;
+}
+
+export async function regenerateExecutionFile(clientId: string, month: string, section: Phase2Section): Promise<Phase2Result> {
+  return generatePhase2Section(clientId, month, section);
 }
 
 export async function fetchOrganicMasterRows(
@@ -727,6 +926,27 @@ export async function fetchCalendarCells(
     .order("date");
   if (error) throw error;
   return (data ?? []) as CalendarCellRow[];
+}
+
+export async function updateMasterRow(
+  table: MasterTable,
+  row: MasterRow,
+  patch: Record<string, string | null>,
+): Promise<MasterRow> {
+  const { data, error } = await supabase.from(table).update({
+    ...patch,
+    review_state: row.review_state === "approved" ? "needs_review" : row.review_state,
+    updated_at: new Date().toISOString(),
+  }).eq("id", row.id).eq("client_id", row.client_id).select("*").single();
+  if (error) throw error;
+  return data as MasterRow;
+}
+
+export async function fetchMasterRowByRef(clientId: string, ref: string): Promise<{ table: MasterTable; row: MasterRow } | null> {
+  const table: MasterTable = ref.includes("-ST-") ? "story_master" : ref.includes("-AD-") ? "ads_master" : "organic_master";
+  const { data, error } = await supabase.from(table).select("*").eq("client_id", clientId).eq("ref", ref).maybeSingle();
+  if (error) throw error;
+  return data ? { table, row: data as MasterRow } : null;
 }
 
 const REVIEW_TABLES = [

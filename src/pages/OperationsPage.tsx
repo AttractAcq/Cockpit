@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, Icon } from "@/components/primitives";
-import { fetchActivityLog } from "@/lib/api";
-import type { ActivityLogEntry } from "@/types/client";
+import { fetchActivityLog, fetchClients } from "@/lib/api";
+import type { ActivityLogEntry, Client } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
 
 const EVENT_TYPE_COLOURS: Record<string, string> = {
@@ -21,36 +21,64 @@ export function OperationsPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
   const [filterType, setFilterType] = useState("all");
+  const [filterClient, setFilterClient] = useState("all");
+  const [pageSize, setPageSize] = useState(20);
+  const [clients, setClients] = useState<Client[]>([]);
 
-  useEffect(() => {
-    fetchActivityLog({ limit: 200 })
-      .then(setEntries)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextEntries, nextClients] = await Promise.all([
+        fetchActivityLog({ limit: 100 }),
+        fetchClients(),
+      ]);
+      setEntries(nextEntries);
+      setClients(nextClients);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const eventTypes = ["all", ...Array.from(new Set(entries.map((e) => e.event_type)))];
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    function reload() { void load(); }
+    window.addEventListener("aa:reload", reload);
+    return () => window.removeEventListener("aa:reload", reload);
+  }, [load]);
 
-  const filtered =
-    filterType === "all" ? entries : entries.filter((e) => e.event_type === filterType);
+  const eventTypes = useMemo(
+    () => ["all", ...Array.from(new Set(entries.map((entry) => entry.event_type))).sort()],
+    [entries],
+  );
+
+  const filtered = entries.filter((entry) => {
+    if (filterType !== "all" && entry.event_type !== filterType) return false;
+    if (filterClient !== "all" && entry.client_id !== filterClient) return false;
+    return true;
+  });
+  const visible = filtered.slice(0, pageSize);
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-paper-3 text-xs">Loading…</div>;
   if (error)   return <div className="flex-1 flex items-center justify-center text-neg text-xs">{error}</div>;
 
   return (
-    <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
       <div className="flex items-center justify-between">
         <h1 className="text-sm font-medium text-paper">Operations Log</h1>
-        <span className="text-2xs text-paper-3 font-mono">{filtered.length} entries</span>
+        <span className="text-2xs text-paper-3 font-mono">Showing {visible.length} of {filtered.length} matching entries</span>
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5">
           <Icon name="filter" size={12} className="text-paper-3" />
           <span className="text-2xs text-paper-3 uppercase tracking-cap">Event type</span>
         </div>
         <select
+          aria-label="Filter operations by event"
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
           className="bg-ink-200 border border-line rounded px-2 py-1 text-xs text-paper outline-none"
@@ -59,22 +87,42 @@ export function OperationsPage() {
             <option key={t} value={t}>{t === "all" ? "All Events" : t}</option>
           ))}
         </select>
+        <select
+          aria-label="Filter operations by client"
+          value={filterClient}
+          onChange={(event) => setFilterClient(event.target.value)}
+          className="bg-ink-200 border border-line rounded px-2 py-1 text-xs text-paper outline-none"
+        >
+          <option value="all">All Clients</option>
+          {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+        </select>
+        <label className="ml-auto flex items-center gap-2 text-2xs uppercase tracking-cap text-paper-3">
+          Show
+          <select
+            aria-label="Operations page size"
+            value={pageSize}
+            onChange={(event) => setPageSize(Number(event.target.value))}
+            className="bg-ink-200 border border-line rounded px-2 py-1 text-xs normal-case tracking-normal text-paper outline-none"
+          >
+            {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
       </div>
 
       {/* Log */}
       {filtered.length === 0 ? (
         <EmptyState
           icon="clock"
-          title="No activity yet"
-          body="System events (phase runs, playbook commits, automation runs, errors) will appear here."
+          title="No matching activity"
+          body="No operations match the selected client and event filters."
         />
       ) : (
-        <div className="bg-ink-200 border border-line rounded-[10px] overflow-hidden">
-          {filtered.map((entry, i) => (
+        <div className="min-w-0 shrink-0 rounded-[10px] border border-line bg-ink-200">
+          {visible.map((entry, i) => (
             <div
               key={entry.id}
               className={`px-4 py-3 flex items-start gap-3 ${
-                i < filtered.length - 1 ? "border-b border-line" : ""
+                i < visible.length - 1 ? "border-b border-line" : ""
               }`}
             >
               <div className="flex-shrink-0 w-2 h-2 rounded-full bg-paper-3 mt-1.5" />

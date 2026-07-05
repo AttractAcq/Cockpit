@@ -1,54 +1,62 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Icon, EmptyState } from "@/components/primitives";
 import { Button } from "@/components/primitives";
-import { fetchClient, runPhase1, generatePhase1File, finalizePhase1, runPhase2 } from "@/lib/api";
+import { fetchClient, fetchClientInputs, fetchClientContextFiles, fetchClientExecutionFiles, runPhase1, generatePhase1File, finalizePhase1, runPhase2, generatePhase2Section, finalizePhase2, runPhase3, generatePhase3Section, finalizePhase3 } from "@/lib/api";
 import type { Client } from "@/types/client";
-import type { Phase1Result, Phase2Result } from "@/types/phase";
+import type { ClientContextFile, ClientExecutionFile, ClientInputs, Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section } from "@/types/phase";
 import { CONTEXT_FILE_DEFS } from "@/types/phase";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
 import { ContextFilesPanel } from "@/components/client/ContextFilesPanel";
-import { Stage2Panel } from "@/components/client/Stage2Panel";
+import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
+import { MastersPanel } from "@/components/client/MastersPanel";
+import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
+import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
+import { SopsLawsPanel } from "@/components/client/SopsLawsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
+import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
+import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
 type Section =
   | "calendar"
   | "context_inputs"
   | "context_files"
-  | "stage2"
+  | "execution_files"
   | "overview"
   | "pipeline"
   | "masters"
-  | "playbooks"
   | "automations"
   | "assets"
   | "analytics"
   | "sops"
-  | "weekly"
   | "activity";
 
 const BUTTON_BAR: { label: string; section: Section }[] = [
-  { label: "Calendar",         section: "calendar" },
-  { label: "Context Inputs",   section: "context_inputs" },
-  { label: "Context Files",    section: "context_files" },
-  { label: "Stage 2",          section: "stage2" },
   { label: "Overview",         section: "overview" },
   { label: "Pipeline",         section: "pipeline" },
+  { label: "Context Inputs",   section: "context_inputs" },
+  { label: "Context Files",    section: "context_files" },
+  { label: "Execution Files",  section: "execution_files" },
   { label: "Masters",          section: "masters" },
-  { label: "Playbooks",        section: "playbooks" },
+  { label: "Calendar",         section: "calendar" },
   { label: "Automations",      section: "automations" },
   { label: "Assets",           section: "assets" },
   { label: "Analytics",        section: "analytics" },
   { label: "SOPs / Laws",      section: "sops" },
-  { label: "Weekly Seq.",      section: "weekly" },
   { label: "Activity Log",     section: "activity" },
 ];
 
 function currentMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function canonicalExecutionReady(files: ClientExecutionFile[]): boolean {
+  return files.length === EXECUTION_FILE_COUNT && EXECUTION_FILE_MANIFEST.every((definition) => files.some((file) =>
+    file.file_number === definition.fileNumber && file.file_name === definition.fileName && file.review_state === "approved"
+  ));
 }
 
 function StageBadge({ status, label }: { status: string; label: string }) {
@@ -81,54 +89,70 @@ function PlaceholderSection({
 }
 
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
-  calendar:    { title: "Calendar",        description: "Code-only monthly grid. Cells derive from master rows. Coming in a later batch." },
-  overview:    { title: "Overview",        description: "Stage status, pipeline snapshot, open approvals, proof gaps." },
   pipeline:    { title: "Pipeline",        description: "9-stage daily entry grid. Manual first." },
-  masters:     { title: "Master Tables",   description: "Organic, Ads, Story, Proof, Asset, Lead Magnet, Website, SOPs & Asset Brief Index." },
-  playbooks:   { title: "Playbooks",       description: "7 AI playbook buttons → propose → approve → commit as needs_review drafts." },
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
   assets:      { title: "Assets",          description: "Asset Master + Proof Master grids. Upload portal." },
   analytics:   { title: "Analytics",       description: "Pipeline trends, content performance, proof signals." },
-  sops:        { title: "SOPs / Laws",     description: "37 content laws + client-specific governance layer." },
-  weekly:      { title: "Weekly Sequence", description: "Fixed weekly rhythm rows (day, slot, content type, archetype)." },
 };
 
-function CalendarPlaceholder() {
+type PhaseResult =
+  | { kind: "phase1"; result: Phase1Result }
+  | { kind: "phase2"; result: Phase2Result }
+  | { kind: "phase3"; result: Phase3Result }
+  | null;
+
+type PhaseNumber = 1 | 2 | 3;
+
+const PHASE_CONFIRMATIONS: Record<PhaseNumber, { title: string; body: string; confirm: string }> = {
+  1: {
+    title: "Run Phase 1?",
+    body: "This will regenerate the Phase 1 Context Files from the saved Context Inputs. Existing generated Context Files may be replaced. Do this only if the Context Inputs are final and you are ready to review the generated files again.",
+    confirm: "Run Phase 1",
+  },
+  2: {
+    title: "Run Phase 2?",
+    body: "This will regenerate the 11 canonical Execution Files from the approved Context Files. Existing Execution Files for this client may be replaced. Masters and Calendar outputs will not be changed.",
+    confirm: "Run Phase 2",
+  },
+  3: {
+    title: "Run Phase 3?",
+    body: "This will regenerate Masters and Calendar outputs from the approved Context Files and approved Execution Files. Existing Organic, Story, Ads, and Calendar rows for this client/month may be replaced. Context Files and Execution Files will not be changed.",
+    confirm: "Run Phase 3",
+  },
+};
+
+function PhaseConfirmationDialog({ phase, running, onCancel, onConfirm }: {
+  phase: PhaseNumber;
+  running: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const copy = PHASE_CONFIRMATIONS[phase];
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !running) onCancel();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onCancel, running]);
+
   return (
-    <div className="flex-1 overflow-auto p-4">
-      <div className="bg-ink-200 border border-line rounded-[10px] overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-line flex items-center gap-2">
-          <span className="text-2xs uppercase tracking-cap text-paper-3 font-medium">
-            Calendar — Current Month
-          </span>
-          <span className="ml-auto text-2xs text-paper-3 font-mono">
-            code-only · no free text
-          </span>
-        </div>
-        <div className="p-4 text-center">
-          <p className="text-xs text-paper-3 mb-1">
-            Cells will contain ref codes only (e.g.{" "}
-            <span className="font-mono text-teal">JUL-RL-001</span>).
-          </p>
-          <p className="text-xs text-paper-3">
-            7 fixed rows · Ad 1, Ad 2, Ad 3, Reel, Stories, Feed Posts,
-            Carousels.
-            <br />
-            Placement driven by master Distribution Date / Start-End fields.
-          </p>
-          <p className="text-2xs text-paper-3 mt-3 font-mono">
-            Coming in a later batch
-          </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4 backdrop-blur-sm" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !running) onCancel();
+    }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="phase-confirm-title" className="w-full max-w-lg rounded-xl border border-line bg-ink-200 p-5 shadow-2xl">
+        <h2 id="phase-confirm-title" className="text-sm font-medium text-paper">{copy.title}</h2>
+        <p className="mt-3 text-xs leading-relaxed text-paper-2">{copy.body}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="subtle" size="sm" disabled={running} onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" size="sm" disabled={running} onClick={onConfirm}>
+            {running ? "Starting…" : copy.confirm}
+          </Button>
         </div>
       </div>
     </div>
   );
 }
-
-type PhaseResult =
-  | { kind: "phase1"; result: Phase1Result }
-  | { kind: "phase2"; result: Phase2Result }
-  | null;
 
 function modeColour(mode: string): string {
   if (
@@ -177,7 +201,7 @@ function PhaseResultBanner({
           colour === "teal" ? "text-teal" : colour === "warn" ? "text-warn" : "text-neg"
         }`}
       >
-        {kind === "phase1" ? "PHASE 1" : "PHASE 2"}
+        {kind === "phase1" ? "PHASE 1" : kind === "phase2" ? "PHASE 2" : "PHASE 3"}
       </span>
       <span className="flex-1">
         {result.message}
@@ -217,9 +241,19 @@ export function ClientDetailPage() {
   const [phase1Running, setPhase1Running] = useState(false);
   const [phase1Progress, setPhase1Progress] = useState<{ current: number; total: number } | null>(null);
   const [phase2Running, setPhase2Running] = useState(false);
+  const phase2RunLock = useRef(false);
+  const [phase2Progress, setPhase2Progress] = useState<{ current: number; total: number; label: string } | null>(null);
+  const [phase3Running, setPhase3Running] = useState(false);
+  const [phase3Progress, setPhase3Progress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [phaseResult, setPhaseResult] = useState<PhaseResult>(null);
+  const [phaseConfirmation, setPhaseConfirmation] = useState<PhaseNumber | null>(null);
+  const [contextInputsKey, setContextInputsKey] = useState(0);
   const [contextFilesKey, setContextFilesKey] = useState(0);
-  const [stage2Key, setStage2Key] = useState(0);
+  const [executionFilesKey, setExecutionFilesKey] = useState(0);
+  const [phase3Key, setPhase3Key] = useState(0);
+  const [contextInputs, setContextInputs] = useState<ClientInputs | null>(null);
+  const [contextFiles, setContextFiles] = useState<ClientContextFile[]>([]);
+  const [executionFiles, setExecutionFiles] = useState<ClientExecutionFile[]>([]);
 
   const activeSection = (section as Section) ?? "calendar";
 
@@ -233,6 +267,44 @@ export function ClientDetailPage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const clientId = id;
+    function reloadClientData() {
+      void Promise.all([
+        fetchClient(clientId).then((next) => { if (next) setClient(next); }),
+        fetchClientInputs(clientId).then(setContextInputs),
+        fetchClientContextFiles(clientId).then(setContextFiles),
+        fetchClientExecutionFiles(clientId, currentMonth()).then(setExecutionFiles),
+      ]).catch((reloadError: Error) => setError(reloadError.message));
+      setContextInputsKey((key) => key + 1);
+      setContextFilesKey((key) => key + 1);
+      setExecutionFilesKey((key) => key + 1);
+      setPhase3Key((key) => key + 1);
+    }
+    window.addEventListener("aa:reload", reloadClientData);
+    return () => window.removeEventListener("aa:reload", reloadClientData);
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetchClientInputs(id).then(setContextInputs).catch(() => setContextInputs(null));
+    fetchClientContextFiles(id).then(setContextFiles).catch(() => setContextFiles([]));
+    fetchClientExecutionFiles(id, currentMonth()).then(setExecutionFiles).catch(() => setExecutionFiles([]));
+  }, [id]);
+
+  const handleInputsLoaded = useCallback((nextInputs: ClientInputs | null) => {
+    setContextInputs(nextInputs);
+  }, []);
+
+  const handleContextFilesLoaded = useCallback((nextFiles: ClientContextFile[]) => {
+    setContextFiles(nextFiles);
+  }, []);
+
+  const handleExecutionFilesLoaded = useCallback((nextFiles: ClientExecutionFile[]) => {
+    setExecutionFiles(nextFiles);
+  }, []);
 
   if (loading)
     return (
@@ -254,11 +326,49 @@ export function ClientDetailPage() {
 
   async function handleRunPhase1() {
     if (!id) return;
-    setPhase1Running(true);
     setPhaseResult(null);
     setPhase1Progress(null);
 
     try {
+      // Always validate a fresh database snapshot. Draft text in the editor is
+      // intentionally ignored until it has been saved.
+      const latestInputs = await fetchClientInputs(id);
+      setContextInputs(latestInputs);
+      const readiness = getContextReadiness(latestInputs);
+
+      if (readiness.placeholderFields.length > 0) {
+        setPhaseResult({
+          kind: "phase1",
+          result: {
+            ok: false,
+            mode: "blocked",
+            message: "Placeholder inputs detected — replace before running Phase 1.",
+            warnings: [],
+            missingInputs: readiness.placeholderFields.map(contextLabel),
+          },
+        });
+        return;
+      }
+
+      if (readiness.missingRecommended.length > 0) {
+        setPhaseResult({
+          kind: "phase1",
+          result: {
+            ok: false,
+            mode: "blocked",
+            message: "Recommended context sections are missing. Save them before running Phase 1.",
+            warnings: [],
+            missingInputs: readiness.missingRecommended.map(contextLabel),
+          },
+        });
+        return;
+      }
+
+      if (readiness.missingOptional.length > 0 && !window.confirm(
+        `Optional context is missing: ${readiness.missingOptional.map(contextLabel).join(", ")}. Run Phase 1 anyway?`,
+      )) return;
+
+      setPhase1Running(true);
       // 1. Prepare — validates inputs and the AI gate, returns the file list.
       const prep = await runPhase1(id);
 
@@ -279,13 +389,13 @@ export function ClientDetailPage() {
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
         setPhase1Progress({ current: i + 1, total });
-        const res = await generatePhase1File(id, f.file_number);
+        const res = await generatePhase1File(id, f.file_number, f.file_name);
         if (!res.ok) {
           setPhaseResult({
             kind: "phase1",
             result: {
               ...res,
-              message: `Phase 1 stopped at file ${i + 1} of ${total} (${f.file_name}): ${res.message}`,
+              message: `Phase 1 stopped at item ${i + 1} of ${total} — file #${String(f.file_number).padStart(2, "0")} (${f.file_name}): ${res.message}`,
             },
           });
           return;
@@ -301,6 +411,19 @@ export function ClientDetailPage() {
         const refreshed = await fetchClient(id).catch(() => null);
         if (refreshed) setClient(refreshed);
       }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setPhaseResult({
+        kind: "phase1",
+        result: {
+          ok: false,
+          mode: "error",
+          message: `Could not validate context inputs: ${message}`,
+          warnings: [],
+          missingInputs: [],
+          error: message,
+        },
+      });
     } finally {
       setPhase1Progress(null);
       setPhase1Running(false);
@@ -308,15 +431,145 @@ export function ClientDetailPage() {
   }
 
   async function handleRunPhase2() {
-    if (!id) return;
-    setPhase2Running(true);
+    if (!id || phase2RunLock.current) return;
+    phase2RunLock.current = true;
     setPhaseResult(null);
     try {
-      const result = await runPhase2(id, currentMonth());
+      const latestFiles = await fetchClientContextFiles(id);
+      setContextFiles(latestFiles);
+      const byNumber = new Map(latestFiles.map((file) => [file.file_number, file]));
+      const notApproved = CONTEXT_FILE_DEFS.filter(
+        (definition) => byNumber.get(definition.number)?.status !== "approved",
+      );
+      if (notApproved.length > 0) {
+        setPhaseResult({
+          kind: "phase2",
+          result: {
+            ok: false,
+            mode: "blocked",
+            message: "Phase 2 blocked: approve or resolve all context files first.",
+            warnings: [],
+            missingContextFiles: notApproved.map((definition) => definition.file_name),
+          },
+        });
+        return;
+      }
+      setPhase2Running(true);
+      const month = currentMonth();
+      const prepared = await runPhase2(id, month);
+      if (!prepared.ok || prepared.mode !== "generation_started") {
+        setPhaseResult({ kind: "phase2", result: prepared });
+        return;
+      }
+
+      const sections: Phase2Section[] = EXECUTION_FILE_MANIFEST.map((definition) => definition.code);
+      for (let index = 0; index < sections.length; index += 1) {
+        const phase2Section = sections[index];
+        const definition = EXECUTION_FILE_MANIFEST[index];
+        setPhase2Progress({ current: index + 1, total: sections.length, label: `${definition.code} · ${definition.title}` });
+        const generated = await generatePhase2Section(id, month, phase2Section);
+        if (!generated.ok || generated.mode !== "section_generated") {
+          setPhaseResult({
+            kind: "phase2",
+            result: {
+              ...generated,
+              message: `Phase 2 stopped at section ${index + 1} of ${sections.length} (${phase2Section}): ${generated.message}`,
+            },
+          });
+          setExecutionFilesKey((key) => key + 1);
+          return;
+        }
+        setExecutionFilesKey((key) => key + 1);
+      }
+
+      const result = await finalizePhase2(id, month);
       setPhaseResult({ kind: "phase2", result });
-      setStage2Key((k) => k + 1);
+      if (result.ok) {
+        const refreshed = await fetchClient(id).catch(() => null);
+        if (refreshed) setClient(refreshed);
+      }
+      setExecutionFiles(await fetchClientExecutionFiles(id, month).catch(() => []));
+      setExecutionFilesKey((key) => key + 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPhaseResult({ kind: "phase2", result: {
+        ok: false,
+        mode: "error",
+        message: `Phase 2 orchestration failed: ${message}`,
+        warnings: [],
+        missingContextFiles: [],
+        error: message,
+      } });
     } finally {
+      phase2RunLock.current = false;
+      setPhase2Progress(null);
       setPhase2Running(false);
+    }
+  }
+
+  async function handleRunPhase3() {
+    if (!id) return;
+    setPhaseResult(null);
+    const month = currentMonth();
+    try {
+      const [latestContextFiles, latestExecutionFiles] = await Promise.all([
+        fetchClientContextFiles(id),
+        fetchClientExecutionFiles(id, month),
+      ]);
+      setContextFiles(latestContextFiles);
+      setExecutionFiles(latestExecutionFiles);
+      const contextMap = new Map(latestContextFiles.map((file) => [file.file_number, file]));
+      const missingContext = CONTEXT_FILE_DEFS.filter((definition) => contextMap.get(definition.number)?.status !== "approved");
+      const executionBlocked = !canonicalExecutionReady(latestExecutionFiles);
+      if (client?.stage1_status !== "complete" || missingContext.length > 0 || client?.stage2_status !== "complete" || executionBlocked) {
+        setPhaseResult({ kind: "phase3", result: {
+          ok: false,
+          mode: "blocked",
+          message: executionBlocked ? "Phase 3 blocked: approve all Execution Files first." : "Phase 3 prerequisites are incomplete.",
+          warnings: [],
+          missingContextFiles: [
+            ...missingContext.map((definition) => definition.file_name),
+            ...latestExecutionFiles.filter((file) => file.review_state !== "approved").map((file) => file.file_name),
+          ],
+        } });
+        return;
+      }
+      setPhase3Running(true);
+      const prepared = await runPhase3(id, month);
+      if (!prepared.ok || prepared.mode !== "generation_started") { setPhaseResult({ kind: "phase3", result: prepared }); return; }
+      const sections: Phase3Section[] = [
+        "organic_reels_1",
+        "organic_reels_2",
+        "organic_reels_3",
+        "organic_reels_4",
+        "organic_carousels_1",
+        "organic_carousels_2",
+        "organic_feed_posts_1",
+        "organic_feed_posts_2",
+        "stories_education_1",
+        "stories_education_2",
+        "stories_conversion_1",
+        "stories_conversion_2",
+        "ads",
+        "calendar",
+      ];
+      for (let index = 0; index < sections.length; index += 1) {
+        const phase3Section = sections[index];
+        setPhase3Progress({ current: index + 1, total: sections.length, label: phase3Section.replaceAll("_", " ") });
+        const generated = await generatePhase3Section(id, month, phase3Section);
+        if (!generated.ok || generated.mode !== "section_generated") {
+          setPhaseResult({ kind: "phase3", result: { ...generated, message: `Phase 3 stopped at section ${index + 1} of ${sections.length} (${phase3Section}): ${generated.message}` } });
+          setPhase3Key((key) => key + 1);
+          return;
+        }
+        setPhase3Key((key) => key + 1);
+      }
+      const result = await finalizePhase3(id, month);
+      setPhaseResult({ kind: "phase3", result });
+      setPhase3Key((key) => key + 1);
+    } finally {
+      setPhase3Progress(null);
+      setPhase3Running(false);
     }
   }
 
@@ -324,15 +577,21 @@ export function ClientDetailPage() {
     if (!id) return null;
     switch (activeSection) {
       case "context_inputs":
-        return <ContextInputsPanel clientId={id} />;
+        return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
       case "context_files":
-        return <ContextFilesPanel key={contextFilesKey} clientId={id} />;
-      case "stage2":
-        return <Stage2Panel key={stage2Key} clientId={id} executionMonth={currentMonth()} />;
+        return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
+      case "execution_files":
+        return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
+      case "overview":
+        return <ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} />;
+      case "masters":
+        return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+      case "sops":
+        return <SopsLawsPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} />;
       case "activity":
-        return <ActivityPanel clientId={id} />;
+        return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
-        return <CalendarPlaceholder />;
+        return <Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (
@@ -344,6 +603,20 @@ export function ClientDetailPage() {
 
   return (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+      {phaseConfirmation && (
+        <PhaseConfirmationDialog
+          phase={phaseConfirmation}
+          running={phase1Running || phase2Running || phase3Running}
+          onCancel={() => setPhaseConfirmation(null)}
+          onConfirm={() => {
+            const phase = phaseConfirmation;
+            setPhaseConfirmation(null);
+            if (phase === 1) void handleRunPhase1();
+            if (phase === 2) void handleRunPhase2();
+            if (phase === 3) void handleRunPhase3();
+          }}
+        />
+      )}
       {/* Client Header */}
       <div className="border-b border-line px-4 py-3 flex flex-col gap-2.5 flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -401,13 +674,22 @@ export function ClientDetailPage() {
           ))}
 
           <div className="ml-auto flex items-center gap-2">
+            {getContextReadiness(contextInputs).status === "placeholder_detected" && (
+              <span className="text-2xs text-neg font-mono">Phase 1 blocked: placeholder input</span>
+            )}
+            {getContextReadiness(contextInputs).status === "missing_recommended" && (
+              <span className="text-2xs text-warn font-mono">Phase 1 needs context input</span>
+            )}
+            {getContextReadiness(contextInputs).status === "needs_input" && (
+              <span className="text-2xs text-neg font-mono">Phase 1 needs context input</span>
+            )}
             <Button
               variant="subtle"
               size="sm"
               disabled={
                 client.stage1_status === "running" || phase1Running
               }
-              onClick={handleRunPhase1}
+              onClick={() => setPhaseConfirmation(1)}
             >
               {phase1Running
                 ? phase1Progress
@@ -415,17 +697,53 @@ export function ClientDetailPage() {
                   : "Running…"
                 : "Run Phase 1"}
             </Button>
+            {client.stage1_status === "complete" && (
+              contextFiles.length !== CONTEXT_FILE_DEFS.length ||
+              contextFiles.some((file) => file.status !== "approved")
+            ) && (
+              <span className="text-2xs text-warn font-mono">
+                Phase 2 blocked: approve all context files
+              </span>
+            )}
             <Button
               variant="primary"
               size="sm"
               disabled={
                 client.stage1_status !== "complete" ||
+                contextFiles.length !== CONTEXT_FILE_DEFS.length ||
+                contextFiles.some((file) => file.status !== "approved") ||
                 client.stage2_status === "running" ||
                 phase2Running
               }
-              onClick={handleRunPhase2}
+              onClick={() => setPhaseConfirmation(2)}
             >
-              {phase2Running ? "Running…" : "Run Phase 2"}
+              {phase2Running
+                ? phase2Progress
+                  ? `Generating ${phase2Progress.current}/${phase2Progress.total}…`
+                  : "Preparing…"
+                : "Run Phase 2"}
+            </Button>
+            {client.stage2_status === "complete" && (
+              !canonicalExecutionReady(executionFiles)
+            ) && <span className="text-2xs font-mono text-warn">Phase 3 blocked: approve Execution Files</span>}
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={
+                client.stage1_status !== "complete" ||
+                client.stage2_status !== "complete" ||
+                contextFiles.length !== CONTEXT_FILE_DEFS.length ||
+                contextFiles.some((file) => file.status !== "approved") ||
+                !canonicalExecutionReady(executionFiles) ||
+                phase2Running || phase3Running
+              }
+              onClick={() => setPhaseConfirmation(3)}
+            >
+              {phase3Running
+                ? phase3Progress
+                  ? `Generating ${phase3Progress.current}/${phase3Progress.total}…`
+                  : "Preparing…"
+                : "Run Phase 3"}
             </Button>
           </div>
         </div>
@@ -441,6 +759,26 @@ export function ClientDetailPage() {
           <span className="font-mono text-2xs text-paper-3 shrink-0">
             {Math.round(((phase1Progress.current - 1) / phase1Progress.total) * 100)}%
           </span>
+        </div>
+      )}
+
+      {phase2Progress && (
+        <div className="mx-4 mt-3 px-4 py-3 rounded-[10px] border bg-teal/5 border-teal/20 text-xs flex items-center gap-3">
+          <span className="font-mono text-2xs text-teal shrink-0">PHASE 2</span>
+          <span className="flex-1 text-paper capitalize">
+            Generating {phase2Progress.label} ({phase2Progress.current} of {phase2Progress.total})…
+          </span>
+          <span className="font-mono text-2xs text-paper-3 shrink-0">
+            {Math.round(((phase2Progress.current - 1) / phase2Progress.total) * 100)}%
+          </span>
+        </div>
+      )}
+
+      {phase3Progress && (
+        <div className="mx-4 mt-3 flex items-center gap-3 rounded-[10px] border border-teal/20 bg-teal/5 px-4 py-3 text-xs">
+          <span className="shrink-0 font-mono text-2xs text-teal">PHASE 3</span>
+          <span className="flex-1 capitalize text-paper">Generating {phase3Progress.label} ({phase3Progress.current} of {phase3Progress.total})…</span>
+          <span className="shrink-0 font-mono text-2xs text-paper-3">{Math.round(((phase3Progress.current - 1) / phase3Progress.total) * 100)}%</span>
         </div>
       )}
 

@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState, Panel } from "@/components/primitives";
 import { Button } from "@/components/primitives";
-import { fetchClients, fetchActivityLog } from "@/lib/api";
+import { fetchClients, fetchActivityLog, fetchStage3StatusMap } from "@/lib/api";
 import type { Client, ActivityLogEntry } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
+import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
 
 function HealthBadge({ score }: { score: number }) {
   const colour =
@@ -40,16 +41,21 @@ export function CockpitPage() {
   const [activity, setActivity] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stage3Statuses, setStage3Statuses] = useState<Record<string, Stage3Status>>({});
 
-  useEffect(() => {
-    Promise.all([fetchClients(), fetchActivityLog({ limit: 8 })])
-      .then(([c, a]) => {
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    await Promise.all([fetchClients(), fetchActivityLog({ limit: 8 }), fetchStage3StatusMap(currentExecutionMonth())])
+      .then(([c, a, stage3]) => {
         setClients(c);
         setActivity(a);
+        setStage3Statuses(stage3);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const reload = () => void load(); window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
 
   if (loading) {
     return (
@@ -70,15 +76,17 @@ export function CockpitPage() {
   const activeClients  = clients.filter((c) => c.status === "active");
   const stage1Missing  = clients.filter((c) => c.stage1_status === "not_run").length;
   const stage2Missing  = clients.filter((c) => c.stage2_status === "not_run").length;
+  const stage3Missing  = clients.filter((c) => (stage3Statuses[c.id] ?? "not_run") === "not_run").length;
 
   return (
     <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
       {/* System Readiness Band */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Total Clients",    value: clients.length,                              sub: `${activeClients.length} active` },
           { label: "Stage 1 Not Run",  value: stage1Missing,                               sub: "need context input" },
           { label: "Stage 2 Not Run",  value: stage2Missing,                               sub: "need monthly pack" },
+          { label: "Stage 3 Not Run",  value: stage3Missing,                               sub: "no masters/calendar" },
           { label: "Internal Clients", value: clients.filter((c) => c.is_internal_client).length, sub: "AA-managed" },
         ].map((tile) => (
           <div

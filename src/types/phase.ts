@@ -1,4 +1,5 @@
 import type { ReviewState } from "./client";
+import type { ExecutionFileCode } from "../../supabase/functions/_shared/execution-manifest";
 
 export type ContextFileStatus =
   | "not_started"
@@ -61,6 +62,9 @@ export interface ClientExecutionFile {
   status: string | null;
   review_state: ReviewState;
   version: number;
+  generated_by_agent: string | null;
+  generated_by_function: string | null;
+  approved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,9 +77,25 @@ export interface OrganicMasterRow {
   review_state: ReviewState;
   status: string;
   content_type: string;
+  archetype: string | null;
+  pillar: string | null;
   working_title: string | null;
+  the_one_person: string | null;
+  one_belief_to_change: string | null;
   hook: string | null;
+  core_message: string | null;
+  cta: string | null;
+  storyboard_outline: string | null;
+  caption_script: string | null;
+  source_origin: string | null;
   distribution_date: string | null;
+  distribution_channel: string | null;
+  production_date: string | null;
+  edit_date: string | null;
+  production_brief: string | null;
+  psychological_angle: string | null;
+  repurposed_from_to: string | null;
+  format_proven: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -90,7 +110,17 @@ export interface StoryMasterRow {
   status: string;
   story_type: string | null;
   story_theme: string | null;
+  pillar: string | null;
+  frame_1: string | null;
+  frame_2: string | null;
+  frame_3: string | null;
+  frame_4_optional: string | null;
+  cta_engagement_prompt: string | null;
+  proof_used: string | null;
+  source_origin: string | null;
   distribution_date: string | null;
+  repurposed_from_to: string | null;
+  what_not_to_claim: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -103,9 +133,22 @@ export interface AdsMasterRow {
   ref: string;
   review_state: ReviewState;
   status: string;
+  lane: string;
   stint_name: string | null;
+  objective: string | null;
+  funnel_stage: string | null;
   start_date: string | null;
   end_date: string | null;
+  days: number | null;
+  budget_split: string | null;
+  primary_goal: string | null;
+  conversion_action: string | null;
+  meta_objective: string | null;
+  audience: string | null;
+  creative_source: string | null;
+  hook_angle: string | null;
+  kpi_watch: string | null;
+  feeds_into: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -160,8 +203,30 @@ export type PhaseMode =
   | "generated"
   | "started"
   | "generation_started"
+  | "section_generated"
   | "file_generated"
   | "error";
+
+export type Phase2Section = ExecutionFileCode;
+
+export type Phase3Section =
+  | "organic_reels_1"
+  | "organic_reels_2"
+  | "organic_reels_3"
+  | "organic_reels_4"
+  | "organic_carousels_1"
+  | "organic_carousels_2"
+  | "organic_feed_posts_1"
+  | "organic_feed_posts_2"
+  | "stories_education_1"
+  | "stories_education_2"
+  | "stories_conversion_1"
+  | "stories_conversion_2"
+  | "ads"
+  | "calendar";
+
+export type MasterTable = "organic_master" | "story_master" | "ads_master";
+export type MasterRow = OrganicMasterRow | StoryMasterRow | AdsMasterRow;
 
 export interface Phase1Result {
   ok: boolean;
@@ -185,6 +250,8 @@ export interface Phase2Result {
   error?: string;
   data?: Record<string, unknown>;
 }
+
+export type Phase3Result = Phase2Result;
 
 /** @deprecated use Phase1Result */
 export type Phase1StubResult = Phase1Result;

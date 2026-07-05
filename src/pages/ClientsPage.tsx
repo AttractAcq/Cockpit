@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState, Icon } from "@/components/primitives";
 import { Button } from "@/components/primitives";
-import { fetchClients, createClient, generateSlug } from "@/lib/api";
+import { fetchClients, createClient, generateSlug, fetchStage3StatusMap } from "@/lib/api";
 import type { Client, PackageTier } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
+import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
 
 const TIERS: PackageTier[] = ["proof_sprint", "proof_brand", "proof_brand_scale"];
 
@@ -15,9 +16,10 @@ function StagePill({ status }: { status: string }) {
     running:  "bg-warn/10 text-warn",
     complete: "bg-teal/10 text-teal",
     error:    "bg-neg/10 text-neg",
+    needs_review: "bg-warn/10 text-warn",
   };
   const labels: Record<string, string> = {
-    not_run: "Not Run", running: "Running", complete: "Complete", error: "Error",
+    not_run: "Not Run", running: "Running", complete: "Complete", error: "Error", needs_review: "Needs Review",
   };
   return (
     <span className={`text-2xs font-mono px-1.5 py-0.5 rounded ${styles[status] ?? "bg-ink-100 text-paper-3"}`}>
@@ -141,18 +143,46 @@ export function ClientsPage() {
   const [error, setError]         = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [filterTier, setFilterTier] = useState<PackageTier | "all">("all");
-  const [filterS1, setFilterS1]   = useState<"all" | "not_run" | "complete">("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [stage3Statuses, setStage3Statuses] = useState<Record<string, Stage3Status>>({});
+  const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    fetchClients()
-      .then(setClients)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextClients, nextStage3] = await Promise.all([fetchClients(), fetchStage3StatusMap(currentExecutionMonth())]);
+      setClients(nextClients); setStage3Statuses(nextStage3);
+    }
+    catch (loadError) { setError(loadError instanceof Error ? loadError.message : String(loadError)); }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    function reload() { void load(); }
+    window.addEventListener("aa:reload", reload);
+    return () => window.removeEventListener("aa:reload", reload);
+  }, [load]);
 
   const filtered = clients.filter((c) => {
     if (filterTier !== "all" && c.package_tier !== filterTier) return false;
-    if (filterS1   !== "all" && c.stage1_status !== filterS1)  return false;
+    const stage3 = stage3Statuses[c.id] ?? "not_run";
+    if (stageFilter === "stage1_not_run" && c.stage1_status !== "not_run") return false;
+    if (stageFilter === "stage1_complete" && c.stage1_status !== "complete") return false;
+    if (stageFilter === "stage2_not_run" && c.stage2_status !== "not_run") return false;
+    if (stageFilter === "stage2_complete" && c.stage2_status !== "complete") return false;
+    if (stageFilter === "stage3_not_run" && stage3 !== "not_run") return false;
+    if (stageFilter === "stage3_needs_review" && stage3 !== "needs_review") return false;
+    if (stageFilter === "stage3_complete" && stage3 !== "complete") return false;
+    const needle = query.trim().toLocaleLowerCase();
+    if (needle) {
+      const searchable = [
+        c.name, c.slug, c.status, TL[c.package_tier], c.geography,
+        c.primary_platform, c.secondary_platform, c.stage1_status, c.stage2_status, stage3,
+      ].filter(Boolean).join(" ").toLocaleLowerCase();
+      if (!searchable.includes(needle)) return false;
+    }
     return true;
   });
 
@@ -186,7 +216,7 @@ export function ClientsPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Icon name="filter" size={12} className="text-paper-3" />
             <span className="text-2xs text-paper-3 uppercase tracking-cap">Filter</span>
@@ -199,14 +229,31 @@ export function ClientsPage() {
             <option value="all">All Tiers</option>
             {TIERS.map((t) => <option key={t} value={t}>{TL[t]}</option>)}
           </select>
+          <label className="relative ml-auto min-w-[240px] max-w-sm flex-1">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-paper-3"><Icon name="search" size={12} /></span>
+            <input
+              aria-label="Search client list"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search name, status, offer, geography…"
+              className="w-full rounded border border-line bg-ink-200 py-1 pl-8 pr-7 text-xs text-paper outline-none placeholder:text-paper-3 focus:border-line-2"
+            />
+            {query && <button aria-label="Clear client search" onClick={() => setQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-paper-3 hover:text-paper">×</button>}
+          </label>
           <select
-            value={filterS1}
-            onChange={(e) => setFilterS1(e.target.value as "all" | "not_run" | "complete")}
+            aria-label="Filter clients by stage"
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
             className="bg-ink-200 border border-line rounded px-2 py-1 text-xs text-paper outline-none"
           >
-            <option value="all">All Stage 1</option>
-            <option value="not_run">Stage 1 Not Run</option>
-            <option value="complete">Stage 1 Complete</option>
+            <option value="all">All Clients</option>
+            <option value="stage1_not_run">Stage 1 Not Run</option>
+            <option value="stage1_complete">Stage 1 Complete</option>
+            <option value="stage2_not_run">Stage 2 Not Run</option>
+            <option value="stage2_complete">Stage 2 Complete</option>
+            <option value="stage3_not_run">Stage 3 Not Run</option>
+            <option value="stage3_needs_review">Stage 3 Needs Review</option>
+            <option value="stage3_complete">Stage 3 Complete</option>
           </select>
         </div>
 
@@ -215,7 +262,7 @@ export function ClientsPage() {
           <EmptyState
             icon="users"
             title="No clients found"
-            body={clients.length === 0 ? "Create your first client." : "No clients match the current filters."}
+            body={clients.length === 0 ? "Create your first client." : "No clients match the current search and filters."}
             action={
               clients.length === 0 ? (
                 <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
@@ -229,7 +276,7 @@ export function ClientsPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-line">
-                  {["Name", "Tier", "Stage 1", "Stage 2", "Health", "Status"].map((h) => (
+                  {["Name", "Tier", "Stage 1", "Stage 2", "Stage 3", "Health", "Status"].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-left text-2xs uppercase tracking-cap text-paper-3 font-medium">
                       {h}
                     </th>
@@ -252,6 +299,7 @@ export function ClientsPage() {
                     <td className="px-3 py-2.5 text-paper-2 text-2xs">{TL[c.package_tier]}</td>
                     <td className="px-3 py-2.5"><StagePill status={c.stage1_status} /></td>
                     <td className="px-3 py-2.5"><StagePill status={c.stage2_status} /></td>
+                    <td className="px-3 py-2.5"><StagePill status={stage3Statuses[c.id] ?? "not_run"} /></td>
                     <td className="px-3 py-2.5">
                       <span className={`font-mono text-xs ${
                         c.health_score >= 70 ? "text-teal" : c.health_score >= 40 ? "text-warn" : "text-neg"

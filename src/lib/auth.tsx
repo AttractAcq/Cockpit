@@ -46,10 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       if (s?.user) {
-        loadRole(s.user.id);
+        // A token refresh does not change authorization. Keeping the existing
+        // role avoids unmounting the authenticated shell during global reload.
+        if (event !== "TOKEN_REFRESHED") loadRole(s.user.id);
       } else {
         setRole(null);
         setRoleLoading(false);
