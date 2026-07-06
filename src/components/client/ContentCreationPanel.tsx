@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import { MarkdownPreview } from "./ExecutionFilesPanel";
 import { assignProductionBriefToContractor, createContractor, fetchAssignmentsForBrief, fetchContractors, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, logActivity, updateProductionBrief, updateProductionBriefReviewState } from "@/lib/api";
@@ -190,6 +191,7 @@ export function ProductionBriefModal({ initialBrief, onClose, onUpdated, onAssig
 }
 
 export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }: { clientId: string; executionMonth: string; onViewAssets?: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [briefs, setBriefs] = useState<ProductionBriefRow[]>([]);
   const [latestAssignments, setLatestAssignments] = useState<Record<string, ContractorAssignmentRow | undefined>>({});
   const [open, setOpen] = useState<ProductionBriefRow | null>(null);
@@ -197,6 +199,14 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => { setLoading(true); setError(null); try { const next = await fetchProductionBriefs(clientId, executionMonth); setBriefs(next); const histories = await Promise.all(next.map((brief) => fetchAssignmentsForBrief(brief.id))); setLatestAssignments(Object.fromEntries(next.map((brief, index) => [brief.id, histories[index][0]]))); } catch (value) { setError(errorText(value)); } finally { setLoading(false); } }, [clientId, executionMonth]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const sourceRef = searchParams.get("source_ref");
+    if (!sourceRef || !briefs.length) return;
+    const match = briefs.find((brief) => brief.source_ref === sourceRef);
+    if (!match) return;
+    setOpen(match);
+    setSearchParams({}, { replace: true });
+  }, [briefs, searchParams, setSearchParams]);
   const counts = useMemo(() => ({ approved: briefs.filter((brief) => brief.status === "approved").length, review: briefs.filter((brief) => brief.status === "needs_review").length }), [briefs]);
   function accept(next: ProductionBriefRow) { setBriefs((current) => current.map((brief) => brief.id === next.id ? next : brief)); setOpen(next); }
   if (loading && !briefs.length) return <div className="p-6 text-xs text-paper-3">Loading production briefs…</div>;

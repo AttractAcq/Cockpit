@@ -257,7 +257,7 @@ export interface ClientAssetRow {
   client_id: string;
   production_brief_id: string;
   source_ref: string;
-  asset_format: Exclude<AssetFormat, "reel_video">;
+  asset_format: AssetFormat;
   asset_group_ref: string;
   sequence_index: number;
   title: string | null;
@@ -274,6 +274,7 @@ export interface ClientAssetRow {
   created_at: string;
   updated_at: string;
   signed_url?: string | null;
+  production_brief?: Pick<ProductionBriefRow, "production_mode" | "source_table" | "source_row_id"> | null;
 }
 
 export interface AiAssetGenerationResult {

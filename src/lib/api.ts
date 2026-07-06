@@ -1124,17 +1124,34 @@ async function addSignedAssetUrls(rows: ClientAssetRow[]): Promise<ClientAssetRo
 }
 
 export async function fetchClientAssets(clientId: string): Promise<ClientAssetRow[]> {
-  const { data, error } = await supabase.from("client_assets").select("*")
+  const { data, error } = await supabase.from("client_assets")
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)")
     .eq("client_id", clientId).order("created_at", { ascending: false }).order("sequence_index");
   if (error) throw error;
   return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
 }
 
 export async function fetchAssetsForBrief(productionBriefId: string): Promise<ClientAssetRow[]> {
-  const { data, error } = await supabase.from("client_assets").select("*")
+  const { data, error } = await supabase.from("client_assets")
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)")
     .eq("production_brief_id", productionBriefId).order("created_at", { ascending: false }).order("sequence_index");
   if (error) throw error;
   return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
+}
+
+export async function updateClientAssetGroupStatus(
+  clientId: string,
+  assetGroupRef: string,
+  status: ReviewState,
+): Promise<ClientAssetRow[]> {
+  const { data, error } = await supabase.from("client_assets")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("client_id", clientId)
+    .eq("asset_group_ref", assetGroupRef)
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)");
+  if (error) throw error;
+  if (!data?.length) throw new Error(`Asset group ${assetGroupRef} was not found or could not be updated.`);
+  return addSignedAssetUrls(data as ClientAssetRow[]);
 }
 
 const REVIEW_TABLES = [

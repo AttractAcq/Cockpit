@@ -598,7 +598,7 @@ export function ClientDetailPage() {
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "assets":
-        return <AssetsPanel clientId={id} />;
+        return <AssetsPanel clientId={id} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (
