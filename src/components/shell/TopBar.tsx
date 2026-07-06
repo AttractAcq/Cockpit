@@ -4,7 +4,7 @@ import { Icon, Kbd } from "@/components/primitives";
 import { NAV_ITEMS, ROUTES } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
 import { fetchClients } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { getActiveEdgeOperations, supabase } from "@/lib/supabase";
 import type { Client } from "@/types/client";
 import { TIER_LABELS } from "@/types/client";
 
@@ -21,6 +21,7 @@ export function TopBar() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [reloadState, setReloadState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [edgeState, setEdgeState] = useState<{ active: number; message: string | null; failed: boolean }>({ active: getActiveEdgeOperations().length, message: null, failed: false });
 
   const navItem = NAV_ITEMS.find((n) => location.pathname.startsWith(n.path));
   const isSettings = location.pathname.startsWith(ROUTES.settings);
@@ -84,6 +85,24 @@ export function TopBar() {
   useEffect(() => {
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
+  }, []);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    function update(event: Event) {
+      const detail = (event as CustomEvent<{ active?: unknown[]; event?: string; operation?: { functionName?: string }; message?: string }>).detail;
+      const active = detail?.active?.length ?? getActiveEdgeOperations().length;
+      if (timer) window.clearTimeout(timer);
+      if (active > 0) {
+        setEdgeState({ active, message: detail?.operation?.functionName ?? null, failed: false });
+      } else {
+        const failed = detail?.event === "failed";
+        setEdgeState({ active: 0, message: failed ? detail?.message ?? "Operation failed" : "Operation complete · Reload to refresh", failed });
+        timer = window.setTimeout(() => setEdgeState({ active: 0, message: null, failed: false }), failed ? 6000 : 3500);
+      }
+    }
+    window.addEventListener("aa:edge-operations", update);
+    return () => { window.removeEventListener("aa:edge-operations", update); if (timer) window.clearTimeout(timer); };
   }, []);
 
   useEffect(() => {
@@ -165,6 +184,7 @@ export function TopBar() {
 
       {/* Right side */}
       <div className="flex ml-auto items-center gap-3">
+        {(edgeState.active > 0 || edgeState.message) && <span className={`max-w-52 truncate font-mono text-2xs ${edgeState.failed ? "text-neg" : edgeState.active > 0 ? "text-warn" : "text-teal"}`} title={edgeState.message ?? undefined}>{edgeState.active > 0 ? `${edgeState.active} server operation${edgeState.active === 1 ? "" : "s"} running${edgeState.message ? ` · ${edgeState.message}` : ""}` : edgeState.message}</span>}
         <button
           onClick={() => void reloadApp()}
           disabled={reloadState === "loading"}

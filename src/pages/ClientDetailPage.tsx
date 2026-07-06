@@ -14,9 +14,9 @@ import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
 import { MastersPanel } from "@/components/client/MastersPanel";
 import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
 import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
-import { SopsLawsPanel } from "@/components/client/SopsLawsPanel";
 import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
 import { AssetsPanel } from "@/components/client/AssetsPanel";
+import { DistributionPanel } from "@/components/client/DistributionPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -32,12 +32,14 @@ type Section =
   | "content_creation"
   | "automations"
   | "assets"
-  | "analytics"
-  | "sops"
+  | "distribution"
+  | "analysis"
+  | "archive"
   | "activity";
 
 const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Overview",         section: "overview" },
+  { label: "Automations",      section: "automations" },
   { label: "Pipeline",         section: "pipeline" },
   { label: "Context Inputs",   section: "context_inputs" },
   { label: "Context Files",    section: "context_files" },
@@ -45,10 +47,10 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Masters",          section: "masters" },
   { label: "Calendar",         section: "calendar" },
   { label: "Content Creation", section: "content_creation" },
-  { label: "Automations",      section: "automations" },
   { label: "Assets",           section: "assets" },
-  { label: "Analytics",        section: "analytics" },
-  { label: "SOPs / Laws",      section: "sops" },
+  { label: "Distribution",     section: "distribution" },
+  { label: "Analysis",         section: "analysis" },
+  { label: "Archive",          section: "archive" },
   { label: "Activity Log",     section: "activity" },
 ];
 
@@ -95,7 +97,8 @@ function PlaceholderSection({
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   pipeline:    { title: "Pipeline",        description: "9-stage daily entry grid. Manual first." },
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-  analytics:   { title: "Analytics",       description: "Pipeline trends, content performance, proof signals." },
+  analysis: { title: "Analysis", description: "Post performance, profile visits, engagement, enquiries, and iteration signals will appear here when connected." },
+  archive: { title: "Archive", description: "Archived briefs, assets, old runs, rejected items, and inactive records will be available here." },
 };
 
 type PhaseResult =
@@ -233,7 +236,7 @@ function PhaseResultBanner({
 }
 
 export function ClientDetailPage() {
-  const { id, section = "calendar" } = useParams<{
+  const { id, section = "overview" } = useParams<{
     id: string;
     section?: string;
   }>();
@@ -258,7 +261,13 @@ export function ClientDetailPage() {
   const [contextFiles, setContextFiles] = useState<ClientContextFile[]>([]);
   const [executionFiles, setExecutionFiles] = useState<ClientExecutionFile[]>([]);
 
-  const activeSection = (section as Section) ?? "calendar";
+  const requestedSection = section === "sops" ? "execution_files" : section === "analytics" ? "analysis" : section;
+  const activeSection: Section = BUTTON_BAR.some((item) => item.section === requestedSection) ? requestedSection as Section : "overview";
+
+  useEffect(() => {
+    if (!id || section === activeSection) return;
+    navigate(ROUTES.clientSection(id, activeSection), { replace: true });
+  }, [activeSection, id, navigate, section]);
 
   useEffect(() => {
     if (!id) return;
@@ -589,8 +598,6 @@ export function ClientDetailPage() {
         return <ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} />;
       case "masters":
         return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
-      case "sops":
-        return <SopsLawsPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} />;
       case "activity":
         return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
@@ -598,7 +605,9 @@ export function ClientDetailPage() {
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "assets":
-        return <AssetsPanel clientId={id} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
+        return <AssetsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
+      case "distribution":
+        return <DistributionPanel clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (

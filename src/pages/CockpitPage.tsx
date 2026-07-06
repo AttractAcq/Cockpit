@@ -8,6 +8,7 @@ import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
 import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
+import { ContractorManagerModal } from "@/components/ContractorManagerModal";
 
 function HealthBadge({ score }: { score: number }) {
   const colour =
@@ -42,6 +43,7 @@ export function CockpitPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stage3Statuses, setStage3Statuses] = useState<Record<string, Stage3Status>>({});
+  const [contractorsOpen, setContractorsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -80,6 +82,7 @@ export function CockpitPage() {
 
   return (
     <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
+      <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => setContractorsOpen(true)}>Manage Contractors</Button></div>
       {/* System Readiness Band */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
@@ -183,6 +186,7 @@ export function CockpitPage() {
           )}
         </Panel>
       </div>
+      {contractorsOpen && <ContractorManagerModal onClose={() => setContractorsOpen(false)} />}
     </div>
   );
 }

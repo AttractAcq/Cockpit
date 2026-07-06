@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import {
   fetchAdsMasterRows,
   fetchCalendarCells,
+  fetchEffectiveStageMap,
   fetchProductionBriefBySourceRef,
   fetchOrganicMasterRows,
   fetchStoryMasterRows,
   generateProductionBrief,
   logActivity,
+  transitionMasterToContentCreation,
   updateMasterRow,
   updateMasterReviewState,
+  type EffectiveStageEntry,
 } from "@/lib/api";
+import { ROUTES } from "@/lib/constants";
+import { isPassedThrough } from "@/lib/pipeline";
 import { masterDate, masterType, proofRisk, qaFlags, type QaFlag } from "@/lib/stage3Review";
 import type { CalendarCellRow, MasterRow, MasterTable, ProductionBriefRow } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
 import { ProductionBriefModal } from "./ContentCreationPanel";
+import { PassedThroughDrawer } from "./PassedThroughDrawer";
 
 const TABLE_LABEL: Record<MasterTable, string> = {
   organic_master: "Organic",
@@ -56,13 +63,14 @@ function valueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
 }
 
-export function MasterContentModal({ table, initialRow, cells, onClose, onUpdated, onApproveNext }: {
+export function MasterContentModal({ table, initialRow, cells, onClose, onUpdated, onApproveNext, onProgressed }: {
   table: MasterTable;
   initialRow: MasterRow;
   cells?: CalendarCellRow[];
   onClose: () => void;
   onUpdated?: (table: MasterTable, row: MasterRow) => void;
   onApproveNext?: (table: MasterTable, row: MasterRow) => void;
+  onProgressed?: () => void;
 }) {
   const [row, setRow] = useState(initialRow);
   const [editing, setEditing] = useState(false);
@@ -128,6 +136,7 @@ export function MasterContentModal({ table, initialRow, cells, onClose, onUpdate
   }
 
   async function generateBrief() {
+    const isFirstBrief = !brief;
     const confirmation = brief
       ? "Regenerate this production brief? Existing markdown will be replaced and returned to needs_review."
       : "Generate a production brief for this asset?";
@@ -137,6 +146,21 @@ export function MasterContentModal({ table, initialRow, cells, onClose, onUpdate
       const next = await generateProductionBrief({ clientId: row.client_id, executionMonth: row.month, sourceTable: table, sourceRowId: row.id, sourceRef: row.ref });
       setBrief(next); setBriefOpen(true);
       setNotice({ error: false, message: `Production brief ${brief ? "regenerated" : "generated"}.` });
+      // First brief moves this ref out of the active Masters list into Content
+      // Creation. Only on first generation — regenerating must never regress a
+      // ref that has already advanced to assets/distribution. Best-effort: the
+      // brief already committed; visibility stays correct via presence anyway.
+      if (isFirstBrief) {
+        try {
+          await transitionMasterToContentCreation({
+            clientId: row.client_id, executionMonth: row.month, sourceRef: row.ref,
+            sourceTable: table, sourceRowId: row.id, title: titleFor(row),
+            assetFormat: next.asset_format, productionBriefId: next.id,
+            masterSnapshot: row as unknown as Record<string, unknown>,
+          });
+          onProgressed?.();
+        } catch { /* non-fatal — presence derivation keeps the tab correct */ }
+      }
     } catch (error) { setNotice({ error: true, message: errorText(error) }); }
     finally { setBriefBusy(false); }
   }
@@ -165,8 +189,11 @@ function MasterCard({ table, row, flags, selected, onSelected, onOpen, updating,
 }
 
 export function MastersPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<Array<{ table: MasterTable; row: MasterRow }>>([]);
   const [cells, setCells] = useState<CalendarCellRow[]>([]);
+  const [stageMap, setStageMap] = useState<Map<string, EffectiveStageEntry>>(new Map());
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -183,15 +210,22 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [organic, stories, ads, calendar] = await Promise.all([fetchOrganicMasterRows(clientId, executionMonth), fetchStoryMasterRows(clientId, executionMonth), fetchAdsMasterRows(clientId, executionMonth), fetchCalendarCells(clientId, executionMonth)]);
+      const [organic, stories, ads, calendar, stages] = await Promise.all([fetchOrganicMasterRows(clientId, executionMonth), fetchStoryMasterRows(clientId, executionMonth), fetchAdsMasterRows(clientId, executionMonth), fetchCalendarCells(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth)]);
       setRows([...organic.map((row) => ({ table: "organic_master" as const, row })), ...stories.map((row) => ({ table: "story_master" as const, row })), ...ads.map((row) => ({ table: "ads_master" as const, row }))]);
       setCells(calendar);
+      setStageMap(stages);
     } catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
   useEffect(() => { void load(); }, [load]);
+  const refreshStages = useCallback(async () => {
+    try { setStageMap(await fetchEffectiveStageMap(clientId, executionMonth)); } catch { /* keep last map */ }
+  }, [clientId, executionMonth]);
 
-  const assessed = useMemo(() => rows.map((item) => ({ ...item, flags: qaFlags(item.table, item.row, cells) })), [rows, cells]);
+  const passedThroughEntries = useMemo(() => [...stageMap.values()].filter((entry) => isPassedThrough(entry.stage, "master")), [stageMap]);
+  const assessed = useMemo(() => rows
+    .filter((item) => { const entry = stageMap.get(item.row.ref); return !entry || !isPassedThrough(entry.stage, "master"); })
+    .map((item) => ({ ...item, flags: qaFlags(item.table, item.row, cells) })), [rows, cells, stageMap]);
   const types = useMemo(() => [...new Set(assessed.map(({ table, row }) => masterType(table, row)))].sort(), [assessed]);
   const filtered = useMemo(() => assessed.filter((item) => {
     const date = masterDate(item.row);
@@ -231,7 +265,7 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   }
 
   if (loading && rows.length === 0) return <div className="p-6 text-xs text-paper-3">Loading Phase 3 masters…</div>;
-  return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4"><div className="shrink-0 rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex flex-wrap gap-4 text-xs"><span className="text-paper">{rows.length} master rows</span><span className="text-teal">{approved} approved</span><span className="text-warn">{rows.length - approved} require review</span><span className={blocking ? "text-neg" : "text-teal"}>{blocking} blocking QA flags</span><span className="text-paper-3">{filtered.length} shown</span></div></div>
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4"><div className="shrink-0 rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex flex-wrap items-center gap-4 text-xs"><span className="text-paper">{rows.length} master rows</span><span className="text-teal">{approved} approved</span><span className="text-warn">{rows.length - approved} require review</span><span className={blocking ? "text-neg" : "text-teal"}>{blocking} blocking QA flags</span><span className="text-paper-3">{filtered.length} active shown</span><Button size="sm" variant="ghost" className="ml-auto" disabled={!passedThroughEntries.length} onClick={() => setDrawerOpen(true)}>Archived / Passed Through{passedThroughEntries.length ? ` (${passedThroughEntries.length})` : ""}</Button></div></div>
     <div className="shrink-0 rounded-[10px] border border-line bg-ink-200 p-3"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or content…" className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50 xl:col-span-2" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All content types</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select value={proofFilter} onChange={(event) => setProofFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All proof risk</option><option value="risk">Proof review required</option><option value="clear">No proof flags</option></select><div className="flex gap-1"><input aria-label="From date" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /><input aria-label="To date" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /></div></div><div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" variant="ghost" onClick={() => setSelected(new Set(filtered.map(({ row }) => row.id)))}>Select shown</Button><Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>Clear selection</Button><span className="text-2xs text-paper-3">{selected.size} selected</span><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => void bulkReview("approved")}>Bulk approve</Button><Button size="sm" variant="danger" disabled={!selected.size || updating} onClick={() => void bulkReview("rejected")}>Bulk reject</Button></div></div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}{(["organic_master", "story_master", "ads_master"] as MasterTable[]).map((table) => {
     const items = grouped[table];
@@ -246,5 +280,6 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
       </button>
       {expanded[table] && <div className="border-t border-line">{items.length ? items.map(({ row, flags }) => <MasterCard key={row.id} table={table} row={row} flags={flags} selected={selected.has(row.id)} onSelected={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} updating={updating} onOpen={() => setOpen({ table, row })} onApprove={() => void approve(table, row)} />) : <div className="px-4 py-6 text-xs text-paper-3">No rows match the current filters.</div>}</div>}
     </section>;
-  })}{open && <MasterContentModal key={`${open.table}:${open.row.id}`} table={open.table} initialRow={open.row} cells={cells} onClose={() => setOpen(null)} onUpdated={accept} onApproveNext={approveNext} />}</div>;
+  })}{open && <MasterContentModal key={`${open.table}:${open.row.id}`} table={open.table} initialRow={open.row} cells={cells} onClose={() => setOpen(null)} onUpdated={accept} onApproveNext={approveNext} onProgressed={() => { void refreshStages(); window.dispatchEvent(new Event("aa:reload")); }} />}
+    {drawerOpen && <PassedThroughDrawer tabStage="master" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}</div>;
 }

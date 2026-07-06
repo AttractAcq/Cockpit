@@ -11,6 +11,7 @@
 //   campaigns    : daily_budget_cents/100→budget_daily + spend/perf defaults
 //   automations  : status/last_run_at → Automation shape
 import { supabase, invokeFn } from "./supabase";
+import { stageRank } from "./pipeline";
 import type { PulseMetric } from "@/types";
 
 // Helper: normalise entity_name from Supabase FK join
@@ -563,6 +564,7 @@ import type {
   Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section,
   MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
+  PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -1053,6 +1055,7 @@ export interface CreateContractorInput {
   role?: string | null;
   specialties?: string[];
   notes?: string | null;
+  active?: boolean;
 }
 
 export async function createContractor(input: CreateContractorInput): Promise<ContractorRow> {
@@ -1062,8 +1065,29 @@ export async function createContractor(input: CreateContractorInput): Promise<Co
     role: input.role?.trim() || null,
     specialties: (input.specialties ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean),
     notes: input.notes?.trim() || null,
-    active: true,
+    active: input.active ?? true,
   }).select("*").single();
+  if (error) throw error;
+  return data as ContractorRow;
+}
+
+export async function updateContractor(contractorId: string, input: CreateContractorInput): Promise<ContractorRow> {
+  const { data, error } = await supabase.from("contractors").update({
+    name: input.name.trim(),
+    email: input.email.trim().toLowerCase(),
+    role: input.role?.trim() || null,
+    specialties: (input.specialties ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean),
+    notes: input.notes?.trim() || null,
+    active: input.active ?? true,
+    updated_at: new Date().toISOString(),
+  }).eq("id", contractorId).select("*").single();
+  if (error) throw error;
+  return data as ContractorRow;
+}
+
+export async function deactivateContractor(contractorId: string): Promise<ContractorRow> {
+  const { data, error } = await supabase.from("contractors").update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", contractorId).select("*").single();
   if (error) throw error;
   return data as ContractorRow;
 }
@@ -1176,4 +1200,500 @@ export async function updateReviewState(
     .update({ [column]: reviewState, updated_at: new Date().toISOString() })
     .eq("id", rowId);
   if (error) throw error;
+}
+
+// ── PHASE H1: PIPELINE STATE + ARCHIVE SNAPSHOTS ─────────────────────────────
+// The lifecycle spine after Phase 3:
+//   master → content_creation → assets → distribution → analytics → analysis
+//   → completed → archived
+// Records stay in their source tables (organic_master, client_production_briefs,
+// client_assets, …). `client_asset_pipeline_state` records which stage a ref is
+// ACTIVE in; `client_asset_archive_snapshots` is an append-only memory of the
+// data a ref held in each stage it has left. Nothing here deletes or moves a
+// source row. Tab visibility is NOT changed by H1 — that is H2.
+
+const PIPELINE_STATE_TABLE = "client_asset_pipeline_state";
+const ARCHIVE_SNAPSHOT_TABLE = "client_asset_archive_snapshots";
+
+/** Every real transition writes a snapshot except these two terminal states. */
+export function isSnapshotStage(stage: PipelineStage): stage is ArchiveStage {
+  return stage !== "completed" && stage !== "archived";
+}
+
+export async function fetchPipelineState(clientId: string, executionMonth: string): Promise<PipelineStateRow[]> {
+  const { data, error } = await supabase
+    .from(PIPELINE_STATE_TABLE)
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("execution_month", executionMonth)
+    .order("source_ref");
+  if (error) throw error;
+  return (data ?? []) as PipelineStateRow[];
+}
+
+export async function fetchPipelineStateByRef(
+  clientId: string,
+  executionMonth: string,
+  sourceRef: string,
+): Promise<PipelineStateRow | null> {
+  const { data, error } = await supabase
+    .from(PIPELINE_STATE_TABLE)
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("execution_month", executionMonth)
+    .eq("source_ref", sourceRef)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as PipelineStateRow | null) ?? null;
+}
+
+export interface UpsertPipelineStateInput {
+  clientId: string;
+  executionMonth: string;
+  sourceRef: string;
+  currentStage: PipelineStage;
+  previousStage?: PipelineStage | null;
+  assetGroupRef?: string | null;
+  productionBriefId?: string | null;
+  title?: string | null;
+  assetFormat?: string | null;
+  active?: boolean;
+  transitionReason?: string | null;
+  /** Merged into (not replacing) the stored metadata jsonb. */
+  metadata?: Record<string, unknown>;
+  /** When true, `stage_entered_at` is reset to now (a genuine stage change). */
+  stageChanged?: boolean;
+}
+
+/**
+ * Insert-or-update the single pipeline-state row for a ref. Keyed on the
+ * (client_id, execution_month, source_ref) unique constraint. Existing metadata
+ * is merged so callers never clobber another stage's context.
+ */
+export async function upsertPipelineState(input: UpsertPipelineStateInput): Promise<PipelineStateRow> {
+  const existing = await fetchPipelineStateByRef(input.clientId, input.executionMonth, input.sourceRef);
+  const now = new Date().toISOString();
+  const stageChanged = input.stageChanged ?? (!!existing && existing.current_stage !== input.currentStage);
+  const mergedMetadata = { ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) };
+
+  const row: Record<string, unknown> = {
+    client_id: input.clientId,
+    execution_month: input.executionMonth,
+    source_ref: input.sourceRef,
+    current_stage: input.currentStage,
+    previous_stage: input.previousStage ?? existing?.previous_stage ?? null,
+    asset_group_ref: input.assetGroupRef ?? existing?.asset_group_ref ?? null,
+    production_brief_id: input.productionBriefId ?? existing?.production_brief_id ?? null,
+    title: input.title ?? existing?.title ?? null,
+    asset_format: input.assetFormat ?? existing?.asset_format ?? null,
+    active: input.active ?? existing?.active ?? true,
+    transition_reason: input.transitionReason ?? existing?.transition_reason ?? null,
+    metadata: mergedMetadata,
+    last_transition_at: now,
+    updated_at: now,
+    stage_entered_at: stageChanged || !existing ? now : existing.stage_entered_at,
+  };
+
+  const { data, error } = await supabase
+    .from(PIPELINE_STATE_TABLE)
+    .upsert(row, { onConflict: "client_id,execution_month,source_ref" })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as PipelineStateRow;
+}
+
+export async function fetchArchiveSnapshots(clientId: string, executionMonth: string): Promise<ArchiveSnapshotRow[]> {
+  const { data, error } = await supabase
+    .from(ARCHIVE_SNAPSHOT_TABLE)
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("execution_month", executionMonth)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ArchiveSnapshotRow[];
+}
+
+export async function fetchArchiveSnapshotsByRef(
+  clientId: string,
+  executionMonth: string,
+  sourceRef: string,
+): Promise<ArchiveSnapshotRow[]> {
+  const { data, error } = await supabase
+    .from(ARCHIVE_SNAPSHOT_TABLE)
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("execution_month", executionMonth)
+    .eq("source_ref", sourceRef)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ArchiveSnapshotRow[];
+}
+
+export interface CreateArchiveSnapshotInput {
+  clientId: string;
+  executionMonth: string;
+  sourceRef: string;
+  stage: ArchiveStage;
+  sourceTable: string;
+  snapshotData: Record<string, unknown>;
+  assetGroupRef?: string | null;
+  title?: string | null;
+  assetFormat?: string | null;
+  sourceRowId?: string | null;
+  snapshotMd?: string | null;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+/** Append an immutable snapshot. Never updates or deletes an existing snapshot. */
+export async function createArchiveSnapshot(input: CreateArchiveSnapshotInput): Promise<ArchiveSnapshotRow> {
+  const { data, error } = await supabase
+    .from(ARCHIVE_SNAPSHOT_TABLE)
+    .insert({
+      client_id: input.clientId,
+      execution_month: input.executionMonth,
+      source_ref: input.sourceRef,
+      asset_group_ref: input.assetGroupRef ?? null,
+      stage: input.stage,
+      title: input.title ?? null,
+      asset_format: input.assetFormat ?? null,
+      source_table: input.sourceTable,
+      source_row_id: input.sourceRowId ?? null,
+      snapshot_data: input.snapshotData,
+      snapshot_md: input.snapshotMd ?? null,
+      snapshot_reason: input.reason ?? null,
+      metadata: input.metadata ?? {},
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ArchiveSnapshotRow;
+}
+
+export interface TransitionAssetStageInput {
+  clientId: string;
+  executionMonth: string;
+  sourceRef: string;
+  fromStage: ArchiveStage;
+  toStage: PipelineStage;
+  /** Immutable snapshot of the stage being LEFT (`fromStage`). */
+  sourceTable: string;
+  snapshotData: Record<string, unknown>;
+  assetGroupRef?: string | null;
+  productionBriefId?: string | null;
+  sourceRowId?: string | null;
+  title?: string | null;
+  assetFormat?: string | null;
+  snapshotMd?: string | null;
+  reason?: string | null;
+  /** Merged into pipeline-state metadata. */
+  metadata?: Record<string, unknown>;
+}
+
+export interface TransitionAssetStageResult {
+  state: PipelineStateRow;
+  snapshot: ArchiveSnapshotRow;
+}
+
+/**
+ * Advance a ref from one stage to the next:
+ *   1. Append an immutable snapshot of the stage being left (`fromStage`).
+ *   2. Upsert pipeline state to `toStage` (previous_stage = fromStage).
+ *   3. Leave every source row untouched in its own table.
+ *
+ * The snapshot is written first: it is append-only, so an orphan snapshot from a
+ * failed state upsert is harmless, whereas advancing state without a snapshot
+ * would lose lifecycle memory. Callers pass `snapshotData` — the frontend never
+ * mutates the source content, it only copies it.
+ */
+export async function transitionAssetStage(input: TransitionAssetStageInput): Promise<TransitionAssetStageResult> {
+  const snapshot = await createArchiveSnapshot({
+    clientId: input.clientId,
+    executionMonth: input.executionMonth,
+    sourceRef: input.sourceRef,
+    stage: input.fromStage,
+    sourceTable: input.sourceTable,
+    snapshotData: input.snapshotData,
+    assetGroupRef: input.assetGroupRef,
+    title: input.title,
+    assetFormat: input.assetFormat,
+    sourceRowId: input.sourceRowId,
+    snapshotMd: input.snapshotMd,
+    reason: input.reason,
+  });
+
+  const state = await upsertPipelineState({
+    clientId: input.clientId,
+    executionMonth: input.executionMonth,
+    sourceRef: input.sourceRef,
+    currentStage: input.toStage,
+    previousStage: input.fromStage,
+    assetGroupRef: input.assetGroupRef,
+    productionBriefId: input.productionBriefId,
+    title: input.title,
+    assetFormat: input.assetFormat,
+    transitionReason: input.reason,
+    metadata: input.metadata,
+    stageChanged: true,
+  });
+
+  return { state, snapshot };
+}
+
+// ── PIPELINE RECONCILIATION (non-destructive) ────────────────────────────────
+// Derives the stage a ref *should* be in from records that already exist. H1
+// provides this but never runs a bulk migration: state is created lazily (on
+// fetch or transition), and reconciliation never downgrades a more-advanced row.
+
+export interface StagePresence {
+  hasPublishedAnalytics?: boolean;
+  hasDistribution?: boolean;
+  hasApprovedAsset?: boolean;
+  hasProducedAsset?: boolean;
+  hasProductionBrief?: boolean;
+  hasMaster?: boolean;
+}
+
+/** Pure derivation: highest reached stage wins. Returns null if nothing exists. */
+export function deriveCurrentStage(presence: StagePresence): PipelineStage | null {
+  if (presence.hasPublishedAnalytics) return "analytics";
+  if (presence.hasDistribution) return "distribution";
+  // An approved (not yet published) asset is distribution-ready; H3 will move it
+  // on. A merely-produced asset is still in review.
+  if (presence.hasApprovedAsset) return "distribution";
+  if (presence.hasProducedAsset) return "assets";
+  if (presence.hasProductionBrief) return "content_creation";
+  if (presence.hasMaster) return "master";
+  return null;
+}
+
+/**
+ * Read existing records for one ref and derive its stage without mutating any
+ * source data. Distribution/analytics presence is always false in H1 (those
+ * tables arrive in H3/H4).
+ */
+export async function derivePresenceForRef(
+  clientId: string,
+  executionMonth: string,
+  sourceRef: string,
+): Promise<StagePresence> {
+  const [master, brief, assets] = await Promise.all([
+    fetchMasterRowByRef(clientId, sourceRef).catch(() => null),
+    fetchProductionBriefBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
+    supabase.from("client_assets").select("status").eq("client_id", clientId).eq("source_ref", sourceRef),
+  ]);
+  const assetRows = (assets.data ?? []) as Array<{ status: ReviewState }>;
+  return {
+    hasMaster: !!master,
+    hasProductionBrief: !!brief,
+    hasProducedAsset: assetRows.length > 0,
+    hasApprovedAsset: assetRows.some((row) => row.status === "approved"),
+    hasDistribution: false,
+    hasPublishedAnalytics: false,
+  };
+}
+
+/**
+ * Lazily ensure a pipeline-state row exists for a ref. If one already exists it
+ * is returned unchanged (reconciliation never downgrades a manually-advanced
+ * row). If absent, derive the stage from existing records and create it. Returns
+ * null only when the ref has no records at all. Non-destructive by design; safe
+ * to call opportunistically when a tab loads a ref.
+ */
+export async function reconcilePipelineStateForRef(
+  clientId: string,
+  executionMonth: string,
+  sourceRef: string,
+  hints?: { assetGroupRef?: string | null; productionBriefId?: string | null; title?: string | null; assetFormat?: string | null },
+): Promise<PipelineStateRow | null> {
+  const existing = await fetchPipelineStateByRef(clientId, executionMonth, sourceRef);
+  if (existing) return existing;
+  const derived = deriveCurrentStage(await derivePresenceForRef(clientId, executionMonth, sourceRef));
+  if (!derived) return null;
+  return upsertPipelineState({
+    clientId,
+    executionMonth,
+    sourceRef,
+    currentStage: derived,
+    assetGroupRef: hints?.assetGroupRef ?? null,
+    productionBriefId: hints?.productionBriefId ?? null,
+    title: hints?.title ?? null,
+    assetFormat: hints?.assetFormat ?? null,
+    transitionReason: "reconciled_from_existing_records",
+    stageChanged: true,
+  });
+}
+
+// ── EFFECTIVE STAGE MAP (H2 tab visibility) ──────────────────────────────────
+// The stage a ref is *effectively* in = the higher of (a) its explicit pipeline
+// state and (b) the stage its existing records imply. This lets active-tab
+// filtering be correct for legacy refs that predate H1 (no state row) without
+// writing anything on read. Explicit transitions still record snapshots + state.
+
+export interface EffectiveStageEntry {
+  source_ref: string;
+  stage: PipelineStage;
+  state: PipelineStateRow | null;
+  title: string | null;
+  asset_format: string | null;
+  asset_group_ref: string | null;
+  production_brief_id: string | null;
+  has_production_brief: boolean;
+  has_produced_asset: boolean;
+  has_approved_asset: boolean;
+  updated_at: string;
+}
+
+export async function fetchEffectiveStageMap(
+  clientId: string,
+  executionMonth: string,
+): Promise<Map<string, EffectiveStageEntry>> {
+  const [state, briefs, assetsResult] = await Promise.all([
+    fetchPipelineState(clientId, executionMonth),
+    fetchProductionBriefs(clientId, executionMonth),
+    supabase
+      .from("client_assets")
+      .select("source_ref,status,asset_group_ref,title,asset_format,production_brief_id,updated_at")
+      .eq("client_id", clientId),
+  ]);
+  if (assetsResult.error) throw assetsResult.error;
+  const assets = (assetsResult.data ?? []) as Array<{
+    source_ref: string; status: ReviewState; asset_group_ref: string | null;
+    title: string | null; asset_format: string | null; production_brief_id: string | null; updated_at: string;
+  }>;
+
+  type Acc = Omit<EffectiveStageEntry, "stage">;
+  const acc = new Map<string, Acc>();
+  const ensure = (ref: string): Acc => {
+    let entry = acc.get(ref);
+    if (!entry) {
+      entry = {
+        source_ref: ref, state: null, title: null, asset_format: null, asset_group_ref: null,
+        production_brief_id: null, has_production_brief: false, has_produced_asset: false,
+        has_approved_asset: false, updated_at: "",
+      };
+      acc.set(ref, entry);
+    }
+    return entry;
+  };
+  const bump = (entry: Acc, ts: string | null | undefined) => { if (ts && ts > entry.updated_at) entry.updated_at = ts; };
+
+  for (const brief of briefs) {
+    const entry = ensure(brief.source_ref);
+    entry.has_production_brief = true;
+    entry.production_brief_id = entry.production_brief_id ?? brief.id;
+    entry.title = entry.title ?? brief.title;
+    entry.asset_format = entry.asset_format ?? brief.asset_format;
+    bump(entry, brief.updated_at);
+  }
+  for (const asset of assets) {
+    const entry = ensure(asset.source_ref);
+    entry.has_produced_asset = true;
+    if (asset.status === "approved") entry.has_approved_asset = true;
+    entry.asset_group_ref = entry.asset_group_ref ?? asset.asset_group_ref;
+    entry.production_brief_id = entry.production_brief_id ?? asset.production_brief_id;
+    entry.title = entry.title ?? asset.title;
+    entry.asset_format = entry.asset_format ?? asset.asset_format;
+    bump(entry, asset.updated_at);
+  }
+  for (const row of state) {
+    const entry = ensure(row.source_ref);
+    entry.state = row;
+    entry.title = entry.title ?? row.title;
+    entry.asset_format = entry.asset_format ?? row.asset_format;
+    entry.asset_group_ref = entry.asset_group_ref ?? row.asset_group_ref;
+    entry.production_brief_id = entry.production_brief_id ?? row.production_brief_id;
+    bump(entry, row.updated_at);
+  }
+
+  const result = new Map<string, EffectiveStageEntry>();
+  for (const entry of acc.values()) {
+    const presence = deriveCurrentStage({
+      hasApprovedAsset: entry.has_approved_asset,
+      hasProducedAsset: entry.has_produced_asset,
+      hasProductionBrief: entry.has_production_brief,
+      hasMaster: true,
+    }) ?? "master";
+    const explicit = entry.state?.current_stage ?? null;
+    const stage = explicit && stageRank(explicit) >= stageRank(presence) ? explicit : presence;
+    result.set(entry.source_ref, {
+      ...entry,
+      stage,
+      updated_at: entry.updated_at || entry.state?.updated_at || new Date().toISOString(),
+    });
+  }
+  return result;
+}
+
+// ── NAMED STAGE TRANSITIONS (H2 wiring points) ───────────────────────────────
+// Each wrapper snapshots the stage being left and advances pipeline state. They
+// are best-effort at the call site: the primary action (brief/asset/approval)
+// has already committed, and fetchEffectiveStageMap will keep visibility correct
+// even if a transition write fails. Callers guard against regression (only call
+// when the ref has not already advanced past the target).
+
+export async function transitionMasterToContentCreation(input: {
+  clientId: string; executionMonth: string; sourceRef: string;
+  sourceTable: MasterTable; sourceRowId: string; title: string | null;
+  assetFormat: string | null; productionBriefId: string | null;
+  masterSnapshot: Record<string, unknown>;
+}): Promise<TransitionAssetStageResult> {
+  return transitionAssetStage({
+    clientId: input.clientId, executionMonth: input.executionMonth, sourceRef: input.sourceRef,
+    fromStage: "master", toStage: "content_creation",
+    sourceTable: input.sourceTable, sourceRowId: input.sourceRowId,
+    productionBriefId: input.productionBriefId, title: input.title, assetFormat: input.assetFormat,
+    snapshotData: input.masterSnapshot, reason: "brief_generated",
+  });
+}
+
+export async function transitionContentCreationToAssets(input: {
+  clientId: string; executionMonth: string; sourceRef: string;
+  productionBriefId: string; assetGroupRef: string | null; title: string | null;
+  assetFormat: string | null; briefSnapshot: Record<string, unknown>; reason?: string;
+}): Promise<TransitionAssetStageResult> {
+  return transitionAssetStage({
+    clientId: input.clientId, executionMonth: input.executionMonth, sourceRef: input.sourceRef,
+    fromStage: "content_creation", toStage: "assets",
+    sourceTable: "client_production_briefs", sourceRowId: input.productionBriefId,
+    productionBriefId: input.productionBriefId, assetGroupRef: input.assetGroupRef,
+    title: input.title, assetFormat: input.assetFormat,
+    snapshotData: input.briefSnapshot, reason: input.reason ?? "asset_produced",
+  });
+}
+
+export async function transitionAssetsToDistribution(input: {
+  clientId: string; executionMonth: string; sourceRef: string;
+  assetGroupRef: string | null; productionBriefId: string | null; title: string | null;
+  assetFormat: string | null; assetSnapshot: Record<string, unknown>;
+}): Promise<TransitionAssetStageResult> {
+  return transitionAssetStage({
+    clientId: input.clientId, executionMonth: input.executionMonth, sourceRef: input.sourceRef,
+    fromStage: "assets", toStage: "distribution",
+    sourceTable: "client_assets", productionBriefId: input.productionBriefId,
+    assetGroupRef: input.assetGroupRef, title: input.title, assetFormat: input.assetFormat,
+    snapshotData: input.assetSnapshot, reason: "asset_approved",
+    // H3 introduces a distribution_records table; until then the distribution-ready
+    // signal lives in pipeline-state metadata so nothing publishes prematurely.
+    metadata: { distribution_status: "pending" },
+  });
+}
+
+/**
+ * Prepared for H3/H4 — NOT wired to any UI action in H2. Real analytics only
+ * begins once a publish actually succeeds; H2 never fabricates that transition.
+ */
+export async function transitionDistributionToAnalytics(input: {
+  clientId: string; executionMonth: string; sourceRef: string;
+  assetGroupRef: string | null; productionBriefId: string | null; title: string | null;
+  assetFormat: string | null; distributionSnapshot: Record<string, unknown>;
+}): Promise<TransitionAssetStageResult> {
+  return transitionAssetStage({
+    clientId: input.clientId, executionMonth: input.executionMonth, sourceRef: input.sourceRef,
+    fromStage: "distribution", toStage: "analytics",
+    sourceTable: "distribution", productionBriefId: input.productionBriefId,
+    assetGroupRef: input.assetGroupRef, title: input.title, assetFormat: input.assetFormat,
+    snapshotData: input.distributionSnapshot, reason: "asset_published",
+  });
 }

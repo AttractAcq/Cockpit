@@ -277,6 +277,74 @@ export interface ClientAssetRow {
   production_brief?: Pick<ProductionBriefRow, "production_mode" | "source_table" | "source_row_id"> | null;
 }
 
+/**
+ * The operational lifecycle a piece of content moves through after Phase 3.
+ * `master → content_creation → assets → distribution → analytics → analysis`
+ * with `completed`/`archived` as terminal pipeline-state values. Snapshots are
+ * only taken for the six real stages (not `completed`/`archived`).
+ */
+export type PipelineStage =
+  | "master"
+  | "content_creation"
+  | "assets"
+  | "distribution"
+  | "analytics"
+  | "analysis"
+  | "completed"
+  | "archived";
+
+export type ArchiveStage = Exclude<PipelineStage, "completed" | "archived">;
+
+export const PIPELINE_STAGES: PipelineStage[] = [
+  "master",
+  "content_creation",
+  "assets",
+  "distribution",
+  "analytics",
+  "analysis",
+  "completed",
+  "archived",
+];
+
+export interface PipelineStateRow {
+  id: string;
+  client_id: string;
+  execution_month: string;
+  source_ref: string;
+  asset_group_ref: string | null;
+  production_brief_id: string | null;
+  current_stage: PipelineStage;
+  previous_stage: PipelineStage | null;
+  title: string | null;
+  asset_format: string | null;
+  active: boolean;
+  stage_entered_at: string;
+  last_transition_at: string;
+  transition_reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArchiveSnapshotRow {
+  id: string;
+  client_id: string;
+  execution_month: string;
+  source_ref: string;
+  asset_group_ref: string | null;
+  stage: ArchiveStage;
+  title: string | null;
+  asset_format: string | null;
+  source_table: string;
+  source_row_id: string | null;
+  snapshot_data: Record<string, unknown>;
+  snapshot_md: string | null;
+  snapshot_reason: string | null;
+  created_at: string;
+  created_by: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface AiAssetGenerationResult {
   asset_group_ref: string;
   asset_count: number;
