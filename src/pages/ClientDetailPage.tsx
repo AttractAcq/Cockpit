@@ -16,6 +16,7 @@ import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
 import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
 import { SopsLawsPanel } from "@/components/client/SopsLawsPanel";
 import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
+import { AssetsPanel } from "@/components/client/AssetsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -94,7 +95,6 @@ function PlaceholderSection({
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   pipeline:    { title: "Pipeline",        description: "9-stage daily entry grid. Manual first." },
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-  assets:      { title: "Assets",          description: "Asset Master + Proof Master grids. Upload portal." },
   analytics:   { title: "Analytics",       description: "Pipeline trends, content performance, proof signals." },
 };
 
@@ -596,7 +596,9 @@ export function ClientDetailPage() {
       case "calendar":
         return <Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "content_creation":
-        return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+        return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
+      case "assets":
+        return <AssetsPanel clientId={id} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (

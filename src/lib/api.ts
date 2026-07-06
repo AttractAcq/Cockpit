@@ -562,6 +562,7 @@ import type {
   AssetBriefRow, CalendarCellRow,
   Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section,
   MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
+  ClientAssetRow, AiAssetGenerationResult, AssetFormat,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -1088,6 +1089,52 @@ export async function assignProductionBriefToContractor(input: {
   });
   if (!result.ok || !result.assignment || !result.brief) throw new Error(result.message ?? "Contractor assignment returned an incomplete response.");
   return { assignment: result.assignment, brief: result.brief };
+}
+
+const AI_ASSET_FUNCTIONS: Partial<Record<AssetFormat, string>> = {
+  feed_post: "generate-feed-post-asset",
+  carousel: "generate-carousel-assets",
+  story_sequence: "generate-story-assets",
+  ad_static: "generate-ad-static-asset",
+};
+
+export async function generateAiAssets(brief: ProductionBriefRow): Promise<AiAssetGenerationResult> {
+  if (brief.asset_format === "reel_video") throw new Error("AI video generation is not supported. Reels are human-only.");
+  const functionName = AI_ASSET_FUNCTIONS[brief.asset_format];
+  if (!functionName) throw new Error(`No AI asset function is configured for ${brief.asset_format}.`);
+  const result = await invokeFn<{ ok: boolean; message?: string; asset_group_ref?: string; asset_count?: number; assets?: ClientAssetRow[]; brief?: ProductionBriefRow }>(functionName, {
+    production_brief_id: brief.id,
+  });
+  if (!result.ok || !result.asset_group_ref || !result.asset_count || !result.assets || !result.brief) {
+    throw new Error(result.message ?? `${functionName} returned an incomplete asset group.`);
+  }
+  return {
+    asset_group_ref: result.asset_group_ref,
+    asset_count: result.asset_count,
+    assets: result.assets,
+    brief: result.brief,
+  };
+}
+
+async function addSignedAssetUrls(rows: ClientAssetRow[]): Promise<ClientAssetRow[]> {
+  return Promise.all(rows.map(async (asset) => {
+    const { data, error } = await supabase.storage.from(asset.storage_bucket).createSignedUrl(asset.storage_path, 3600);
+    return { ...asset, signed_url: error ? null : data.signedUrl };
+  }));
+}
+
+export async function fetchClientAssets(clientId: string): Promise<ClientAssetRow[]> {
+  const { data, error } = await supabase.from("client_assets").select("*")
+    .eq("client_id", clientId).order("created_at", { ascending: false }).order("sequence_index");
+  if (error) throw error;
+  return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
+}
+
+export async function fetchAssetsForBrief(productionBriefId: string): Promise<ClientAssetRow[]> {
+  const { data, error } = await supabase.from("client_assets").select("*")
+    .eq("production_brief_id", productionBriefId).order("created_at", { ascending: false }).order("sequence_index");
+  if (error) throw error;
+  return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
 }
 
 const REVIEW_TABLES = [

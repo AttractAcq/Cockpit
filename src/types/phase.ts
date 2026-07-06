@@ -252,6 +252,37 @@ export interface ProductionBriefRow {
   updated_at: string;
 }
 
+export interface ClientAssetRow {
+  id: string;
+  client_id: string;
+  production_brief_id: string;
+  source_ref: string;
+  asset_format: Exclude<AssetFormat, "reel_video">;
+  asset_group_ref: string;
+  sequence_index: number;
+  title: string | null;
+  storage_bucket: "client-assets";
+  storage_path: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
+  width: number;
+  height: number;
+  status: ReviewState;
+  generation_provider: string;
+  generation_model: string;
+  prompt_md: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  signed_url?: string | null;
+}
+
+export interface AiAssetGenerationResult {
+  asset_group_ref: string;
+  asset_count: number;
+  assets: ClientAssetRow[];
+  brief: ProductionBriefRow;
+}
+
 export interface ContractorRow {
   id: string;
   name: string;
