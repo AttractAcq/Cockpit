@@ -252,6 +252,35 @@ export interface ProductionBriefRow {
   updated_at: string;
 }
 
+export interface ContractorRow {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+  specialties: string[];
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ContractorAssignmentStatus = "assigned" | "sent" | "failed" | "cancelled";
+
+export interface ContractorAssignmentRow {
+  id: string;
+  client_id: string;
+  production_brief_id: string;
+  contractor_id: string;
+  status: ContractorAssignmentStatus;
+  message: string | null;
+  sent_at: string | null;
+  resend_message_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  contractors?: Pick<ContractorRow, "id" | "name" | "email" | "role" | "specialties"> | null;
+}
+
 export interface Phase1Result {
   ok: boolean;
   mode: PhaseMode;

@@ -561,7 +561,7 @@ import type {
   OrganicMasterRow, StoryMasterRow, AdsMasterRow, ProofMasterRow,
   AssetBriefRow, CalendarCellRow,
   Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section,
-  MasterRow, MasterTable, ProductionBriefRow,
+  MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -1036,6 +1036,58 @@ export async function updateProductionBriefReviewState(briefId: string, status: 
     .eq("id", briefId).select("*").single();
   if (error) throw error;
   return data as ProductionBriefRow;
+}
+
+export async function fetchContractors(activeOnly = true): Promise<ContractorRow[]> {
+  let query = supabase.from("contractors").select("*").order("name");
+  if (activeOnly) query = query.eq("active", true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ContractorRow[];
+}
+
+export interface CreateContractorInput {
+  name: string;
+  email: string;
+  role?: string | null;
+  specialties?: string[];
+  notes?: string | null;
+}
+
+export async function createContractor(input: CreateContractorInput): Promise<ContractorRow> {
+  const { data, error } = await supabase.from("contractors").insert({
+    name: input.name.trim(),
+    email: input.email.trim().toLowerCase(),
+    role: input.role?.trim() || null,
+    specialties: (input.specialties ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean),
+    notes: input.notes?.trim() || null,
+    active: true,
+  }).select("*").single();
+  if (error) throw error;
+  return data as ContractorRow;
+}
+
+export async function fetchAssignmentsForBrief(productionBriefId: string): Promise<ContractorAssignmentRow[]> {
+  const { data, error } = await supabase.from("contractor_assignments")
+    .select("*, contractors(id,name,email,role,specialties)")
+    .eq("production_brief_id", productionBriefId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ContractorAssignmentRow[];
+}
+
+export async function assignProductionBriefToContractor(input: {
+  productionBriefId: string;
+  contractorId: string;
+  message?: string;
+}): Promise<{ assignment: ContractorAssignmentRow; brief: ProductionBriefRow }> {
+  const result = await invokeFn<{ ok: boolean; assignment?: ContractorAssignmentRow; brief?: ProductionBriefRow; message?: string }>("send-production-brief-to-contractor", {
+    production_brief_id: input.productionBriefId,
+    contractor_id: input.contractorId,
+    message: input.message?.trim() || null,
+  });
+  if (!result.ok || !result.assignment || !result.brief) throw new Error(result.message ?? "Contractor assignment returned an incomplete response.");
+  return { assignment: result.assignment, brief: result.brief };
 }
 
 const REVIEW_TABLES = [
