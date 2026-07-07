@@ -490,15 +490,39 @@ export async function fetchClient(id: string): Promise<Client | null> {
   return data;
 }
 
+// ── Query resilience helpers ─────────────────────────────────────────────────
+// Dashboard/metrics aggregation reads several tables in parallel. A single
+// dropped request (intermittent cross-origin ERR_FAILED under connection
+// pressure) must NOT blank the whole page — it degrades to partial data and a
+// dev-only warning. Use these with Promise.allSettled for any read where partial
+// failure is acceptable.
+function logQueryError(context: string, error: unknown): void {
+  if (import.meta.env.DEV) console.warn(`[aa] query degraded — ${context}:`, error);
+}
+
+/** Extract rows from a settled supabase select; [] (logged) on drop/error. */
+function settledRows(context: string, result: PromiseSettledResult<{ data: unknown; error: unknown }>): unknown[] {
+  if (result.status === "rejected") { logQueryError(context, result.reason); return []; }
+  if (result.value.error) { logQueryError(context, result.value.error); return []; }
+  return (result.value.data as unknown[]) ?? [];
+}
+
+/** Value from a settled promise-returning helper; fallback (logged) on rejection. */
+function settledValue<T>(context: string, result: PromiseSettledResult<T>, fallback: T): T {
+  if (result.status === "fulfilled") return result.value;
+  logQueryError(context, result.reason);
+  return fallback;
+}
+
 export async function fetchStage3StatusMap(month: string): Promise<Record<string, Stage3Status>> {
-  const [organic, story, ads, calendar] = await Promise.all([
+  // allSettled: one flaky table read degrades that table's counts to zero
+  // rather than throwing and breaking the entire clients/cockpit dashboard.
+  const [organic, story, ads, calendar] = await Promise.allSettled([
     supabase.from("organic_master").select("client_id, review_state").eq("month", month),
     supabase.from("story_master").select("client_id, review_state").eq("month", month),
     supabase.from("ads_master").select("client_id, review_state").eq("month", month),
     supabase.from("calendar_cells").select("client_id, review_state").eq("month", month),
   ]);
-  const queryError = [organic, story, ads, calendar].find((result) => result.error)?.error;
-  if (queryError) throw queryError;
   const snapshots = new Map<string, Stage3Snapshot>();
   function add(rows: Array<{ client_id: string; review_state: string }>, countKey: keyof Stage3Snapshot, approvedKey: keyof Stage3Snapshot) {
     for (const row of rows) {
@@ -508,10 +532,11 @@ export async function fetchStage3StatusMap(month: string): Promise<Record<string
       snapshots.set(row.client_id, snapshot);
     }
   }
-  add((organic.data ?? []) as Array<{ client_id: string; review_state: string }>, "organicCount", "organicApproved");
-  add((story.data ?? []) as Array<{ client_id: string; review_state: string }>, "storyCount", "storyApproved");
-  add((ads.data ?? []) as Array<{ client_id: string; review_state: string }>, "adsCount", "adsApproved");
-  add((calendar.data ?? []) as Array<{ client_id: string; review_state: string }>, "calendarCount", "calendarApproved");
+  type StageRow = { client_id: string; review_state: string };
+  add(settledRows("stage3:organic_master", organic) as StageRow[], "organicCount", "organicApproved");
+  add(settledRows("stage3:story_master", story) as StageRow[], "storyCount", "storyApproved");
+  add(settledRows("stage3:ads_master", ads) as StageRow[], "adsCount", "adsApproved");
+  add(settledRows("stage3:calendar_cells", calendar) as StageRow[], "calendarCount", "calendarApproved");
   return Object.fromEntries([...snapshots].map(([clientId, snapshot]) => [clientId, deriveStage3Status(snapshot)]));
 }
 
@@ -565,7 +590,7 @@ import type {
   MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
-  DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus,
+  DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -1123,12 +1148,14 @@ const AI_ASSET_FUNCTIONS: Partial<Record<AssetFormat, string>> = {
   ad_static: "generate-ad-static-asset",
 };
 
-export async function generateAiAssets(brief: ProductionBriefRow): Promise<AiAssetGenerationResult> {
+export async function generateAiAssets(brief: ProductionBriefRow, expectedCount?: number): Promise<AiAssetGenerationResult> {
   if (brief.asset_format === "reel_video") throw new Error("AI video generation is not supported. Reels are human-only.");
   const functionName = AI_ASSET_FUNCTIONS[brief.asset_format];
   if (!functionName) throw new Error(`No AI asset function is configured for ${brief.asset_format}.`);
   const result = await invokeFn<{ ok: boolean; message?: string; asset_group_ref?: string; asset_count?: number; assets?: ClientAssetRow[]; brief?: ProductionBriefRow }>(functionName, {
     production_brief_id: brief.id,
+    // Only consulted by the generator when the brief's own count is ambiguous.
+    ...(typeof expectedCount === "number" ? { expected_count: expectedCount } : {}),
   });
   if (!result.ok || !result.asset_group_ref || !result.asset_count || !result.assets || !result.brief) {
     throw new Error(result.message ?? `${functionName} returned an incomplete asset group.`);
@@ -1550,7 +1577,9 @@ export async function fetchEffectiveStageMap(
   clientId: string,
   executionMonth: string,
 ): Promise<Map<string, EffectiveStageEntry>> {
-  const [state, briefs, assetsResult] = await Promise.all([
+  // allSettled: a dropped sub-read degrades this ref map to partial truth (and
+  // a dev warning) instead of throwing and blanking whichever tab called it.
+  const [stateResult, briefsResult, assetsResult] = await Promise.allSettled([
     fetchPipelineState(clientId, executionMonth),
     fetchProductionBriefs(clientId, executionMonth),
     supabase
@@ -1558,8 +1587,9 @@ export async function fetchEffectiveStageMap(
       .select("source_ref,status,asset_group_ref,title,asset_format,production_brief_id,updated_at")
       .eq("client_id", clientId),
   ]);
-  if (assetsResult.error) throw assetsResult.error;
-  const assets = (assetsResult.data ?? []) as Array<{
+  const state = settledValue("effectiveStageMap:pipeline_state", stateResult, [] as PipelineStateRow[]);
+  const briefs = settledValue("effectiveStageMap:production_briefs", briefsResult, [] as ProductionBriefRow[]);
+  const assets = settledRows("effectiveStageMap:client_assets", assetsResult) as Array<{
     source_ref: string; status: ReviewState; asset_group_ref: string | null;
     title: string | null; asset_format: string | null; production_brief_id: string | null; updated_at: string;
   }>;
@@ -1891,4 +1921,193 @@ export async function fetchAnalyticsRecords(clientId: string, executionMonth: st
     .eq("client_id", clientId).eq("execution_month", executionMonth).order("published_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as AnalyticsRecordRow[];
+}
+
+export async function fetchAnalyticsRecordBySourceRef(clientId: string, executionMonth: string, sourceRef: string): Promise<AnalyticsRecordRow | null> {
+  const { data, error } = await supabase.from("client_analytics_records").select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).eq("source_ref", sourceRef).maybeSingle();
+  if (error) throw error;
+  return (data as AnalyticsRecordRow | null) ?? null;
+}
+
+/**
+ * Save operator-entered metrics/notes/status on a published asset's analytics
+ * row. Editing metrics never touches publish status and never auto-completes.
+ * Only an explicit analytics_status = 'complete' advances the lifecycle:
+ * snapshot the analytics stage + move pipeline state to `analysis` (iteration
+ * readiness). No iteration output is generated.
+ */
+export async function saveAnalyticsRecord(record: AnalyticsRecordRow, patch: {
+  metrics?: Record<string, unknown>; notes?: string | null; analyticsStatus?: AnalyticsStatus;
+}): Promise<AnalyticsRecordRow> {
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.metrics !== undefined) update.metrics = patch.metrics;
+  if (patch.notes !== undefined) update.notes = patch.notes;
+  if (patch.analyticsStatus !== undefined) update.analytics_status = patch.analyticsStatus;
+  const { data, error } = await supabase.from("client_analytics_records").update(update).eq("id", record.id).select("*").single();
+  if (error) throw error;
+  const saved = data as AnalyticsRecordRow;
+
+  if (patch.analyticsStatus === "complete") {
+    // Snapshot analytics-as-left, then advance to the analysis/iteration stage.
+    await createArchiveSnapshot({
+      clientId: record.client_id, executionMonth: record.execution_month, sourceRef: record.source_ref,
+      stage: "analytics", sourceTable: "client_analytics_records", sourceRowId: record.id,
+      assetGroupRef: record.asset_group_ref, title: record.title, assetFormat: record.asset_format,
+      snapshotData: { metrics: saved.metrics, published_url: saved.published_url, published_at: saved.published_at, notes: saved.notes },
+      reason: "analytics_complete",
+    }).catch(() => { /* best-effort memory */ });
+    await upsertPipelineState({
+      clientId: record.client_id, executionMonth: record.execution_month, sourceRef: record.source_ref,
+      currentStage: "analysis", previousStage: "analytics", assetGroupRef: record.asset_group_ref,
+      title: record.title, assetFormat: record.asset_format, transitionReason: "analytics_complete", stageChanged: true,
+    }).catch(() => { /* best-effort */ });
+  }
+  return saved;
+}
+
+// ── PHASE H4: ARCHIVE LIFECYCLE + PIPELINE METRICS ───────────────────────────
+
+export async function fetchAssetsBySourceRef(clientId: string, sourceRef: string): Promise<ClientAssetRow[]> {
+  const { data, error } = await supabase.from("client_assets")
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)")
+    .eq("client_id", clientId).eq("source_ref", sourceRef).order("created_at", { ascending: false }).order("sequence_index");
+  if (error) throw error;
+  return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
+}
+
+export async function fetchDistributionRecordBySourceRef(clientId: string, executionMonth: string, sourceRef: string): Promise<DistributionRecordRow | null> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).eq("source_ref", sourceRef)
+    .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return (data as DistributionRecordRow | null) ?? null;
+}
+
+export interface ArchiveDetail {
+  sourceRef: string;
+  pipelineState: PipelineStateRow | null;
+  snapshots: ArchiveSnapshotRow[];
+  master: { table: MasterTable; row: MasterRow } | null;
+  brief: ProductionBriefRow | null;
+  assets: ClientAssetRow[];
+  distribution: DistributionRecordRow | null;
+  analytics: AnalyticsRecordRow | null;
+}
+
+/**
+ * The full lifecycle for one ref: current live records from every source table
+ * PLUS the immutable stage snapshots. Nothing here writes, moves, or deletes.
+ */
+export async function fetchArchiveDetail(clientId: string, executionMonth: string, sourceRef: string): Promise<ArchiveDetail> {
+  const [pipelineState, snapshots, master, brief, assets, distribution, analytics] = await Promise.all([
+    fetchPipelineStateByRef(clientId, executionMonth, sourceRef).catch(() => null),
+    fetchArchiveSnapshotsByRef(clientId, executionMonth, sourceRef).catch(() => [] as ArchiveSnapshotRow[]),
+    fetchMasterRowByRef(clientId, sourceRef).catch(() => null),
+    fetchProductionBriefBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
+    fetchAssetsBySourceRef(clientId, sourceRef).catch(() => [] as ClientAssetRow[]),
+    fetchDistributionRecordBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
+    fetchAnalyticsRecordBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
+  ]);
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics };
+}
+
+export interface ArchiveIndexEntry {
+  source_ref: string;
+  title: string | null;
+  asset_format: string | null;
+  current_stage: PipelineStage;
+  stages_present: PipelineStage[];
+  latest_status: string;
+  updated_at: string;
+}
+
+const REAL_STAGES: PipelineStage[] = ["master", "content_creation", "assets", "distribution", "analytics", "analysis"];
+
+/**
+ * Lifecycle index for the Archive tab. Includes every ref that has moved beyond
+ * master (has a brief/asset/distribution/analytics or advanced pipeline state).
+ * Pure aggregation — reads only.
+ */
+export async function fetchArchiveIndex(clientId: string, executionMonth: string): Promise<ArchiveIndexEntry[]> {
+  const [stageMapResult, distributionResult, analyticsResult] = await Promise.allSettled([
+    fetchEffectiveStageMap(clientId, executionMonth),
+    fetchDistributionRecords(clientId, executionMonth),
+    fetchAnalyticsRecords(clientId, executionMonth),
+  ]);
+  const stageMap = settledValue("archiveIndex:stageMap", stageMapResult, new Map<string, EffectiveStageEntry>());
+  const distribution = settledValue("archiveIndex:distribution", distributionResult, [] as DistributionRecordRow[]);
+  const analytics = settledValue("archiveIndex:analytics", analyticsResult, [] as AnalyticsRecordRow[]);
+  const distByRef = new Map(distribution.map((row) => [row.source_ref, row]));
+  const analyticsByRef = new Map(analytics.map((row) => [row.source_ref, row]));
+
+  const entries: ArchiveIndexEntry[] = [];
+  for (const entry of stageMap.values()) {
+    const hasDist = distByRef.has(entry.source_ref);
+    const hasAnalytics = analyticsByRef.has(entry.source_ref);
+    // Only refs that have actually progressed belong in the lifecycle archive.
+    if (stageRank(entry.stage) < stageRank("content_creation") && !hasDist && !hasAnalytics) continue;
+    const stagesPresent = REAL_STAGES.filter((stage) => stageRank(stage) <= stageRank(entry.stage));
+    const dist = distByRef.get(entry.source_ref);
+    const ana = analyticsByRef.get(entry.source_ref);
+    const latestStatus = ana ? `analytics: ${ana.analytics_status}` : dist ? `distribution: ${dist.publish_status}` : entry.stage;
+    entries.push({
+      source_ref: entry.source_ref, title: entry.title, asset_format: entry.asset_format,
+      current_stage: entry.stage, stages_present: stagesPresent, latest_status: latestStatus, updated_at: entry.updated_at,
+    });
+  }
+  return entries.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+export interface PipelineMetrics {
+  active: Record<"master" | "content_creation" | "assets" | "distribution" | "analytics" | "analysis" | "completed", number>;
+  totals: {
+    entered: number; produced: number; approved: number;
+    distributionReady: number; scheduled: number; published: number; analyticsComplete: number;
+  };
+}
+
+/**
+ * Active-per-stage counts + lifecycle totals, all derived from real records —
+ * pipeline state, effective stage map, master rows, distribution and analytics
+ * records. No invented numbers.
+ */
+export async function fetchPipelineMetrics(clientId: string, executionMonth: string): Promise<PipelineMetrics> {
+  const [organic, stories, ads, stageMap, distribution, analytics] = await Promise.all([
+    fetchOrganicMasterRows(clientId, executionMonth).catch(() => []),
+    fetchStoryMasterRows(clientId, executionMonth).catch(() => []),
+    fetchAdsMasterRows(clientId, executionMonth).catch(() => []),
+    fetchEffectiveStageMap(clientId, executionMonth),
+    fetchDistributionRecords(clientId, executionMonth).catch(() => []),
+    fetchAnalyticsRecords(clientId, executionMonth).catch(() => []),
+  ]);
+  const masterRefs = [...organic, ...stories, ...ads].map((row) => row.ref);
+
+  const active = { master: 0, content_creation: 0, assets: 0, distribution: 0, analytics: 0, analysis: 0, completed: 0 };
+  // Master-only refs never enter the stage map; count them here.
+  for (const ref of masterRefs) {
+    const entry = stageMap.get(ref);
+    if (!entry || entry.stage === "master") active.master += 1;
+  }
+  // Progressed refs are counted from their effective stage.
+  for (const entry of stageMap.values()) {
+    if (entry.stage in active && entry.stage !== "master") active[entry.stage as keyof typeof active] += 1;
+  }
+
+  let produced = 0, approved = 0;
+  for (const entry of stageMap.values()) {
+    if (entry.has_produced_asset) produced += 1;
+    if (entry.has_approved_asset) approved += 1;
+  }
+  return {
+    active,
+    totals: {
+      entered: masterRefs.length,
+      produced, approved,
+      distributionReady: distribution.filter((row) => row.publish_status === "ready").length,
+      scheduled: distribution.filter((row) => row.publish_status === "scheduled").length,
+      published: distribution.filter((row) => row.publish_status === "published").length,
+      analyticsComplete: analytics.filter((row) => row.analytics_status === "complete").length,
+    },
+  };
 }

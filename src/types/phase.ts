@@ -374,6 +374,8 @@ export interface DistributionRecordRow {
   updated_at: string;
 }
 
+export type AnalyticsStatus = "awaiting_metrics" | "metrics_partial" | "complete" | "failed";
+
 export interface AnalyticsRecordRow {
   id: string;
   client_id: string;
@@ -389,7 +391,9 @@ export interface AnalyticsRecordRow {
   published_url: string | null;
   external_post_id: string | null;
   collection_status: "active" | "paused" | "closed";
+  analytics_status: AnalyticsStatus;
   metrics: Record<string, unknown>;
+  notes: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

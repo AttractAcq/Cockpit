@@ -1,5 +1,5 @@
 import { cors, json, svc } from "./aa.ts";
-import type { AssetFormat } from "./production-brief-contract.ts";
+import { resolveMultiImageCount, type AssetFormat } from "./production-brief-contract.ts";
 
 const STAFF_ROLES = new Set(["admin", "account_manager", "editor"]);
 const AI_FORMATS = new Set<AssetFormat>(["feed_post", "carousel", "story_sequence", "ad_static"]);
@@ -43,14 +43,26 @@ function decodeBase64(value: string): Uint8Array {
   return bytes;
 }
 
-function expectedItemCount(brief: { asset_format: AssetFormat; content_md: string; metadata?: Record<string, unknown> }): number {
+// Resolve the required slide/frame count from the approved brief. The brief is
+// authoritative: a confidently-resolved count is used as-is. Only when the brief
+// is genuinely ambiguous may an operator-confirmed `overrideCount` be used — and
+// if neither yields a count, we throw rather than defaulting (never guess 3).
+function expectedItemCount(
+  brief: { asset_format: AssetFormat; content_md: string; metadata?: Record<string, unknown> },
+  overrideCount?: number,
+): number {
   if (brief.asset_format === "feed_post" || brief.asset_format === "ad_static") return 1;
-  const label = brief.asset_format === "carousel" ? "slide" : "frame";
-  const matches = [...brief.content_md.matchAll(new RegExp(`\\b${label}\\s*(\\d{1,2})\\b`, "gi"))]
-    .map((match) => Number.parseInt(match[1], 10)).filter(Number.isFinite);
-  const metadataCount = typeof brief.metadata?.expected_output_count === "number" ? brief.metadata.expected_output_count : 0;
-  const count = Math.max(metadataCount, ...matches, 0);
   const config = FORMAT_CONFIG[brief.asset_format];
+  const resolved = resolveMultiImageCount(brief);
+  const label = resolved.label;
+
+  let count = resolved.count;
+  if (count === null || resolved.source === "ambiguous") {
+    // Ambiguous brief: require an explicit, in-range operator-confirmed count.
+    if (typeof overrideCount === "number" && Number.isFinite(overrideCount)) count = Math.trunc(overrideCount);
+    else throw new Error(`Could not determine the ${label} count from the approved brief. Add a "Slide Count"/"Frame Count" field or metadata.${label}_count, or confirm the count before generating.`);
+  }
+
   if (count < 2) throw new Error(`The approved ${brief.asset_format} brief must enumerate at least two ${label}s before AI production.`);
   if (count > config.maxItems) throw new Error(`${brief.asset_format} supports at most ${config.maxItems} ${label}s per generated group; the brief defines ${count}.`);
   return count;
@@ -152,8 +164,9 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
       if (operatorError) return failure(functionName, 500, "authorization", "Could not load operator role.", operatorError.message);
       if (!operator || !STAFF_ROLES.has(operator.role)) return failure(functionName, 403, "authorization", "Admin, account manager, or editor access is required.");
 
-      const body = await req.json() as { production_brief_id?: string };
+      const body = await req.json() as { production_brief_id?: string; expected_count?: number };
       briefId = body.production_brief_id?.trim() ?? "";
+      const overrideCount = typeof body.expected_count === "number" ? body.expected_count : undefined;
       if (!briefId) return failure(functionName, 400, "request", "production_brief_id is required.");
       const { data: brief, error: briefError } = await sb.from("client_production_briefs").select("*").eq("id", briefId).maybeSingle();
       if (briefError || !brief) return failure(functionName, 404, "load_brief", "Production brief not found.", briefError?.message);
@@ -168,7 +181,7 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
       const format = brief.asset_format as SupportedAssetFormat;
       const config = FORMAT_CONFIG[format];
       let itemCount: number;
-      try { itemCount = expectedItemCount(brief); }
+      try { itemCount = expectedItemCount(brief, overrideCount); }
       catch (error) { return failure(functionName, 422, "validate_brief", error instanceof Error ? error.message : String(error)); }
 
       groupRef = `${cleanPathPart(brief.source_ref)}-${Date.now()}`;

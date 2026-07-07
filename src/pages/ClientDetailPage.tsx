@@ -17,6 +17,9 @@ import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
 import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
 import { AssetsPanel } from "@/components/client/AssetsPanel";
 import { DistributionPanel } from "@/components/client/DistributionPanel";
+import { AnalyticsPanel } from "@/components/client/AnalyticsPanel";
+import { ArchivePanel } from "@/components/client/ArchivePanel";
+import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -33,10 +36,13 @@ type Section =
   | "automations"
   | "assets"
   | "distribution"
-  | "analysis"
+  | "analytics"
   | "archive"
   | "activity";
 
+// Visible label + order per H4 cleanup. Internal section keys are kept stable
+// (masters, content_creation) so existing routes/links don't break — only the
+// user-facing labels and ordering change.
 const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Overview",         section: "overview" },
   { label: "Automations",      section: "automations" },
@@ -44,12 +50,12 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Context Inputs",   section: "context_inputs" },
   { label: "Context Files",    section: "context_files" },
   { label: "Execution Files",  section: "execution_files" },
-  { label: "Masters",          section: "masters" },
   { label: "Calendar",         section: "calendar" },
-  { label: "Content Creation", section: "content_creation" },
+  { label: "Content",          section: "masters" },
+  { label: "Content Briefs",   section: "content_creation" },
   { label: "Assets",           section: "assets" },
   { label: "Distribution",     section: "distribution" },
-  { label: "Analysis",         section: "analysis" },
+  { label: "Analytics",        section: "analytics" },
   { label: "Archive",          section: "archive" },
   { label: "Activity Log",     section: "activity" },
 ];
@@ -63,21 +69,6 @@ function canonicalExecutionReady(files: ClientExecutionFile[]): boolean {
   return files.length === EXECUTION_FILE_COUNT && EXECUTION_FILE_MANIFEST.every((definition) => files.some((file) =>
     file.file_number === definition.fileNumber && file.file_name === definition.fileName && file.review_state === "approved"
   ));
-}
-
-function StageBadge({ status, label }: { status: string; label: string }) {
-  const colour =
-    status === "complete"
-      ? "text-teal"
-      : status === "error"
-      ? "text-neg"
-      : "text-paper-3";
-  return (
-    <span className={`text-2xs font-mono flex items-center gap-1 ${colour}`}>
-      {status === "complete" && <Icon name="check" size={11} />}
-      {label}: {status === "complete" ? "Done" : status === "running" ? "Running" : "Not Run"}
-    </span>
-  );
 }
 
 function PlaceholderSection({
@@ -95,10 +86,7 @@ function PlaceholderSection({
 }
 
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
-  pipeline:    { title: "Pipeline",        description: "9-stage daily entry grid. Manual first." },
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-  analysis: { title: "Analysis", description: "Post performance, profile visits, engagement, enquiries, and iteration signals will appear here when connected." },
-  archive: { title: "Archive", description: "Archived briefs, assets, old runs, rejected items, and inactive records will be available here." },
 };
 
 type PhaseResult =
@@ -261,7 +249,7 @@ export function ClientDetailPage() {
   const [contextFiles, setContextFiles] = useState<ClientContextFile[]>([]);
   const [executionFiles, setExecutionFiles] = useState<ClientExecutionFile[]>([]);
 
-  const requestedSection = section === "sops" ? "execution_files" : section === "analytics" ? "analysis" : section;
+  const requestedSection = section === "sops" ? "execution_files" : section === "analysis" ? "analytics" : section;
   const activeSection: Section = BUTTON_BAR.some((item) => item.section === requestedSection) ? requestedSection as Section : "overview";
 
   useEffect(() => {
@@ -608,6 +596,12 @@ export function ClientDetailPage() {
         return <AssetsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
       case "distribution":
         return <DistributionPanel clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
+      case "analytics":
+        return <AnalyticsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+      case "archive":
+        return <ArchivePanel clientId={id} executionMonth={currentMonth()} />;
+      case "pipeline":
+        return <PipelineMetricsPanel clientId={id} executionMonth={currentMonth()} />;
       default: {
         const p = SECTION_PLACEHOLDERS[activeSection];
         return p ? (
@@ -653,24 +647,9 @@ export function ClientDetailPage() {
               {TL[client.package_tier]}
             </span>
           </h1>
-          <div className="ml-auto flex items-center gap-4">
-            <StageBadge status={client.stage1_status} label="Phase 1" />
-            <StageBadge status={client.stage2_status} label="Phase 2" />
-            <span className="text-2xs text-paper-3 font-mono">
-              Health:{" "}
-              <span
-                className={
-                  client.health_score >= 70
-                    ? "text-teal"
-                    : client.health_score >= 40
-                    ? "text-warn"
-                    : "text-neg"
-                }
-              >
-                {client.health_score}
-              </span>
-            </span>
-          </div>
+          {/* Phase/Health status strip removed (H4): detailed stage status now
+              lives in the Pipeline tab. Underlying stage status logic is retained
+              and still gates the Run Phase buttons below. */}
         </div>
 
         {/* Button bar */}
@@ -700,7 +679,7 @@ export function ClientDetailPage() {
               <span className="text-2xs text-neg font-mono">Phase 1 needs context input</span>
             )}
             <Button
-              variant="subtle"
+              variant="primary"
               size="sm"
               disabled={
                 client.stage1_status === "running" || phase1Running

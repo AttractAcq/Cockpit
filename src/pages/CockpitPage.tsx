@@ -47,14 +47,16 @@ export function CockpitPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    await Promise.all([fetchClients(), fetchActivityLog({ limit: 8 }), fetchStage3StatusMap(currentExecutionMonth())])
-      .then(([c, a, stage3]) => {
-        setClients(c);
-        setActivity(a);
-        setStage3Statuses(stage3);
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+    // Clients is essential; activity + stage-3 map are enhancements. allSettled
+    // keeps the dashboard rendering if a secondary query drops under load.
+    const [clientsResult, activityResult, stage3Result] = await Promise.allSettled([
+      fetchClients(), fetchActivityLog({ limit: 8 }), fetchStage3StatusMap(currentExecutionMonth()),
+    ]);
+    if (clientsResult.status === "fulfilled") setClients(clientsResult.value);
+    else setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : String(clientsResult.reason));
+    setActivity(activityResult.status === "fulfilled" ? activityResult.value : []);
+    setStage3Statuses(stage3Result.status === "fulfilled" ? stage3Result.value : {});
+    setLoading(false);
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { const reload = () => void load(); window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);

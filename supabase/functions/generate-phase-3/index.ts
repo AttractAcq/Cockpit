@@ -333,11 +333,16 @@ function stringValue(row: Record<string, unknown>, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function monthPrefix(month: string): string {
-  const [year, monthNumber] = month.split("-");
-  const label = new Date(Date.UTC(Number(year), Number(monthNumber) - 1, 1))
+// Ref prefix is MONTHDAY of the row's own scheduled/distribution date, e.g.
+// "2026-07-01" -> "JUL01". (Superseded the month-year prefix like "JUL26"; old
+// month-year refs remain valid because nothing parses the prefix — type is read
+// from the -AD-/-ST-/-CR- segment and rows are matched by the full ref string.)
+function dayPrefix(date: string): string {
+  const [year, monthNumber, day] = date.split("-").map(Number);
+  if (!year || !monthNumber || !day) throw new Error(`Cannot derive ref prefix from date "${date}".`);
+  const label = new Date(Date.UTC(year, monthNumber - 1, day))
     .toLocaleString("en", { month: "short", timeZone: "UTC" }).toUpperCase();
-  return `${label}${year.slice(-2)}`;
+  return `${label}${String(day).padStart(2, "0")}`;
 }
 
 function datesForWeekdays(month: string, weekdays: number[], count: number): string[] {
@@ -397,13 +402,13 @@ JSON schema:
 
   const allDates = datesForWeekdays(month, spec.weekdays, spec.count + spec.dateOffset);
   const dates = allDates.slice(spec.dateOffset, spec.dateOffset + spec.count);
-  const prefix = monthPrefix(month);
   const payload = generated.map((row, index) => {
     const contentType = stringValue(row, "content_type")!;
     return {
       client_id: clientId,
       month,
-      ref: `${prefix}-${contentType}-${String(spec.offset + index + 1).padStart(3, "0")}`,
+      // Prefix = this row's distribution date (MONTHDAY); sequence stays per-type.
+      ref: `${dayPrefix(dates[index])}-${contentType}-${String(spec.offset + index + 1).padStart(3, "0")}`,
       review_state: "needs_review",
       status: "idea",
       content_type: contentType,
@@ -458,11 +463,11 @@ JSON schema:
   const honesty = validateHonesty(generated);
   if (honesty.length) throw new Error(`Story validation failed: ${honesty.join(", ")}.`);
   const dates = dailyDates(month, offset + 1, generated.length);
-  const prefix = monthPrefix(month);
   const payload = generated.map((row, index) => ({
     client_id: clientId,
     month,
-    ref: `${prefix}-ST-${String(offset + index + 1).padStart(3, "0")}`,
+    // Prefix = this story's distribution date (MONTHDAY); sequence stays per-type.
+    ref: `${dayPrefix(dates[index])}-ST-${String(offset + index + 1).padStart(3, "0")}`,
     review_state: "needs_review",
     status: "idea",
     story_type: stringValue(row, "story_type"),
@@ -501,18 +506,20 @@ JSON schema:
   const honesty = validateHonesty(generated);
   if (honesty.length) throw new Error(`Ads validation failed: ${honesty.join(", ")}.`);
   const ranges = canonicalAdRanges(month);
-  const prefix = monthPrefix(month);
-  const payload = generated.map((row, index) => ({
+  const payload = generated.map((row, index) => {
+    const startDate = `${month}-${String(ranges[index].startDay).padStart(2, "0")}`;
+    return {
     client_id: clientId,
     month,
-    ref: `${prefix}-AD-${String(index + 1).padStart(3, "0")}`,
+    // Prefix = this campaign stint's start date (MONTHDAY); sequence stays per-type.
+    ref: `${dayPrefix(startDate)}-AD-${String(index + 1).padStart(3, "0")}`,
     review_state: "needs_review",
     status: "planned",
     lane: ranges[index].lane,
     stint_name: stringValue(row, "stint_name"),
     objective: stringValue(row, "objective"),
     funnel_stage: stringValue(row, "funnel_stage"),
-    start_date: `${month}-${String(ranges[index].startDay).padStart(2, "0")}`,
+    start_date: startDate,
     end_date: `${month}-${String(ranges[index].endDay).padStart(2, "0")}`,
     days: ranges[index].endDay - ranges[index].startDay + 1,
     budget_split: stringValue(row, "budget_split"),
@@ -525,7 +532,8 @@ JSON schema:
     kpi_watch: stringValue(row, "kpi_watch"),
     feeds_into: stringValue(row, "feeds_into"),
     notes: stringValue(row, "notes"),
-  }));
+    };
+  });
   const { error } = await sb.from("ads_master").insert(payload);
   if (error) throw new Error(`ads_master insert failed: ${error.message} (${error.code})`);
   return { count: payload.length, retried: model.retried ?? false };
@@ -644,20 +652,23 @@ Deno.serve(async (req: Request) => {
       if (!isAiEnabled() || !hasAnthropicKey()) return failure(500, "validate_ai_configuration", "AI generation is not configured.", { clientId, executionMonth, section });
       const sectionName = section as Section;
       let clearQuery;
+      // Re-running a section clears just that batch's rows first. Match by the
+      // ref's stable {TYPE}-{SEQUENCE} suffix (unique per type within a month) so
+      // it is independent of the date prefix — this deletes both new MONTHDAY refs
+      // and any legacy MONTHYEAR refs for the batch.
       if (sectionName.startsWith("organic_")) {
         const batch = Number(sectionName.at(-1));
         const type = sectionName.includes("reels") ? "RL" : sectionName.includes("carousels") ? "CR" : "FP";
         const start = (batch - 1) * 4 + 1;
-        const spec = { type, numbers: Array.from({ length: 4 }, (_, index) => start + index) };
-        const refs = spec.numbers.map((number) => `${monthPrefix(executionMonth)}-${spec.type}-${String(number).padStart(3, "0")}`);
-        clearQuery = sb.from("organic_master").delete().eq("client_id", clientId).eq("month", executionMonth).in("ref", refs);
+        const numbers = Array.from({ length: 4 }, (_, index) => start + index);
+        const orFilter = numbers.map((number) => `ref.like.*-${type}-${String(number).padStart(3, "0")}`).join(",");
+        clearQuery = sb.from("organic_master").delete().eq("client_id", clientId).eq("month", executionMonth).or(orFilter);
       } else if (sectionName.startsWith("stories_")) {
-        const prefix = `${monthPrefix(executionMonth)}-ST-`;
         const education = sectionName.includes("education");
         const secondBatch = sectionName.endsWith("_2");
         const start = education ? (secondBatch ? 8 : 1) : (secondBatch ? 22 : 15);
-        const refs = Array.from({ length: 7 }, (_, index) => `${prefix}${String(start + index).padStart(3, "0")}`);
-        clearQuery = sb.from("story_master").delete().eq("client_id", clientId).eq("month", executionMonth).in("ref", refs);
+        const orFilter = Array.from({ length: 7 }, (_, index) => `ref.like.*-ST-${String(start + index).padStart(3, "0")}`).join(",");
+        clearQuery = sb.from("story_master").delete().eq("client_id", clientId).eq("month", executionMonth).or(orFilter);
       } else if (sectionName === "ads") {
         clearQuery = sb.from("ads_master").delete().eq("client_id", clientId).eq("month", executionMonth);
       } else {

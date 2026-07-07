@@ -150,12 +150,13 @@ export function ClientsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [nextClients, nextStage3] = await Promise.all([fetchClients(), fetchStage3StatusMap(currentExecutionMonth())]);
-      setClients(nextClients); setStage3Statuses(nextStage3);
-    }
-    catch (loadError) { setError(loadError instanceof Error ? loadError.message : String(loadError)); }
-    finally { setLoading(false); }
+    // Clients is the essential query; the stage-3 status map is an enhancement.
+    // allSettled keeps the table rendering even if the status map drops.
+    const [clientsResult, stage3Result] = await Promise.allSettled([fetchClients(), fetchStage3StatusMap(currentExecutionMonth())]);
+    if (clientsResult.status === "fulfilled") setClients(clientsResult.value);
+    else setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : String(clientsResult.reason));
+    setStage3Statuses(stage3Result.status === "fulfilled" ? stage3Result.value : {});
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
