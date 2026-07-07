@@ -345,6 +345,76 @@ export interface ArchiveSnapshotRow {
   metadata: Record<string, unknown>;
 }
 
+export type PublishStatus = "ready" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+export type PublishMode = "publish_now" | "scheduled";
+
+export interface DistributionRecordRow {
+  id: string;
+  client_id: string;
+  execution_month: string;
+  source_ref: string;
+  asset_group_ref: string;
+  production_brief_id: string | null;
+  asset_format: string;
+  title: string | null;
+  publish_status: PublishStatus;
+  publish_mode: PublishMode | null;
+  planned_publish_date: string | null;
+  scheduled_publish_at: string | null;
+  published_at: string | null;
+  published_url: string | null;
+  external_post_id: string | null;
+  platform: string | null;
+  destination: string | null;
+  publish_payload: Record<string, unknown>;
+  publish_settings: Record<string, unknown>;
+  last_error: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnalyticsRecordRow {
+  id: string;
+  client_id: string;
+  execution_month: string;
+  source_ref: string;
+  asset_group_ref: string;
+  distribution_record_id: string | null;
+  production_brief_id: string | null;
+  asset_format: string | null;
+  title: string | null;
+  platform: string | null;
+  published_at: string;
+  published_url: string | null;
+  external_post_id: string | null;
+  collection_status: "active" | "paused" | "closed";
+  metrics: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Shape the Publish Record modal edits and the publisher validates. */
+export interface DistributionPublishPayload {
+  caption: string;
+  hashtags: string[];
+  media: Array<{ storage_bucket: string; storage_path: string; sequence_index: number; mime_type: string; width: number; height: number }>;
+  source_ref: string;
+  asset_group_ref: string;
+  asset_format: string;
+}
+
+export interface DistributionPublishSettings {
+  platform: string;
+  destination: string | null;
+  content_type: string;
+  aspect_ratio: string;
+  proof_restrictions: string | null;
+  safety_checklist: string[];
+  meta: Record<string, unknown>;
+}
+
 export interface AiAssetGenerationResult {
   asset_group_ref: string;
   asset_count: number;

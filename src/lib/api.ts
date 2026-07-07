@@ -565,6 +565,7 @@ import type {
   MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
+  DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -1696,4 +1697,198 @@ export async function transitionDistributionToAnalytics(input: {
     assetGroupRef: input.assetGroupRef, title: input.title, assetFormat: input.assetFormat,
     snapshotData: input.distributionSnapshot, reason: "asset_published",
   });
+}
+
+// ── PHASE H3: DISTRIBUTION RECORDS + PUBLISH WORKFLOW ─────────────────────────
+// Approving an asset group creates a client_distribution_records row (the
+// publishable unit). The asset files stay in client_assets — the record just
+// carries the publish payload/settings/status. Only a real publish success
+// advances a record to `published` and creates an analytics record.
+
+const DISTRIBUTION_TABLE = "client_distribution_records";
+
+/** Static → IMAGE, carousel → CAROUSEL, story → STORIES, reel → REELS. */
+export function distributionDefaults(assetFormat: string): { contentType: string; aspectRatio: string } {
+  switch (assetFormat) {
+    case "carousel": return { contentType: "CAROUSEL", aspectRatio: "4:5" };
+    case "story_sequence": return { contentType: "STORIES", aspectRatio: "9:16" };
+    case "reel_video": return { contentType: "REELS", aspectRatio: "9:16" };
+    default: return { contentType: "IMAGE", aspectRatio: "4:5" }; // ad_static, feed_post
+  }
+}
+
+function masterAsRecord(master: MasterRow | null): Record<string, unknown> | null {
+  return master as unknown as Record<string, unknown> | null;
+}
+
+function deriveCaption(master: MasterRow | null, brief: ProductionBriefRow | null): string {
+  const row = masterAsRecord(master);
+  const pick = (key: string) => (row && typeof row[key] === "string" ? (row[key] as string) : "");
+  return pick("caption_script") || pick("core_message") || pick("hook") || pick("hook_angle") || brief?.title || "";
+}
+
+function deriveProofRestrictions(master: MasterRow | null): string | null {
+  const row = masterAsRecord(master);
+  if (!row) return null;
+  const value = row["what_not_to_claim"] ?? row["notes"];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/**
+ * Idempotently create/refresh the distribution record for an approved asset
+ * group, deriving the publish payload from the production brief, the asset
+ * rows, the source master row and the calendar. Also records the Assets →
+ * Distribution transition + archive snapshot. Never overwrites a record that
+ * has already been scheduled/published (that would drop user edits / status).
+ */
+export async function promoteAssetGroupToDistribution(input: {
+  clientId: string; executionMonth: string; sourceRef: string; assetGroupRef: string;
+  productionBriefId: string | null; assetFormat: string; title: string | null;
+  assetRows: Array<Pick<ClientAssetRow, "id" | "storage_bucket" | "storage_path" | "sequence_index" | "mime_type" | "width" | "height" | "status">>;
+}): Promise<DistributionRecordRow> {
+  await transitionAssetsToDistribution({
+    clientId: input.clientId, executionMonth: input.executionMonth, sourceRef: input.sourceRef,
+    assetGroupRef: input.assetGroupRef, productionBriefId: input.productionBriefId,
+    title: input.title, assetFormat: input.assetFormat,
+    assetSnapshot: { asset_group_ref: input.assetGroupRef, files: input.assetRows.map((row) => ({ id: row.id, storage_path: row.storage_path, sequence_index: row.sequence_index, status: row.status })) },
+  }).catch(() => { /* non-fatal — visibility stays correct via presence */ });
+
+  const existing = await fetchDistributionRecordByGroup(input.clientId, input.assetGroupRef);
+  // Don't clobber a record that has moved past 'ready' — preserve edits/status.
+  if (existing && existing.publish_status !== "ready") return existing;
+
+  const [master, brief, cells] = await Promise.all([
+    fetchMasterRowByRef(input.clientId, input.sourceRef).catch(() => null),
+    input.productionBriefId ? fetchProductionBrief(input.productionBriefId).catch(() => null) : Promise.resolve(null),
+    fetchCalendarCells(input.clientId, input.executionMonth).catch(() => [] as Array<{ ref: string; date: string }>),
+  ]);
+  const cell = cells.find((entry) => entry.ref === input.sourceRef);
+  const masterRow = master?.row ?? null;
+  const masterRecord = masterAsRecord(masterRow);
+  const plannedDate = cell?.date
+    ?? (masterRecord && typeof masterRecord.distribution_date === "string" ? masterRecord.distribution_date as string : null)
+    ?? (masterRecord && typeof masterRecord.start_date === "string" ? masterRecord.start_date as string : null);
+  const defaults = distributionDefaults(input.assetFormat);
+
+  const payload: DistributionPublishPayload = {
+    caption: deriveCaption(masterRow, brief),
+    hashtags: [],
+    media: [...input.assetRows].sort((a, b) => a.sequence_index - b.sequence_index).map((row) => ({
+      storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index,
+      mime_type: row.mime_type, width: row.width, height: row.height,
+    })),
+    source_ref: input.sourceRef, asset_group_ref: input.assetGroupRef, asset_format: input.assetFormat,
+  };
+  const settings: DistributionPublishSettings = {
+    platform: "instagram", destination: null,
+    content_type: defaults.contentType, aspect_ratio: defaults.aspectRatio,
+    proof_restrictions: deriveProofRestrictions(masterRow),
+    safety_checklist: [
+      "Caption reviewed for accuracy and approved claims only",
+      "No unapproved testimonials, metrics, or guarantees",
+      "Media matches the approved asset group",
+      "Destination account is the correct client profile",
+    ],
+    meta: {},
+  };
+
+  const now = new Date().toISOString();
+  const record = {
+    client_id: input.clientId, execution_month: input.executionMonth, source_ref: input.sourceRef,
+    asset_group_ref: input.assetGroupRef, production_brief_id: input.productionBriefId,
+    asset_format: input.assetFormat, title: input.title,
+    publish_status: "ready" as const, platform: "instagram",
+    planned_publish_date: plannedDate ?? null,
+    publish_payload: payload as unknown as Record<string, unknown>,
+    publish_settings: settings as unknown as Record<string, unknown>,
+    updated_at: now,
+  };
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE)
+    .upsert(record, { onConflict: "client_id,asset_group_ref" })
+    .select("*").single();
+  if (error) throw error;
+  return data as DistributionRecordRow;
+}
+
+export async function fetchDistributionRecords(clientId: string, executionMonth: string): Promise<DistributionRecordRow[]> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as DistributionRecordRow[];
+}
+
+export async function fetchDistributionRecordByGroup(clientId: string, assetGroupRef: string): Promise<DistributionRecordRow | null> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*")
+    .eq("client_id", clientId).eq("asset_group_ref", assetGroupRef).maybeSingle();
+  if (error) throw error;
+  return (data as DistributionRecordRow | null) ?? null;
+}
+
+/** Save edited payload/settings/destination/planned date without publishing. */
+export async function saveDistributionRecord(recordId: string, patch: {
+  publishPayload?: Record<string, unknown>; publishSettings?: Record<string, unknown>;
+  destination?: string | null; plannedPublishDate?: string | null;
+}): Promise<DistributionRecordRow> {
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.publishPayload !== undefined) update.publish_payload = patch.publishPayload;
+  if (patch.publishSettings !== undefined) update.publish_settings = patch.publishSettings;
+  if (patch.destination !== undefined) update.destination = patch.destination;
+  if (patch.plannedPublishDate !== undefined) update.planned_publish_date = patch.plannedPublishDate;
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).update(update).eq("id", recordId).select("*").single();
+  if (error) throw error;
+  return data as DistributionRecordRow;
+}
+
+/**
+ * Schedule (no immediate publish): the scheduled worker publishes it when
+ * `scheduled_publish_at` elapses via the shared publisher — no per-asset cron.
+ */
+export async function scheduleDistributionRecord(recordId: string, input: {
+  scheduledPublishAt: string; publishPayload: Record<string, unknown>; publishSettings: Record<string, unknown>; destination?: string | null;
+}): Promise<DistributionRecordRow> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).update({
+    publish_status: "scheduled", publish_mode: "scheduled",
+    scheduled_publish_at: input.scheduledPublishAt,
+    publish_payload: input.publishPayload, publish_settings: input.publishSettings,
+    destination: input.destination ?? null, last_error: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", recordId).select("*").single();
+  if (error) throw error;
+  return data as DistributionRecordRow;
+}
+
+export async function cancelDistributionRecord(recordId: string): Promise<DistributionRecordRow> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).update({
+    publish_status: "cancelled", updated_at: new Date().toISOString(),
+  }).eq("id", recordId).select("*").single();
+  if (error) throw error;
+  return data as DistributionRecordRow;
+}
+
+export interface PublishResult {
+  ok: boolean;
+  status: PublishStatus | null;
+  record?: DistributionRecordRow;
+  missing_config?: string[];
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Manual Publish Now → the shared edge publisher. It checks Meta credentials
+ * first and, if any are missing, returns `missing_config` WITHOUT marking the
+ * record published. Success is only ever set by the edge function after a real
+ * Meta API call — the frontend never fabricates a published state.
+ */
+export async function publishDistributionRecordNow(recordId: string, payloadOverrides: Record<string, unknown> = {}): Promise<PublishResult> {
+  return invokeFn<PublishResult>("publish-instagram-asset", {
+    distribution_record_id: recordId, mode: "publish_now", payload_overrides: payloadOverrides,
+  });
+}
+
+export async function fetchAnalyticsRecords(clientId: string, executionMonth: string): Promise<AnalyticsRecordRow[]> {
+  const { data, error } = await supabase.from("client_analytics_records").select("*")
+    .eq("client_id", clientId).eq("execution_month", executionMonth).order("published_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AnalyticsRecordRow[];
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
-import { fetchClientAssets, fetchEffectiveStageMap, fetchProductionBrief, generateAiAssets, transitionAssetsToDistribution, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
+import { fetchClientAssets, fetchEffectiveStageMap, fetchProductionBrief, generateAiAssets, promoteAssetGroupToDistribution, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import type { ReviewState } from "@/types/client";
@@ -178,18 +178,20 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
         const rows = await updateClientAssetGroupStatus(clientId, pendingGroup.ref, pending.kind);
         setAssets((current) => current.map((row) => rows.find((next) => next.id === row.id) ?? row));
         // Approval advances the ref Assets → Distribution: snapshot the asset
-        // group and mark it distribution-pending. Guarded so a re-approve of an
-        // already-advanced ref does not re-snapshot or regress. Best-effort; the
-        // status write already committed and presence keeps visibility correct.
+        // group, move pipeline state, and create the distribution record with a
+        // derived publish payload. Guarded so a re-approve of an already-advanced
+        // ref does not re-snapshot or clobber a scheduled/published record.
+        // Best-effort; the status write already committed and presence keeps
+        // visibility correct even if this fails.
         if (pending.kind === "approved" && executionMonth) {
           const entry = stageMap.get(pendingGroup.first.source_ref);
           if (!entry || !isPassedThrough(entry.stage, "assets")) {
             try {
-              await transitionAssetsToDistribution({
+              await promoteAssetGroupToDistribution({
                 clientId, executionMonth, sourceRef: pendingGroup.first.source_ref,
                 assetGroupRef: pendingGroup.ref, productionBriefId: pendingGroup.first.production_brief_id,
                 title: pendingGroup.first.title, assetFormat: pendingGroup.first.asset_format,
-                assetSnapshot: { asset_group_ref: pendingGroup.ref, files: rows.map((row) => ({ id: row.id, storage_path: row.storage_path, sequence_index: row.sequence_index, status: row.status })) },
+                assetRows: rows.map((row) => ({ id: row.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index, mime_type: row.mime_type, width: row.width, height: row.height, status: row.status })),
               });
             } catch { /* non-fatal */ }
           }
