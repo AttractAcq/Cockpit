@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Button,
@@ -18,6 +18,7 @@ import {
   fmtDateLong,
 } from "@/lib/format";
 import {
+  PIPELINE_STAGES,
   STAGE_LABELS,
   TIER_LABELS,
   type Asset,
@@ -27,6 +28,17 @@ import {
   type Entity,
   type PipelineStage,
 } from "@/types";
+
+type EditForm = {
+  business_name: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
+  niche: string;
+  city: string;
+  stage: PipelineStage;
+  notes: string;
+};
 
 const stageTag: Partial<Record<PipelineStage, TagKind>> = {
   source: "muted",
@@ -39,6 +51,8 @@ const stageTag: Partial<Record<PipelineStage, TagKind>> = {
   delivering: "approve",
 };
 
+const fieldInputClass = "w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none placeholder:text-paper-3 focus:border-line-2";
+
 export function EntityDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -47,6 +61,16 @@ export function EntityDetail() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageText, setMessageText] = useState("");
+  const [messageStatus, setMessageStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editStatus, setEditStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [actionNote, setActionNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -82,17 +106,138 @@ export function EntityDetail() {
     );
   }
 
-  const stage = entity.stage as PipelineStage;
+  const currentEntity = entity;
+  const stage = currentEntity.stage as PipelineStage;
   const tagKind = stageTag[stage] ?? "muted";
   const stageLabel = STAGE_LABELS[stage] ?? stage;
-  const initials = entity.business_name
+  const initials = currentEntity.business_name
     .split(/\s+/)
     .slice(0, 2)
     .map((s) => s[0])
     .join("")
     .toUpperCase();
 
-  const icpScore = entity.icp_fit_score ?? 0;
+  const icpScore = currentEntity.icp_fit_score ?? 0;
+  const entityRecord = currentEntity as Entity & {
+    contact_email?: string | null;
+    contact_phone?: string | null;
+  };
+  const contactEmail = currentEntity.email ?? entityRecord.contact_email ?? "";
+  const contactPhone = currentEntity.whatsapp_number ?? entityRecord.contact_phone ?? "";
+  const messageTarget = contactPhone || contactEmail;
+
+  function openMessage() {
+    setActionsOpen(false);
+    if (conversations[0]) {
+      navigate(ROUTES.conversation(conversations[0].id));
+      return;
+    }
+
+    setMessageError(null);
+    setMessageStatus("idle");
+    setMessageOpen(true);
+  }
+
+  function openEdit() {
+    setActionsOpen(false);
+    setEditError(null);
+    setEditStatus("idle");
+    setEditForm({
+      business_name: currentEntity.business_name,
+      contact_name: currentEntity.contact_name ?? "",
+      contact_phone: contactPhone,
+      contact_email: contactEmail,
+      niche: currentEntity.niche ?? "",
+      city: currentEntity.city ?? "",
+      stage,
+      notes: currentEntity.notes ?? "",
+    });
+    setEditOpen(true);
+  }
+
+  async function sendMessage() {
+    if (!messageText.trim() || messageStatus === "sending") return;
+    if (!messageTarget) {
+      setMessageError("Add a phone number or email before sending a message.");
+      return;
+    }
+
+    setMessageStatus("sending");
+    setMessageError(null);
+    try {
+      await mockApi.conversations.send({
+        entity_id: currentEntity.id,
+        to: messageTarget,
+        body: messageText.trim(),
+      });
+      setMessageStatus("sent");
+      setMessageText("");
+      window.setTimeout(() => {
+        setMessageOpen(false);
+        setMessageStatus("idle");
+      }, 900);
+    } catch (error) {
+      setMessageStatus("error");
+      setMessageError(error instanceof Error ? error.message : "Message failed to send.");
+    }
+  }
+
+  async function saveEdit() {
+    if (!editForm || editStatus === "saving") return;
+    if (!editForm.business_name.trim()) {
+      setEditError("Business name is required.");
+      return;
+    }
+
+    setEditStatus("saving");
+    setEditError(null);
+    try {
+      const updated = await mockApi.entities.update(currentEntity.id, {
+        business_name: editForm.business_name.trim(),
+        contact_name: editForm.contact_name.trim() || null,
+        contact_phone: editForm.contact_phone.trim() || null,
+        contact_email: editForm.contact_email.trim() || null,
+        niche: editForm.niche.trim() || null,
+        city: editForm.city.trim() || null,
+        stage: editForm.stage,
+        notes: editForm.notes.trim() || null,
+      }) as Record<string, unknown>;
+
+      setEntity((current) => current ? {
+        ...current,
+        ...updated,
+        business_name: String(updated.business_name ?? editForm.business_name),
+        contact_name: (updated.contact_name as string | null) ?? null,
+        whatsapp_number: ((updated.contact_phone as string | null) ?? editForm.contact_phone) || null,
+        email: ((updated.contact_email as string | null) ?? editForm.contact_email) || null,
+        niche: (updated.niche as string | null) ?? null,
+        city: (updated.city as string | null) ?? null,
+        stage: (updated.stage as PipelineStage | undefined) ?? editForm.stage,
+        notes: (updated.notes as string | null) ?? null,
+        updated_at: (updated.updated_at as string | undefined) ?? current.updated_at,
+      } : current);
+      setEditStatus("saved");
+      window.setTimeout(() => {
+        setEditOpen(false);
+        setEditStatus("idle");
+      }, 700);
+    } catch (error) {
+      setEditStatus("error");
+      setEditError(error instanceof Error ? error.message : "Could not save changes.");
+    }
+  }
+
+  async function copyEntityId() {
+    setActionsOpen(false);
+    try {
+      await navigator.clipboard.writeText(currentEntity.id);
+      setActionNote("Entity ID copied");
+      window.setTimeout(() => setActionNote(null), 1800);
+    } catch {
+      setActionNote("Copy failed");
+      window.setTimeout(() => setActionNote(null), 1800);
+    }
+  }
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3.5">
@@ -143,12 +288,63 @@ export function EntityDetail() {
             )}
           </div>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0">
-          <Button variant="primary" size="sm">Message</Button>
-          <Button variant="secondary" size="sm">Edit</Button>
-          <Button variant="subtle" size="sm"><Icon name="more" size={13} /></Button>
+        <div className="relative flex gap-1.5 flex-shrink-0">
+          <Button variant="primary" size="sm" onClick={openMessage}>Message</Button>
+          <Button variant="secondary" size="sm" onClick={openEdit}>Edit</Button>
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={() => setActionsOpen((open) => !open)}
+            aria-label="Entity actions"
+            aria-expanded={actionsOpen}
+          >
+            <Icon name="more" size={13} />
+          </Button>
+          {actionsOpen && (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-48 overflow-hidden rounded-lg border border-line bg-ink-200 shadow-2xl">
+              <button
+                type="button"
+                onClick={openMessage}
+                className="w-full px-3 py-2 text-left text-xs text-paper-2 hover:bg-ink-100 hover:text-paper"
+              >
+                {conversations[0] ? "Open message thread" : "New message"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionsOpen(false);
+                  navigate(`${ROUTES.pipeline}?stage=${currentEntity.stage}`);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-paper-2 hover:bg-ink-100 hover:text-paper"
+              >
+                View in pipeline
+              </button>
+              <button
+                type="button"
+                onClick={copyEntityId}
+                className="w-full px-3 py-2 text-left text-xs text-paper-2 hover:bg-ink-100 hover:text-paper"
+              >
+                Copy entity ID
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionsOpen(false);
+                  navigate(ROUTES.settings);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-paper-2 hover:bg-ink-100 hover:text-paper"
+              >
+                Open settings
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      {actionNote && (
+        <div className="fixed right-4 bottom-12 z-50 rounded-md border border-line bg-ink-200 px-3 py-2 text-xs text-paper-2 shadow-2xl">
+          {actionNote}
+        </div>
+      )}
 
       {/* Stat grid */}
       <div className="grid grid-cols-4 gap-3">
@@ -266,6 +462,162 @@ export function EntityDetail() {
           )}
         </div>
       </div>
+
+      {messageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-[520px] rounded-[10px] border border-line bg-ink-200 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <div>
+                <div className="text-sm font-medium text-paper">Message {currentEntity.business_name}</div>
+                <div className="text-2xs text-paper-3 font-mono">
+                  {messageTarget || "No phone or email on this record"}
+                </div>
+              </div>
+              <Button variant="subtle" size="sm" onClick={() => setMessageOpen(false)}>
+                <Icon name="x" size={13} />
+              </Button>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-3">
+              {messageError && (
+                <div className="rounded-md border border-neg/30 bg-neg-dim px-3 py-2 text-xs text-neg">
+                  {messageError}
+                </div>
+              )}
+              {messageStatus === "sent" && (
+                <div className="rounded-md border border-teal/30 bg-teal-dim px-3 py-2 text-xs text-teal">
+                  Message queued.
+                </div>
+              )}
+              <textarea
+                value={messageText}
+                onChange={(event) => setMessageText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+                rows={5}
+                placeholder="Type a message..."
+                className="w-full resize-none rounded-lg border border-line bg-ink px-3 py-2 text-sm text-paper outline-none placeholder:text-paper-3 focus:border-line-2"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-2xs text-paper-3">Cmd/Ctrl + Enter to send</span>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setMessageOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => void sendMessage()}
+                    disabled={messageStatus === "sending" || !messageText.trim()}
+                    className={messageStatus === "sending" || !messageText.trim() ? "opacity-50 cursor-not-allowed" : ""}
+                  >
+                    {messageStatus === "sending" ? "Sending..." : "Send"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editOpen && editForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-[680px] rounded-[10px] border border-line bg-ink-200 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <div className="text-sm font-medium text-paper">Edit client profile</div>
+              <Button variant="subtle" size="sm" onClick={() => setEditOpen(false)}>
+                <Icon name="x" size={13} />
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 px-4 py-4">
+              <Field label="Business name">
+                <input
+                  value={editForm.business_name}
+                  onChange={(event) => setEditForm({ ...editForm, business_name: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="Contact name">
+                <input
+                  value={editForm.contact_name}
+                  onChange={(event) => setEditForm({ ...editForm, contact_name: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="Phone">
+                <input
+                  value={editForm.contact_phone}
+                  onChange={(event) => setEditForm({ ...editForm, contact_phone: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  value={editForm.contact_email}
+                  onChange={(event) => setEditForm({ ...editForm, contact_email: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="Niche">
+                <input
+                  value={editForm.niche}
+                  onChange={(event) => setEditForm({ ...editForm, niche: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="City">
+                <input
+                  value={editForm.city}
+                  onChange={(event) => setEditForm({ ...editForm, city: event.target.value })}
+                  className={fieldInputClass}
+                />
+              </Field>
+              <Field label="Stage">
+                <select
+                  value={editForm.stage}
+                  onChange={(event) => setEditForm({ ...editForm, stage: event.target.value as PipelineStage })}
+                  className={fieldInputClass}
+                >
+                  {PIPELINE_STAGES.map((pipelineStage) => (
+                    <option key={pipelineStage} value={pipelineStage}>{STAGE_LABELS[pipelineStage]}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Notes" className="col-span-2">
+                <textarea
+                  value={editForm.notes}
+                  onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })}
+                  rows={4}
+                  className={`${fieldInputClass} resize-none`}
+                />
+              </Field>
+            </div>
+            <div className="flex items-center justify-between border-t border-line px-4 py-3">
+              <div className="text-xs">
+                {editError && <span className="text-neg">{editError}</span>}
+                {editStatus === "saved" && <span className="text-teal">Saved.</span>}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setEditOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void saveEdit()}
+                  disabled={editStatus === "saving"}
+                  className={editStatus === "saving" ? "opacity-50 cursor-not-allowed" : ""}
+                >
+                  {editStatus === "saving" ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -287,5 +639,22 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-paper-3 text-2xs uppercase tracking-cap">{label}</span>
       <span className="text-paper-2 font-mono text-right">{value}</span>
     </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className}`}>
+      <span className="text-2xs uppercase tracking-cap text-paper-3">{label}</span>
+      {children}
+    </label>
   );
 }

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { Sparkline, Tag, type TagKind } from "@/components/primitives";
+import { EmptyState, Sparkline, Tag, type TagKind } from "@/components/primitives";
 import { ROUTES } from "@/lib/constants";
 import { fmtZAR, fmtPercent } from "@/lib/format";
 import type { Campaign, CampaignStatus } from "@/types";
@@ -14,19 +14,64 @@ const statusTag: Record<CampaignStatus, { kind: TagKind; label: string }> = {
 
 interface CampaignListProps {
   campaigns: Campaign[];
+  loading?: boolean;
+  error?: string | null;
 }
 
-export function CampaignList({ campaigns }: CampaignListProps) {
+function SkeletonRow() {
+  return (
+    <div className="px-3.5 py-3 border-b border-line animate-pulse">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="h-4 w-10 bg-ink-100 rounded" />
+        <div className="h-3 w-24 bg-ink-100 rounded" />
+      </div>
+      <div className="h-4 w-48 bg-ink-100 rounded mb-2.5" />
+      <div className="grid grid-cols-3 gap-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i}>
+            <div className="h-2.5 w-8 bg-ink-100 rounded mb-1" />
+            <div className="h-3 w-14 bg-ink-100 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function CampaignList({ campaigns, loading, error }: CampaignListProps) {
   const { id: activeId } = useParams();
   const navigate = useNavigate();
 
   return (
     <div className="w-[420px] border-r border-line flex flex-col bg-ink flex-shrink-0 overflow-y-auto">
-      {campaigns.map((c) => {
+      {error && (
+        <div className="px-3.5 py-2.5 text-xs text-neg bg-neg-dim border-b border-neg/30">
+          Failed to load campaigns: {error}
+        </div>
+      )}
+
+      {loading && !error && (
+        <>
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </>
+      )}
+
+      {!loading && !error && campaigns.length === 0 && (
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState
+            icon="campaign"
+            title="No campaigns yet"
+            body="Campaigns appear here once Meta ad accounts are linked and the first campaign is launched."
+          />
+        </div>
+      )}
+
+      {!loading && campaigns.map((c) => {
         const isActive = c.id === activeId;
-        const status = statusTag[c.status];
-        const cpaSpark: "teal" | "warn" =
-          c.status === "flagged" ? "warn" : "teal";
+        const status = statusTag[c.status] ?? statusTag.draft;
+        const cpaSpark: "teal" | "warn" = c.status === "flagged" ? "warn" : "teal";
 
         return (
           <button
@@ -49,28 +94,16 @@ export function CampaignList({ campaigns }: CampaignListProps) {
             </div>
             <div className="grid grid-cols-3 gap-3 mt-2.5">
               <div>
-                <div className="text-[9px] uppercase tracking-cap text-paper-3">
-                  Spend
-                </div>
-                <div className="text-xs text-paper font-mono mt-0.5">
-                  {fmtZAR(c.spend_total)}
-                </div>
+                <div className="text-[9px] uppercase tracking-cap text-paper-3">Spend</div>
+                <div className="text-xs text-paper font-mono mt-0.5">{fmtZAR(c.spend_total)}</div>
               </div>
               <div>
-                <div className="text-[9px] uppercase tracking-cap text-paper-3">
-                  CTR
-                </div>
-                <div className="text-xs text-paper font-mono mt-0.5">
-                  {fmtPercent(c.ctr, 1)}
-                </div>
+                <div className="text-[9px] uppercase tracking-cap text-paper-3">CTR</div>
+                <div className="text-xs text-paper font-mono mt-0.5">{fmtPercent(c.ctr, 1)}</div>
               </div>
               <div>
-                <div className="text-[9px] uppercase tracking-cap text-paper-3">
-                  CPA
-                </div>
-                <div
-                  className={`text-xs font-mono mt-0.5 ${c.status === "flagged" ? "text-warn" : "text-paper"}`}
-                >
+                <div className="text-[9px] uppercase tracking-cap text-paper-3">CPA</div>
+                <div className={`text-xs font-mono mt-0.5 ${c.status === "flagged" ? "text-warn" : "text-paper"}`}>
                   {c.cpa ? fmtZAR(c.cpa) : "—"}
                 </div>
               </div>

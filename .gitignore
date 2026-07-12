@@ -2,6 +2,9 @@ node_modules
 dist
 dist-ssr
 *.local
+tsconfig.tsbuildinfo
+supabase/.temp/
+src/lib/api/
 .DS_Store
 .env
 .env.local

@@ -12,20 +12,20 @@ Single command surface for running the full distribution loop — outreach → c
 - **Tailwind CSS** with custom AA design tokens (ink + teal + DM type stack)
 - **React Router v6** with URL-routed pages
 - **Recharts** for charts (Pulse, Money)
-- **Mock API layer** (`src/lib/mock/`) — every function maps 1:1 to a future Supabase query, so the swap is a one-line change per call site
+- **Live API layer** (`src/lib/api.ts`) — all reads go to Supabase project `iwkhdqqgfjtpdhcbpftu`; `src/lib/mock/` is kept as a re-export alias and for test/story use only
 
 ---
 
 ## Status
 
-Phase 1 — **Frontend scaffold complete**. All 10 routes render with placeholder data via the mock layer. No auth, no live data, no edge functions.
+**Live — production wiring complete.** All routes read from Supabase project `iwkhdqqgfjtpdhcbpftu`. 16 edge functions deployed and active.
 
-Phase 2 — **Backend wiring** (next, via Claude Code in terminal):
-- Connect to Supabase project `ayfidvycgqorxmlczyxl`
-- Wire `mockApi` → real Supabase queries
-- Auth shell (login, protected routes, role-based routing)
-- Edge functions for OpenClaw/AICOS, Apify scrape, MJR generation, Meta ad ops
-- Realtime subscriptions for Inbox + Agent Trail + In-Flight panels
+- **Auth**: email + password (`@supabase/supabase-js` email/password flow)
+- **Hosting**: GitHub Pages — `aa-cockpit`, `aa-site`, `aa-portal`, and `aa-upload` all deploy via the `deploy.yml` workflow; the public site uses a custom domain on GitHub Pages
+- **AI models**: ICP/triage `claude-haiku-4-5-20251001` · content `claude-sonnet-4-6` · OpenClaw/AICOS `gpt-5.4-mini`
+- **External blocks**: Meta BM verification, 360dialog BSP approval, and PayFast merchant approval remain pending; those paths degrade gracefully
+
+See `docs/PREFLIGHT_READINESS.md` for the full production gate result.
 
 ---
 
@@ -90,17 +90,10 @@ src/
 ├── pages/                 // One file per route, thin — composes components
 │
 ├── lib/
-│   ├── mock/              // Typed fixtures — swap to Supabase per file
-│   │   ├── index.ts       // mockApi facade — single import for all data calls
-│   │   ├── clients.ts
-│   │   ├── prospects.ts
-│   │   ├── conversations.ts
-│   │   ├── campaigns.ts
-│   │   ├── triage.ts
-│   │   ├── operations.ts
-│   │   ├── agentEvents.ts
-│   │   ├── pulse.ts
-│   │   └── assets.ts
+│   ├── api.ts             // Live Supabase data layer — all production reads/writes
+│   ├── supabase.ts        // Supabase client (anon key, realtime, invokeFn)
+│   ├── mock/              // Re-exports live api; kept for test/story use only
+│   │   └── index.ts       // mockApi alias → api
 │   ├── format.ts          // Currency (ZAR), date, percent, duration helpers
 │   └── constants.ts       // Stages, channels, tag types, route paths
 │
@@ -138,36 +131,41 @@ Typography: `font-sans` (DM Sans), `font-serif` (DM Serif Display, for numbers/h
 
 ---
 
-## Mock API contract (for Phase 2)
+## Data layer
 
-Every data read in the app goes through `mockApi` in `src/lib/mock/index.ts`:
+All reads go through `api` in `src/lib/api.ts`, backed by Supabase project `iwkhdqqgfjtpdhcbpftu`. The `mockApi` alias in `src/lib/mock/index.ts` re-exports the live `api` and is kept for test/story use only.
 
 ```ts
-import { mockApi } from "@/lib/mock";
+import { api } from "@/lib/api";
 
-const triage = await mockApi.triage.list();
-const client = await mockApi.clients.byId(id);
+const triage = await api.triage.list();
+const client = await api.clients.byId(id);
 ```
-
-When wiring Supabase, replace each method body with the equivalent query — call sites stay identical. Functions are async-shaped already (return `Promise<T>`).
 
 ---
 
-## Phase 2 — Backend wiring checklist
+## Deployed edge functions (16)
 
-- [ ] Supabase client init (`src/lib/supabase.ts`)
-- [ ] Replace each `mockApi.*` function body with Supabase queries
-- [ ] Auth shell: login page, `ProtectedRoute` wrapper, role-based redirect (admin / delivery / distribution / client)
-- [ ] Realtime subscriptions on `conversations`, `agent_events`, `triage_items`
-- [ ] Edge functions:
-  - `apify-scrape` (Google Maps lead source)
-  - `aicos-act` (OpenClaw agent transport)
-  - `mjr-generate` (Missed Jobs Report builder)
-  - `meta-ad-ops` (campaign read/write via Meta system user token)
-  - `360dialog-send` (WhatsApp BSP outbound)
-- [ ] RLS policies — reuse the 3-helper-function pattern from AA-OS
-- [ ] Wire ⌘K command palette to real actions
-- [ ] Hook up keyboard shortcuts (R, E, S, ?) from `CommandBar`
+| Function | Purpose | Model / service |
+|---|---|---|
+| `lead-score` | ICP scoring on entity insert | `claude-haiku-4-5-20251001` (Anthropic) |
+| `brief-generator` | Copy brief generation | `claude-sonnet-4-6` (Anthropic) |
+| `mjr-generate` | Missed Jobs Report builder | `claude-sonnet-4-6` (Anthropic) |
+| `aicos-act` | OpenClaw reply scoring + auto-send | `gpt-5.4-mini` (OpenAI) |
+| `apify-scrape` | Google Maps lead source | Apify actor |
+| `meta-ad-ops` | Campaign read/write | Meta system user token |
+| `meta-webhook` | Meta inbound webhook (`verify_jwt=false`) | — |
+| `dialog360-send` | WhatsApp BSP outbound | 360dialog |
+| `dialog360-webhook` | 360dialog inbound webhook | — |
+| `campaign-flag` | Hourly campaign performance flagging | Meta |
+| `audit-log` | Audit trail helper | — |
+| `proof-capture` | Client proof upload handler | — |
+| `client-portal-sync` | Portal state sync | — |
+| `onboarding` | Client onboarding entry point + n8n handoff | — |
+| `mrr-calc` | Monthly MRR snapshot calculation | — |
+| `public-lead-capture` | Public-facing lead intake form | — |
+
+Auth: email + password. RLS: 3-helper-function pattern (`auth_role`, `auth_entity_ids`, `auth_admin`). Realtime active on `triage_items`, `conversations`, `agent_events`.
 
 ---
 

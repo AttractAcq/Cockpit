@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "subtle" | "ghost";
+type Variant = "primary" | "secondary" | "subtle" | "ghost" | "danger";
 type Size = "sm" | "md";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -18,6 +18,8 @@ const variants: Record<Variant, string> = {
     "bg-transparent text-paper-2 border-transparent hover:text-paper hover:bg-ink-50",
   ghost:
     "bg-transparent text-paper-2 border-transparent hover:text-paper",
+  danger:
+    "bg-transparent text-neg border-neg/30 hover:border-neg/60 hover:bg-neg/5",
 };
 
 const sizes: Record<Size, string> = {

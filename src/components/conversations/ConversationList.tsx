@@ -1,33 +1,35 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChannelBadge, Tabs, Icon } from "@/components/primitives";
-import { mockApi } from "@/lib/mock";
+import { ChannelBadge, EmptyState, Tabs, Icon } from "@/components/primitives";
+import { api } from "@/lib/api";
+import { useRealtimeList } from "@/hooks/useRealtime";
 import { ROUTES } from "@/lib/constants";
 import { fmtAgo } from "@/lib/format";
 import type { Conversation } from "@/types";
 
-const DEMO: Conversation[] = [
-  { id: "d-c1", entity_id: null, entity_name: "Mike · Roofworx CT", channel: "instagram", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(), last_message_preview: "Yeah send me the report…", last_message_from: "them", is_pinned: true, created_at: "" },
-  { id: "d-c2", entity_id: null, entity_name: "Vasco · Vasco Joinery", channel: "whatsapp", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 90).toISOString(), last_message_preview: "Sharp, I'll have a look tonight 🙏", last_message_from: "them", is_pinned: false, created_at: "" },
-  { id: "d-c3", entity_id: null, entity_name: "Lindiwe · Pool Pros SA", channel: "instagram", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 180).toISOString(), last_message_preview: "Hi, saw your reel — do you work with pool repair…", last_message_from: "them", is_pinned: false, created_at: "" },
-  { id: "d-c4", entity_id: null, entity_name: "Cape Coast Joinery", channel: "whatsapp", subject: null, unread_count: 0, last_message_at: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(), last_message_preview: "Looking forward to today!", last_message_from: "them", is_pinned: false, created_at: "" },
-];
+function SkeletonRow() {
+  return (
+    <div className="w-full px-3 py-2.5 flex items-start gap-2.5 border-b border-line animate-pulse">
+      <div className="w-[18px] h-[18px] rounded bg-ink-100 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="h-3.5 w-28 bg-ink-100 rounded" />
+          <div className="h-3 w-10 bg-ink-100 rounded" />
+        </div>
+        <div className="h-3 w-44 bg-ink-100 rounded" />
+      </div>
+    </div>
+  );
+}
 
 export function ConversationList() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
+  const { rows: conversations, loading, error } = useRealtimeList<Conversation>(
+    "conversations",
+    api.conversations.list as () => Promise<Conversation[]>,
+  );
   const [tab, setTab] = useState("all");
   const navigate = useNavigate();
   const { id: activeId } = useParams();
-
-  useEffect(() => {
-    mockApi.conversations.list()
-      .then((rows) => {
-        if (rows.length === 0) { setConversations(DEMO); setIsDemo(true); }
-        else { setConversations(rows as Conversation[]); setIsDemo(false); }
-      })
-      .catch(() => { setConversations(DEMO); setIsDemo(true); });
-  }, []);
 
   const filtered = conversations.filter((c) => {
     if (tab === "all") return true;
@@ -66,14 +68,35 @@ export function ConversationList() {
         />
       </div>
 
-      {isDemo && (
-        <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-cap text-paper-3 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-warn" /> demo
+      {error && (
+        <div className="px-3 py-2 text-xs text-neg bg-neg-dim border-b border-neg/30">
+          Inbox load failed: {error}
         </div>
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {filtered.map((conv) => {
+        {loading && !error && (
+          <>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <EmptyState
+            icon="chat"
+            title={tab === "all" ? "No conversations yet" : `No ${tab} threads`}
+            body={
+              tab === "all"
+                ? "Inbound WhatsApp and IG DM threads will appear here once the webhooks receive messages."
+                : undefined
+            }
+          />
+        )}
+
+        {!loading && filtered.map((conv) => {
           const isActive = conv.id === activeId;
           const isUnread = (conv.unread_count || 0) > 0 && conv.last_message_from === "them";
           return (
@@ -88,7 +111,7 @@ export function ConversationList() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`text-sm truncate flex-1 ${isUnread ? "text-paper font-medium" : "text-paper-2"}`}>
-                    {conv.entity_name}
+                    {conv.entity_name ?? "Unknown"}
                   </span>
                   <span className="font-mono text-2xs text-paper-3 flex-shrink-0">
                     {conv.last_message_at ? fmtAgo(conv.last_message_at) : ""}

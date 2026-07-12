@@ -1,26 +1,28 @@
 import { useNavigate } from "react-router-dom";
-import { Panel, ChannelBadge } from "@/components/primitives";
-import { mockApi } from "@/lib/mock";
+import { EmptyState, Panel, ChannelBadge } from "@/components/primitives";
+import { api } from "@/lib/api";
 import { useRealtimeList } from "@/hooks/useRealtime";
 import { ROUTES } from "@/lib/constants";
 import { fmtAgo } from "@/lib/format";
 import type { Conversation } from "@/types";
 
-const DEMO: Conversation[] = [
-  { id: "d-conv-1", entity_id: null, entity_name: "Mike Daniels · Roofworx", channel: "instagram", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(), last_message_preview: "Yeah send me the report…", last_message_from: "them", is_pinned: true, created_at: "" },
-  { id: "d-conv-2", entity_id: null, entity_name: "Vasco · Vasco Joinery", channel: "whatsapp", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(), last_message_preview: "Sharp, I'll have a look tonight 🙏", last_message_from: "them", is_pinned: false, created_at: "" },
-  { id: "d-conv-3", entity_id: null, entity_name: "Lindiwe · Pool Pros SA", channel: "instagram", subject: null, unread_count: 1, last_message_at: new Date(Date.now() - 1000 * 60 * 180).toISOString(), last_message_preview: "Hi, saw your reel — do you work with pool repair…", last_message_from: "them", is_pinned: false, created_at: "" },
-];
-
 export function InboxPanel() {
   const navigate = useNavigate();
-  const { rows: live, loading } = useRealtimeList<Conversation>("conversations", mockApi.conversations.list);
+  const { rows: live, loading, error } = useRealtimeList<Conversation>("conversations", api.conversations.list);
 
-  const items = loading ? [] : (live.length > 0 ? live : DEMO).slice(0, 5);
+  const items = loading ? [] : live.slice(0, 5);
   const unread = items.reduce((acc, c) => acc + (c.unread_count || 0), 0);
 
   return (
     <Panel title="Inbox" meta={`${unread} unread · ${items.length} total`}>
+      {error && (
+        <div className="px-3 py-3 text-xs text-neg bg-neg-dim border-b border-neg/30">
+          Inbox read failed: {error}
+        </div>
+      )}
+      {!loading && !error && items.length === 0 && (
+        <EmptyState icon="chat" title="No conversations" body="Live inbound threads will appear here." />
+      )}
       {items.map((conv, i) => {
         const isUnread = (conv.unread_count || 0) > 0 && conv.last_message_from === "them";
         return (
