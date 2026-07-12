@@ -591,6 +591,10 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus,
+  AiVisualDirection, VisualInputUpload,
+  AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
+  ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
+  DestructiveTargetInput, DestructivePlan, DestructiveExecuteResult,
 } from "@/types/phase";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
@@ -830,6 +834,83 @@ export async function finalizePhase3(clientId: string, executionMonth: string): 
     await logActivity(clientId, "phase_3_error", msg, { execution_month: executionMonth, stage: "finalize" }).catch(() => {});
     return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
   }
+}
+
+// ── Scoped Phase 3 (H8): range + single-item via the shared slot model ────────
+export interface ScopedPhase3Request {
+  clientId: string;
+  generationMode: "range" | "single_item";
+  startDate?: string; endDate?: string;      // range
+  plannedDate?: string; assetFormat?: ScopedPhase3Format; // single_item
+  duplicatePolicy: Phase3DuplicatePolicy;
+  formatFilter?: ScopedPhase3Format[];
+}
+
+function scopedBody(input: ScopedPhase3Request): Record<string, unknown> {
+  return {
+    client_id: input.clientId, generation_mode: input.generationMode,
+    start_date: input.startDate, end_date: input.endDate,
+    planned_date: input.plannedDate, asset_format: input.assetFormat,
+    duplicate_policy: input.duplicatePolicy,
+    ...(input.formatFilter?.length ? { format_filter: input.formatFilter } : {}),
+  };
+}
+
+/** Deterministic, read-only preview of a scoped request (no records created). */
+export async function previewPhase3Scope(input: ScopedPhase3Request): Promise<Phase3ScopePreview> {
+  const result = await invokeFn<Phase3ScopePreview & { ok: boolean; message?: string }>("preview-phase-3-scope", scopedBody(input));
+  if (!result.ok) throw new Error(result.message ?? "preview-phase-3-scope failed.");
+  return result;
+}
+
+/** Create a scoped run + slot items (nothing generated yet). */
+export async function startPhase3Scope(input: ScopedPhase3Request): Promise<{ run: Phase3ScopedRunRow; queued: number; total_slots: number }> {
+  const result = await invokeFn<{ ok: boolean; message?: string; run?: Phase3ScopedRunRow; queued?: number; total_slots?: number }>("start-phase-3-scope", scopedBody(input));
+  if (!result.ok || !result.run) throw new Error(result.message ?? "start-phase-3-scope failed.");
+  return { run: result.run, queued: result.queued ?? 0, total_slots: result.total_slots ?? 0 };
+}
+
+/** Process exactly one queued slot of a run (one master + calendar cell). */
+export async function generatePhase3Slot(runId: string): Promise<Phase3SlotProgress> {
+  const result = await invokeFn<Phase3SlotProgress & { ok: boolean; message?: string; error?: string }>("generate-phase-3-slot", { run_id: runId });
+  if (!result.ok && !result.conflict) throw new Error(result.message ?? result.error ?? "generate-phase-3-slot failed.");
+  return result;
+}
+
+/** Drive a scoped run slot-by-slot to a terminal state. Persisted + resumable. */
+export async function drivePhase3Run(runId: string, onProgress?: (p: Phase3SlotProgress) => void, shouldContinue?: () => boolean): Promise<Phase3SlotProgress> {
+  let last: Phase3SlotProgress | null = null;
+  for (let guard = 0; guard < 500; guard += 1) {
+    if (shouldContinue && !shouldContinue()) return last ?? await generatePhase3Slot(runId);
+    const p = await generatePhase3Slot(runId);
+    last = p; onProgress?.(p);
+    if (p.terminal) return p;
+  }
+  throw new Error("Scoped run driver exceeded its iteration guard.");
+}
+
+// ── Destructive lifecycle (H9): dry-run plan + staged execute ─────────────────
+export async function planDestructive(target: DestructiveTargetInput): Promise<{ operation_id: string | null; plan: DestructivePlan }> {
+  const r = await invokeFn<{ ok: boolean; message?: string; operation_id: string | null; plan: DestructivePlan }>("plan-destructive", target as unknown as Record<string, unknown>);
+  if (!r.ok) throw new Error(r.message ?? "plan-destructive failed.");
+  return { operation_id: r.operation_id, plan: r.plan };
+}
+
+/** Execute a planned operation. Returns the normalized result even when blocked/failed. */
+export async function executeDestructive(operationId: string, reason: string): Promise<DestructiveExecuteResult> {
+  try {
+    return await invokeFn<DestructiveExecuteResult>("execute-destructive", { operation_id: operationId, reason });
+  } catch (error) {
+    const body = (error as { responseBody?: DestructiveExecuteResult }).responseBody;
+    if (body && typeof body === "object") return body;
+    throw error;
+  }
+}
+
+export async function fetchLatestPhase3Run(clientId: string): Promise<Phase3ScopedRunRow | null> {
+  const { data, error } = await supabase.from("client_phase3_scoped_runs").select("*").eq("client_id", clientId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return (data as Phase3ScopedRunRow | null) ?? null;
 }
 
 export async function fetchClientExecutionFiles(
@@ -1148,14 +1229,55 @@ const AI_ASSET_FUNCTIONS: Partial<Record<AssetFormat, string>> = {
   ad_static: "generate-ad-static-asset",
 };
 
-export async function generateAiAssets(brief: ProductionBriefRow, expectedCount?: number): Promise<AiAssetGenerationResult> {
+const VISUAL_INPUT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const VISUAL_INPUT_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+/**
+ * Upload a visual-input image (background/insert) to the PRIVATE client-assets
+ * bucket before generation. Returns the stored path + metadata for the edge
+ * function to download. Validates type and size; throws on any failure so the
+ * caller never proceeds to generation with a missing/oversized image.
+ */
+export async function uploadVisualInputImage(
+  clientId: string, executionMonth: string, sourceRef: string, file: File,
+): Promise<VisualInputUpload> {
+  if (!VISUAL_INPUT_MIME.has(file.type)) throw new Error("Only PNG, JPEG, or WEBP images are allowed.");
+  if (file.size > VISUAL_INPUT_MAX_BYTES) throw new Error(`Image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the maximum is 10 MB.`);
+  if (file.size === 0) throw new Error("The selected file is empty.");
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "input";
+  const safeRef = sourceRef.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 100) || "asset";
+  const path = `${clientId}/${executionMonth}/${safeRef}/inputs/${Date.now()}-${safeName}`;
+  const { error } = await supabase.storage.from("client-assets").upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw new Error(`Image upload failed: ${error.message}`);
+  return { path, filename: file.name, mime_type: file.type, size: file.size };
+}
+
+export interface GenerateAiAssetsOptions {
+  /** Consulted only when the brief's own slide/frame count is ambiguous. */
+  expectedCount?: number;
+  /** Visual direction (mode + optional uploaded image + strength/notes). */
+  visual?: AiVisualDirection;
+}
+
+export async function generateAiAssets(brief: ProductionBriefRow, options: GenerateAiAssetsOptions = {}): Promise<AiAssetGenerationResult> {
   if (brief.asset_format === "reel_video") throw new Error("AI video generation is not supported. Reels are human-only.");
   const functionName = AI_ASSET_FUNCTIONS[brief.asset_format];
   if (!functionName) throw new Error(`No AI asset function is configured for ${brief.asset_format}.`);
+  const visual = options.visual;
   const result = await invokeFn<{ ok: boolean; message?: string; asset_group_ref?: string; asset_count?: number; assets?: ClientAssetRow[]; brief?: ProductionBriefRow }>(functionName, {
     production_brief_id: brief.id,
     // Only consulted by the generator when the brief's own count is ambiguous.
-    ...(typeof expectedCount === "number" ? { expected_count: expectedCount } : {}),
+    ...(typeof options.expectedCount === "number" ? { expected_count: options.expectedCount } : {}),
+    // Visual direction — defaults to text_only server-side when omitted.
+    ...(visual ? {
+      visual_mode: visual.visual_mode,
+      uploaded_image_path: visual.uploaded_image_path ?? null,
+      uploaded_image_mime_type: visual.uploaded_image_mime_type ?? null,
+      uploaded_image_filename: visual.uploaded_image_filename ?? null,
+      visual_instructions: visual.visual_instructions ?? null,
+      background_strength: visual.background_strength ?? null,
+      preserve_text_readability: visual.preserve_text_readability ?? true,
+    } : {}),
   });
   if (!result.ok || !result.asset_group_ref || !result.asset_count || !result.assets || !result.brief) {
     throw new Error(result.message ?? `${functionName} returned an incomplete asset group.`);
@@ -1166,6 +1288,111 @@ export async function generateAiAssets(brief: ProductionBriefRow, expectedCount?
     assets: result.assets,
     brief: result.brief,
   };
+}
+
+// ── Persisted multi-image generation (carousel/story) via the job model ───────
+// Multi-image assets are NOT generated in one long call (that tripped HTTP 546).
+// The UI: (1) starts a job, (2) drives it one slide per call until it's terminal.
+// State is persisted, so closing the modal or reloading the page never loses it.
+
+export interface StartAssetGenerationResult {
+  job: AssetGenerationJobRow;
+  expected_count: number;
+  asset_group_ref: string;
+}
+
+/** Create a generation job + N slide items. Returns immediately (no image work). */
+export async function startAssetGeneration(brief: ProductionBriefRow, options: GenerateAiAssetsOptions = {}): Promise<StartAssetGenerationResult> {
+  if (brief.asset_format !== "carousel" && brief.asset_format !== "story_sequence") {
+    throw new Error(`${brief.asset_format} does not use the multi-image job model.`);
+  }
+  const visual = options.visual;
+  const result = await invokeFn<{ ok: boolean; message?: string; job?: AssetGenerationJobRow; expected_count?: number; asset_group_ref?: string }>("start-carousel-generation", {
+    production_brief_id: brief.id,
+    ...(typeof options.expectedCount === "number" ? { expected_count: options.expectedCount } : {}),
+    ...(visual ? {
+      visual_mode: visual.visual_mode,
+      uploaded_image_path: visual.uploaded_image_path ?? null,
+      uploaded_image_mime_type: visual.uploaded_image_mime_type ?? null,
+      uploaded_image_filename: visual.uploaded_image_filename ?? null,
+      visual_instructions: visual.visual_instructions ?? null,
+      background_strength: visual.background_strength ?? null,
+    } : {}),
+  });
+  if (!result.ok || !result.job || !result.expected_count || !result.asset_group_ref) {
+    throw new Error(result.message ?? "start-carousel-generation returned an incomplete job.");
+  }
+  return { job: result.job, expected_count: result.expected_count, asset_group_ref: result.asset_group_ref };
+}
+
+/** Process exactly one queued slide of a job (or retry failed slides first). */
+export async function generateAssetSlide(jobId: string, opts: { retryFailed?: boolean } = {}): Promise<AssetJobProgress> {
+  const result = await invokeFn<AssetJobProgress & { ok: boolean; message?: string }>("generate-carousel-slide", {
+    generation_job_id: jobId,
+    ...(opts.retryFailed ? { retry_failed: true } : {}),
+  });
+  if (!result.ok || !result.job) throw new Error(result.message ?? "generate-carousel-slide returned no progress.");
+  return result;
+}
+
+/** The latest generation job for a brief (any status), or null. */
+export async function fetchLatestAssetJobForBrief(productionBriefId: string): Promise<AssetGenerationJobRow | null> {
+  const { data, error } = await supabase.from("client_asset_generation_jobs")
+    .select("*").eq("production_brief_id", productionBriefId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return (data as AssetGenerationJobRow | null) ?? null;
+}
+
+/** Latest jobs for a whole client, keyed by production_brief_id (for the Assets tab). */
+export async function fetchLatestAssetJobsByBrief(clientId: string): Promise<Map<string, AssetGenerationJobRow>> {
+  const { data, error } = await supabase.from("client_asset_generation_jobs")
+    .select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+  if (error) throw error;
+  const map = new Map<string, AssetGenerationJobRow>();
+  for (const row of (data ?? []) as AssetGenerationJobRow[]) {
+    if (!map.has(row.production_brief_id)) map.set(row.production_brief_id, row); // first = newest
+  }
+  return map;
+}
+
+export async function fetchAssetJobItems(jobId: string): Promise<AssetGenerationItemRow[]> {
+  const { data, error } = await supabase.from("client_asset_generation_items")
+    .select("*").eq("generation_job_id", jobId).order("sequence_index");
+  if (error) throw error;
+  return (data ?? []) as AssetGenerationItemRow[];
+}
+
+const NON_TERMINAL_JOB: ReadonlySet<string> = new Set(["queued", "processing"]);
+export function isAssetJobActive(job: AssetGenerationJobRow | null | undefined): boolean {
+  return !!job && NON_TERMINAL_JOB.has(job.status);
+}
+
+/**
+ * Drive a job to a terminal state, one slide per call. Reports progress after
+ * every slide. Safe to abandon (state is persisted) and safe to re-enter — it
+ * simply resumes from wherever the persisted job left off.
+ */
+export async function driveAssetJob(
+  jobId: string,
+  onProgress?: (progress: AssetJobProgress) => void,
+  opts: { retryFailed?: boolean; shouldContinue?: () => boolean } = {},
+): Promise<AssetJobProgress> {
+  let retry = opts.retryFailed ?? false;
+  let last: AssetJobProgress | null = null;
+  for (let guard = 0; guard < 60; guard += 1) {
+    if (opts.shouldContinue && !opts.shouldContinue()) return last ?? await generateAssetSlide(jobId);
+    const progress = await generateAssetSlide(jobId, { retryFailed: retry });
+    retry = false;
+    last = progress;
+    onProgress?.(progress);
+    if (progress.terminal) return progress;
+    if (!progress.item_processed && progress.in_progress) {
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // another worker holds the item
+      continue;
+    }
+    if (!progress.item_processed) return progress; // no work possible, not terminal — stop
+  }
+  throw new Error("Slide driver exceeded its iteration guard.");
 }
 
 async function addSignedAssetUrls(rows: ClientAssetRow[]): Promise<ClientAssetRow[]> {
@@ -1196,14 +1423,35 @@ export async function updateClientAssetGroupStatus(
   assetGroupRef: string,
   status: ReviewState,
 ): Promise<ClientAssetRow[]> {
+  // Review/approval applies to the CURRENT version of each frame only — historical
+  // versions keep their own status and remain for history.
   const { data, error } = await supabase.from("client_assets")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("client_id", clientId)
     .eq("asset_group_ref", assetGroupRef)
+    .eq("is_current", true)
     .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)");
   if (error) throw error;
   if (!data?.length) throw new Error(`Asset group ${assetGroupRef} was not found or could not be updated.`);
   return addSignedAssetUrls(data as ClientAssetRow[]);
+}
+
+/**
+ * Regenerate a single carousel slide / story frame as a NEW version (v2, v3…),
+ * reusing the frame's stored prompt. The new version becomes current + needs_review;
+ * other frames are untouched. Returns the new current asset.
+ */
+export async function regenerateAssetFrame(clientAssetId: string): Promise<ClientAssetRow> {
+  const result = await invokeFn<{ ok: boolean; message?: string; asset?: ClientAssetRow; version?: number }>("regenerate-asset-frame", { client_asset_id: clientAssetId });
+  if (!result.ok || !result.asset) throw new Error(result.message ?? "regenerate-asset-frame returned no asset.");
+  const [signed] = await addSignedAssetUrls([result.asset]);
+  return signed;
+}
+
+/** Make a specific stored version the current one for its frame. */
+export async function activateAssetVersion(clientAssetId: string): Promise<void> {
+  const { error } = await supabase.rpc("activate_asset_version", { p_asset_id: clientAssetId });
+  if (error) throw error;
 }
 
 const REVIEW_TABLES = [
@@ -1783,9 +2031,8 @@ export async function promoteAssetGroupToDistribution(input: {
     assetSnapshot: { asset_group_ref: input.assetGroupRef, files: input.assetRows.map((row) => ({ id: row.id, storage_path: row.storage_path, sequence_index: row.sequence_index, status: row.status })) },
   }).catch(() => { /* non-fatal — visibility stays correct via presence */ });
 
-  const existing = await fetchDistributionRecordByGroup(input.clientId, input.assetGroupRef);
-  // Don't clobber a record that has moved past 'ready' — preserve edits/status.
-  if (existing && existing.publish_status !== "ready") return existing;
+  const existingRows = await fetchDistributionRecordsByGroup(input.clientId, input.assetGroupRef);
+  const existingBySeq = new Map(existingRows.map((row) => [row.sequence_index ?? 1, row]));
 
   const [master, brief, cells] = await Promise.all([
     fetchMasterRowByRef(input.clientId, input.sourceRef).catch(() => null),
@@ -1799,16 +2046,12 @@ export async function promoteAssetGroupToDistribution(input: {
     ?? (masterRecord && typeof masterRecord.distribution_date === "string" ? masterRecord.distribution_date as string : null)
     ?? (masterRecord && typeof masterRecord.start_date === "string" ? masterRecord.start_date as string : null);
   const defaults = distributionDefaults(input.assetFormat);
-
-  const payload: DistributionPublishPayload = {
-    caption: deriveCaption(masterRow, brief),
-    hashtags: [],
-    media: [...input.assetRows].sort((a, b) => a.sequence_index - b.sequence_index).map((row) => ({
-      storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index,
-      mime_type: row.mime_type, width: row.width, height: row.height,
-    })),
-    source_ref: input.sourceRef, asset_group_ref: input.assetGroupRef, asset_format: input.assetFormat,
-  };
+  const isStory = defaults.contentType === "STORIES";
+  const sortedRows = [...input.assetRows].sort((a, b) => a.sequence_index - b.sequence_index);
+  const mapMedia = (row: typeof sortedRows[number]) => ({
+    storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index,
+    mime_type: row.mime_type, width: row.width, height: row.height,
+  });
   const settings: DistributionPublishSettings = {
     platform: "instagram", destination: null,
     content_type: defaults.contentType, aspect_ratio: defaults.aspectRatio,
@@ -1821,23 +2064,56 @@ export async function promoteAssetGroupToDistribution(input: {
     ],
     meta: {},
   };
+  const caption = deriveCaption(masterRow, brief);
+
+  // Stories fan out to one record per frame (Meta = one image per Story); every
+  // other format stays a single record (sequence_index = 1). Records already
+  // past 'ready' are preserved (no clobbering of edits/status).
+  const frameSpecs = isStory
+    ? sortedRows.map((row) => ({ seq: row.sequence_index, count: sortedRows.length, rows: [row], title: `${input.title ?? input.sourceRef} — Frame ${row.sequence_index} of ${sortedRows.length}` }))
+    : [{ seq: 1, count: null as number | null, rows: sortedRows, title: input.title }];
 
   const now = new Date().toISOString();
-  const record = {
-    client_id: input.clientId, execution_month: input.executionMonth, source_ref: input.sourceRef,
-    asset_group_ref: input.assetGroupRef, production_brief_id: input.productionBriefId,
-    asset_format: input.assetFormat, title: input.title,
-    publish_status: "ready" as const, platform: "instagram",
-    planned_publish_date: plannedDate ?? null,
-    publish_payload: payload as unknown as Record<string, unknown>,
-    publish_settings: settings as unknown as Record<string, unknown>,
-    updated_at: now,
-  };
-  const { data, error } = await supabase.from(DISTRIBUTION_TABLE)
-    .upsert(record, { onConflict: "client_id,asset_group_ref" })
-    .select("*").single();
+  const written: DistributionRecordRow[] = [];
+  for (const spec of frameSpecs) {
+    const existing = existingBySeq.get(spec.seq);
+    if (existing && existing.publish_status !== "ready") { written.push(existing); continue; }
+    const payload: DistributionPublishPayload = {
+      caption, hashtags: [], media: spec.rows.map(mapMedia),
+      source_ref: input.sourceRef, asset_group_ref: input.assetGroupRef, asset_format: input.assetFormat,
+    };
+    const record = {
+      client_id: input.clientId, execution_month: input.executionMonth, source_ref: input.sourceRef,
+      asset_group_ref: input.assetGroupRef, sequence_index: spec.seq, sequence_count: spec.count,
+      production_brief_id: input.productionBriefId, asset_format: input.assetFormat, title: spec.title,
+      publish_status: "ready" as const, platform: "instagram", planned_publish_date: plannedDate ?? null,
+      publish_payload: payload as unknown as Record<string, unknown>,
+      publish_settings: settings as unknown as Record<string, unknown>,
+      updated_at: now,
+    };
+    const { data, error } = await supabase.from(DISTRIBUTION_TABLE)
+      .upsert(record, { onConflict: "client_id,asset_group_ref,sequence_index" })
+      .select("*").single();
+    if (error) throw error;
+    written.push(data as DistributionRecordRow);
+  }
+  const primary = written[0] ?? existingRows[0];
+  if (!primary) throw new Error("No distribution record was created for this asset group.");
+  return primary;
+}
+
+/** All distribution records for an asset group (one per Story frame; one otherwise). */
+export async function fetchDistributionRecordsByGroup(clientId: string, assetGroupRef: string): Promise<DistributionRecordRow[]> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*")
+    .eq("client_id", clientId).eq("asset_group_ref", assetGroupRef).order("sequence_index", { ascending: true });
   if (error) throw error;
-  return data as DistributionRecordRow;
+  return (data ?? []) as DistributionRecordRow[];
+}
+
+/** Sign a single stored media file for a private preview (1h). Null on failure. */
+export async function signDistributionMedia(bucket: string, path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+  return error || !data?.signedUrl ? null : data.signedUrl;
 }
 
 export async function fetchDistributionRecords(clientId: string, executionMonth: string): Promise<DistributionRecordRow[]> {

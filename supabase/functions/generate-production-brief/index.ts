@@ -39,13 +39,22 @@ function proofViolations(markdown: string, proofRestricted: boolean): string[] {
   return violations;
 }
 
-async function generateMarkdown(system: string, user: string, maxTokens = 5200) {
+// Total wall-clock budget for ALL model calls in one request. The edge platform
+// hard-kills a worker at ~150s (HTTP 546, WORKER_RESOURCE_LIMIT). A single brief
+// call can take ~110s; two sequential calls (initial + format retry) blew past
+// the cap and produced the observed 546. We keep total model time inside this
+// budget and NEVER issue a retry we cannot afford — returning a clean 502 instead.
+const MODEL_BUDGET_MS = 135_000;
+const FIRST_CALL_TIMEOUT_MS = 115_000;
+const MIN_RETRY_BUDGET_MS = 45_000;
+
+async function generateMarkdown(system: string, user: string, timeoutMs: number, maxTokens = 5200) {
   const result = await callAnthropic({
     system,
     user,
     model: Deno.env.get("AA_PRODUCTION_BRIEF_AI_MODEL") ?? Deno.env.get("AA_PHASE2_AI_MODEL") ?? "claude-sonnet-4-6",
     maxTokens,
-    timeoutMs: 120_000,
+    timeoutMs,
   });
   if (!result.ok) throw new Error(result.error);
   return result.text.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -130,10 +139,18 @@ ${contextAuthority}
 APPROVED EXECUTION FILES, INCLUDING E10 PROOF AND E11 GOVERNANCE:
 ${executionAuthority}`;
 
-    let markdown = await generateMarkdown(system, userPrompt);
+    const modelStart = Date.now();
+    let markdown = await generateMarkdown(system, userPrompt, FIRST_CALL_TIMEOUT_MS);
     let missing = missingBriefSections(markdown, assetFormat);
     if (missing.length) {
-      markdown = await generateMarkdown(`${system}\nFORMAT RETRY: The previous response omitted required headings. Return a complete replacement document using every heading exactly.`, userPrompt);
+      // Only retry if the remaining wall-clock budget can safely absorb another
+      // model call. Otherwise return a recoverable 502 (operator re-clicks) rather
+      // than risking a hard 546 kill mid-retry.
+      const remaining = MODEL_BUDGET_MS - (Date.now() - modelStart);
+      if (remaining < MIN_RETRY_BUDGET_MS) {
+        return failure(502, "validate_markdown", "Provider output omitted required brief sections and there was not enough time budget to retry safely. Please generate again.", { missing_sections: missing, remaining_ms: remaining });
+      }
+      markdown = await generateMarkdown(`${system}\nFORMAT RETRY: The previous response omitted required headings. Return a complete replacement document using every heading exactly.`, userPrompt, Math.min(remaining - 10_000, 110_000));
       missing = missingBriefSections(markdown, assetFormat);
     }
     if (missing.length) return failure(502, "validate_markdown", "Provider output omitted required brief sections after retry.", { missing_sections: missing });

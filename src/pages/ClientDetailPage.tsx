@@ -573,6 +573,42 @@ export function ClientDetailPage() {
     }
   }
 
+  // Relocated phase controls (G1). Same handlers/gating as before; rendered as
+  // secondary actions inside the Overview (Phase 1 & 2) and Calendar (Phase 3)
+  // tabs instead of the client-page header. Execution semantics are unchanged.
+  const contextApproved = client.stage1_status === "complete"
+    && contextFiles.length === CONTEXT_FILE_DEFS.length
+    && contextFiles.every((file) => file.status === "approved");
+  const executionReady = canonicalExecutionReady(executionFiles);
+
+  const renderPhase12Controls = () => {
+    const readiness = getContextReadiness(contextInputs).status;
+    return <div className="rounded-[10px] border border-line bg-ink-200 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1"><div className="text-sm font-medium text-paper">Generation · Phase 1 &amp; 2</div><p className="mt-1 text-2xs leading-4 text-paper-3">Phase 1 generates the 21 Context Files from the saved Context Inputs. Phase 2 generates the Execution Files from the approved Context Files. Each phase requires review before the next.</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {readiness === "placeholder_detected" && <span className="font-mono text-2xs text-neg">Phase 1 blocked: placeholder input</span>}
+          {(readiness === "missing_recommended" || readiness === "needs_input") && <span className="font-mono text-2xs text-warn">Phase 1 needs context input</span>}
+          <Button variant="secondary" size="sm" disabled={client.stage1_status === "running" || phase1Running} onClick={() => setPhaseConfirmation(1)}>{phase1Running ? (phase1Progress ? `Generating ${phase1Progress.current}/${phase1Progress.total}…` : "Running…") : "Run Phase 1"}</Button>
+          {client.stage1_status === "complete" && !contextApproved && <span className="font-mono text-2xs text-warn">Phase 2 blocked: approve all context files</span>}
+          <Button variant="secondary" size="sm" disabled={!contextApproved || client.stage2_status === "running" || phase2Running} onClick={() => setPhaseConfirmation(2)}>{phase2Running ? (phase2Progress ? `Generating ${phase2Progress.current}/${phase2Progress.total}…` : "Preparing…") : "Run Phase 2"}</Button>
+        </div>
+      </div>
+    </div>;
+  };
+
+  const renderPhase3Controls = () => {
+    return <div className="rounded-[10px] border border-line bg-ink-200 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1"><div className="text-sm font-medium text-paper">Phase 3 · Full-month master &amp; calendar (legacy)</div><p className="mt-1 text-2xs leading-4 text-paper-3">Generates the whole canonical month (Organic, Story, Ads + calendar) from approved Context and Execution Files. New rows enter review. For a single item or a scoped date range, use Generate Asset / Run Phase 3 in the Calendar below.</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {client.stage2_status === "complete" && !executionReady && <span className="font-mono text-2xs text-warn">Phase 3 blocked: approve Execution Files</span>}
+          <Button variant="secondary" size="sm" disabled={!contextApproved || client.stage2_status !== "complete" || !executionReady || phase2Running || phase3Running} onClick={() => setPhaseConfirmation(3)}>{phase3Running ? (phase3Progress ? `Generating ${phase3Progress.current}/${phase3Progress.total}…` : "Preparing…") : "Run Phase 3 — Full Month"}</Button>
+        </div>
+      </div>
+    </div>;
+  };
+
   function renderSection() {
     if (!id) return null;
     switch (activeSection) {
@@ -583,13 +619,13 @@ export function ClientDetailPage() {
       case "execution_files":
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
       case "overview":
-        return <ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} />;
+        return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} /></div>;
       case "masters":
         return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "activity":
         return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
-        return <Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+        return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase3Controls()}</div><Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} /></div>;
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "assets":
@@ -668,79 +704,9 @@ export function ClientDetailPage() {
             </button>
           ))}
 
-          <div className="ml-auto flex items-center gap-2">
-            {getContextReadiness(contextInputs).status === "placeholder_detected" && (
-              <span className="text-2xs text-neg font-mono">Phase 1 blocked: placeholder input</span>
-            )}
-            {getContextReadiness(contextInputs).status === "missing_recommended" && (
-              <span className="text-2xs text-warn font-mono">Phase 1 needs context input</span>
-            )}
-            {getContextReadiness(contextInputs).status === "needs_input" && (
-              <span className="text-2xs text-neg font-mono">Phase 1 needs context input</span>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={
-                client.stage1_status === "running" || phase1Running
-              }
-              onClick={() => setPhaseConfirmation(1)}
-            >
-              {phase1Running
-                ? phase1Progress
-                  ? `Generating ${phase1Progress.current}/${phase1Progress.total}…`
-                  : "Running…"
-                : "Run Phase 1"}
-            </Button>
-            {client.stage1_status === "complete" && (
-              contextFiles.length !== CONTEXT_FILE_DEFS.length ||
-              contextFiles.some((file) => file.status !== "approved")
-            ) && (
-              <span className="text-2xs text-warn font-mono">
-                Phase 2 blocked: approve all context files
-              </span>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={
-                client.stage1_status !== "complete" ||
-                contextFiles.length !== CONTEXT_FILE_DEFS.length ||
-                contextFiles.some((file) => file.status !== "approved") ||
-                client.stage2_status === "running" ||
-                phase2Running
-              }
-              onClick={() => setPhaseConfirmation(2)}
-            >
-              {phase2Running
-                ? phase2Progress
-                  ? `Generating ${phase2Progress.current}/${phase2Progress.total}…`
-                  : "Preparing…"
-                : "Run Phase 2"}
-            </Button>
-            {client.stage2_status === "complete" && (
-              !canonicalExecutionReady(executionFiles)
-            ) && <span className="text-2xs font-mono text-warn">Phase 3 blocked: approve Execution Files</span>}
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={
-                client.stage1_status !== "complete" ||
-                client.stage2_status !== "complete" ||
-                contextFiles.length !== CONTEXT_FILE_DEFS.length ||
-                contextFiles.some((file) => file.status !== "approved") ||
-                !canonicalExecutionReady(executionFiles) ||
-                phase2Running || phase3Running
-              }
-              onClick={() => setPhaseConfirmation(3)}
-            >
-              {phase3Running
-                ? phase3Progress
-                  ? `Generating ${phase3Progress.current}/${phase3Progress.total}…`
-                  : "Preparing…"
-                : "Run Phase 3"}
-            </Button>
-          </div>
+          {/* Phase run controls relocated (G1): Phase 1 & 2 live on the Overview
+              tab, Phase 3 on the Calendar tab. Handlers/gating/progress are
+              unchanged — only where the buttons render moved out of the header. */}
         </div>
       </div>
 

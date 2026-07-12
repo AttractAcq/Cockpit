@@ -232,6 +232,30 @@ export type AssetFormat = "ad_static" | "reel_video" | "story_sequence" | "carou
 export type ProductionMode = "human" | "ai";
 export type ProductionStatus = "brief" | "assigned_human" | "ai_ready" | "producing" | "produced" | "failed";
 
+// ── AI visual direction (Produce with AI) ────────────────────────────────────
+export type AiVisualMode = "text_only" | "uploaded_background" | "uploaded_insert" | "generated_background";
+export type BackgroundStrength = "subtle" | "moderate" | "strong";
+
+/** A visual input image uploaded to private storage before generation. */
+export interface VisualInputUpload {
+  path: string;
+  filename: string;
+  mime_type: string;
+  size: number;
+}
+
+/** Visual direction sent to the AI generator alongside a production brief. */
+export interface AiVisualDirection {
+  visual_mode: AiVisualMode;
+  uploaded_image_path?: string | null;
+  uploaded_image_mime_type?: string | null;
+  uploaded_image_filename?: string | null;
+  uploaded_image_size?: number | null;
+  visual_instructions?: string | null;
+  background_strength?: BackgroundStrength;
+  preserve_text_readability?: boolean;
+}
+
 export interface ProductionBriefRow {
   id: string;
   client_id: string;
@@ -250,6 +274,55 @@ export interface ProductionBriefRow {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+// ── Persisted asset-generation job model (multi-image carousel/story) ─────────
+export type AssetGenerationJobStatus = "queued" | "processing" | "partial" | "complete" | "failed" | "cancelled";
+export type AssetGenerationItemStatus = "queued" | "processing" | "complete" | "failed";
+
+export interface AssetGenerationJobRow {
+  id: string;
+  client_id: string;
+  production_brief_id: string;
+  source_ref: string;
+  asset_group_ref: string;
+  asset_format: AssetFormat;
+  expected_output_count: number;
+  completed_output_count: number;
+  status: AssetGenerationJobStatus;
+  visual_mode: AiVisualMode | null;
+  generation_config: Record<string, unknown>;
+  last_error: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetGenerationItemRow {
+  id: string;
+  generation_job_id: string;
+  sequence_index: number;
+  status: AssetGenerationItemStatus;
+  storage_path: string | null;
+  client_asset_id: string | null;
+  attempt_count: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One slide-worker response — the unit the UI driver reads to show progress. */
+export interface AssetJobProgress {
+  job: AssetGenerationJobRow;
+  status: AssetGenerationJobStatus;
+  completed_output_count: number;
+  expected_output_count: number;
+  item_processed: boolean;
+  sequence_processed: number | null;
+  terminal: boolean;
+  in_progress: boolean;
+  last_error: string | null;
+  asset_group_ref: string;
 }
 
 export interface ClientAssetRow {
@@ -273,6 +346,11 @@ export interface ClientAssetRow {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Per-frame versioning (H7). Optional so reads work before/after the migration;
+  // treat a missing is_current as the current version.
+  version?: number;
+  is_current?: boolean;
+  regen_started_at?: string | null;
   signed_url?: string | null;
   production_brief?: Pick<ProductionBriefRow, "production_mode" | "source_table" | "source_row_id"> | null;
 }
@@ -345,6 +423,96 @@ export interface ArchiveSnapshotRow {
   metadata: Record<string, unknown>;
 }
 
+// ── Scoped Phase 3 (H8) ──────────────────────────────────────────────────────
+export type ScopedPhase3Format = "feed_post" | "carousel" | "reel_video" | "story_sequence" | "ad_static";
+export type Phase3DuplicatePolicy = "skip_existing" | "fill_missing" | "replace_unapproved";
+export type Phase3SlotAction = "create" | "skip" | "conflict" | "replace";
+
+export interface Phase3ScopePreviewSlot {
+  slot_key: string;
+  planned_date: string;
+  end_date: string | null;
+  execution_month: string;
+  asset_format: ScopedPhase3Format;
+  action: Phase3SlotAction;
+  existing_ref: string | null;
+  conflict_reason: string | null;
+}
+export interface Phase3ScopePreview {
+  generation_mode: "range" | "single_item";
+  start_date: string;
+  end_date: string;
+  days: number;
+  duplicate_policy: Phase3DuplicatePolicy;
+  total_slots: number;
+  summary: { create: number; skip: number; replace: number; conflict: number };
+  slots: Phase3ScopePreviewSlot[];
+  protected_conflicts: Array<{ planned_date: string; asset_format: ScopedPhase3Format; existing_ref: string | null; reason: string | null }>;
+}
+export interface Phase3ScopedRunRow {
+  id: string;
+  client_id: string;
+  generation_mode: "range" | "single_item";
+  start_date: string;
+  end_date: string;
+  duplicate_policy: Phase3DuplicatePolicy;
+  status: "planned" | "generating" | "partial" | "complete" | "failed" | "cancelled";
+  total_slots: number;
+  created_count: number;
+  skipped_count: number;
+  conflicted_count: number;
+  created_refs: string[];
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface Phase3SlotProgress {
+  terminal: boolean;
+  item_processed: boolean;
+  ref?: string;
+  skipped?: boolean;
+  conflict?: boolean;
+  progress: { queued: number; complete: number; failed: number; total: number };
+  run?: Phase3ScopedRunRow;
+}
+
+// ── Destructive lifecycle operations (H9) ────────────────────────────────────
+export type DestructiveOperationType = "delete_asset" | "delete_phase3_content" | "reject_asset" | "reject_content_brief";
+export interface DestructiveTargetInput {
+  operation_type: DestructiveOperationType;
+  asset_id?: string;
+  master_table?: "organic_master" | "story_master" | "ads_master";
+  ref?: string;
+  asset_group_ref?: string;
+  brief_id?: string;
+  reason?: string;
+}
+export interface DestructivePlan {
+  operation_type: DestructiveOperationType;
+  client_id: string | null;
+  target_ref: string | null;
+  allowed: boolean;
+  blockers: string[];
+  published_findings: string[];
+  storage_objects: string[];
+  rows_to_delete: Record<string, number>;
+  rows_to_update: Record<string, number>;
+  retain: string[];
+  supersede: Record<string, number>;
+  version_consequences: string[];
+  downstream_consequences: string[];
+  summary: string;
+}
+export interface DestructiveExecuteResult {
+  status?: string;
+  result?: Record<string, unknown>;
+  blockers?: string[];
+  published_findings?: string[];
+  recovery_required?: boolean;
+  error?: string;
+  ok?: boolean;
+}
+
 export type PublishStatus = "ready" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
 export type PublishMode = "publish_now" | "scheduled";
 
@@ -357,6 +525,10 @@ export interface DistributionRecordRow {
   production_brief_id: string | null;
   asset_format: string;
   title: string | null;
+  /** 1 for single-record formats; per-frame index for Story sequences. */
+  sequence_index: number;
+  /** Total frames in the Story sequence (null for non-sequence records). */
+  sequence_count: number | null;
   publish_status: PublishStatus;
   publish_mode: PublishMode | null;
   planned_publish_date: string | null;

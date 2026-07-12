@@ -1,14 +1,49 @@
 import { cors, json, svc } from "./aa.ts";
 import { resolveMultiImageCount, type AssetFormat } from "./production-brief-contract.ts";
 
-const STAFF_ROLES = new Set(["admin", "account_manager", "editor"]);
-const AI_FORMATS = new Set<AssetFormat>(["feed_post", "carousel", "story_sequence", "ad_static"]);
-const BUCKET = "client-assets";
+export const STAFF_ROLES = new Set(["admin", "account_manager", "editor"]);
+export const AI_FORMATS = new Set<AssetFormat>(["feed_post", "carousel", "story_sequence", "ad_static"]);
+/** Formats that fan out into many images and therefore run through the job model. */
+export const MULTI_IMAGE_AI_FORMATS = new Set<AssetFormat>(["carousel", "story_sequence"]);
+export const BUCKET = "client-assets";
 const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations";
+const OPENAI_EDIT_URL = "https://api.openai.com/v1/images/edits";
+export const INPUT_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 
-type SupportedAssetFormat = Exclude<AssetFormat, "reel_video">;
+export type AiVisualMode = "text_only" | "uploaded_background" | "uploaded_insert" | "generated_background";
+export const VISUAL_MODES = new Set<AiVisualMode>(["text_only", "uploaded_background", "uploaded_insert", "generated_background"]);
 
-interface FormatConfig {
+export interface VisualDirection {
+  visualMode: AiVisualMode;
+  backgroundStrength: "subtle" | "moderate" | "strong";
+  visualInstructions: string;
+  /** Whether an uploaded image will actually be passed to the model. */
+  hasImage: boolean;
+}
+
+/** Shape of the visual-direction fields as they arrive on a request or a job's generation_config. */
+export interface VisualDirectionInput {
+  visual_mode?: string | null;
+  background_strength?: string | null;
+  visual_instructions?: string | null;
+  uploaded_image_path?: string | null;
+  uploaded_image_mime_type?: string | null;
+  uploaded_image_filename?: string | null;
+}
+
+/** Parse untrusted visual-direction fields into a VisualDirection. Defaults to text_only. */
+export function buildVisualDirection(input: VisualDirectionInput): VisualDirection {
+  return {
+    visualMode: VISUAL_MODES.has(input.visual_mode as AiVisualMode) ? input.visual_mode as AiVisualMode : "text_only",
+    backgroundStrength: ["subtle", "moderate", "strong"].includes(input.background_strength ?? "") ? input.background_strength as VisualDirection["backgroundStrength"] : "subtle",
+    visualInstructions: typeof input.visual_instructions === "string" ? input.visual_instructions.trim().slice(0, 2000) : "",
+    hasImage: false,
+  };
+}
+
+export type SupportedAssetFormat = Exclude<AssetFormat, "reel_video">;
+
+export interface FormatConfig {
   aspectRatio: string;
   width: number;
   height: number;
@@ -16,7 +51,7 @@ interface FormatConfig {
   maxItems: number;
 }
 
-const FORMAT_CONFIG: Record<SupportedAssetFormat, FormatConfig> = {
+export const FORMAT_CONFIG: Record<SupportedAssetFormat, FormatConfig> = {
   feed_post: { aspectRatio: "4:5", width: 1024, height: 1280, label: "Instagram feed post", maxItems: 1 },
   ad_static: { aspectRatio: "4:5", width: 1024, height: 1280, label: "Instagram static image ad", maxItems: 1 },
   carousel: { aspectRatio: "4:5 per slide", width: 1024, height: 1280, label: "Instagram carousel slide", maxItems: 10 },
@@ -32,7 +67,7 @@ function failure(functionName: string, status: number, stage: string, error: str
   return json({ ok: false, function: functionName, stage, error, details, message: `${functionName} failed at ${stage}: ${error}` }, status);
 }
 
-function cleanPathPart(value: string): string {
+export function cleanPathPart(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "asset";
 }
 
@@ -47,7 +82,7 @@ function decodeBase64(value: string): Uint8Array {
 // authoritative: a confidently-resolved count is used as-is. Only when the brief
 // is genuinely ambiguous may an operator-confirmed `overrideCount` be used — and
 // if neither yields a count, we throw rather than defaulting (never guess 3).
-function expectedItemCount(
+export function expectedItemCount(
   brief: { asset_format: AssetFormat; content_md: string; metadata?: Record<string, unknown> },
   overrideCount?: number,
 ): number {
@@ -83,7 +118,48 @@ function sequenceInstruction(markdown: string, format: SupportedAssetFormat, ind
   return selected.join("\n").trim();
 }
 
-function selfContainedPrompt(brief: Record<string, unknown>, format: SupportedAssetFormat, index: number, count: number): string {
+// Brand/proof guardrails enforced for every visual mode.
+const VISUAL_GUARDRAILS = [
+  "- Enforce the Attract Acquisition brand palette and typographic system from the approved brief.",
+  "- No generic stock-photo look.",
+  "- Do not fabricate social proof, client results, screenshots, dashboards, documents, logos, testimonials, or metrics.",
+  "- Foreground text must remain clean, legible on mobile, and reviewable, with no claims beyond the brief.",
+].join("\n");
+
+function visualDirectionSection(visual: VisualDirection, format: SupportedAssetFormat): string {
+  const item = format === "carousel" ? "slide" : format === "story_sequence" ? "frame" : "image";
+  const notes = visual.visualInstructions ? `\n- Operator visual instructions (honor within brand/proof limits): ${visual.visualInstructions}` : "";
+  if (visual.visualMode === "uploaded_background") {
+    return `## Visual Mode: Uploaded Background
+- An input image is attached as the background/base layer. Build the composition ON TOP of it.
+- Darken, blur, crop, or overlay the image as needed so the foreground text stays fully legible.
+- Preserve the brand palette; the image must support the message, not dominate it. Do not add false proof, client logos, or results.
+- Apply this same background consistently as the base visual system across the whole ${format === "carousel" ? "carousel" : format === "story_sequence" ? "story" : "asset"}; vary crop/overlay subtly per ${item}.
+${VISUAL_GUARDRAILS}${notes}`;
+  }
+  if (visual.visualMode === "uploaded_insert") {
+    return `## Visual Mode: Uploaded Insert
+- An input image is attached. Incorporate it as a relevant visual element (framed, cropped, layered, or positioned) where it strengthens THIS ${item}.
+- Do not force it in if it harms clarity, and do not use it as the full background unless visually appropriate.
+- Maintain brand styling and text readability.
+${VISUAL_GUARDRAILS}${notes}`;
+  }
+  if (visual.visualMode === "generated_background") {
+    const strength = visual.backgroundStrength === "strong" ? "a clearly present but still supportive"
+      : visual.backgroundStrength === "moderate" ? "a moderate, supportive" : "a subtle, understated";
+    return `## Visual Mode: Generated Background (${visual.backgroundStrength})
+- Generate ${strength} premium, brand-aligned abstract/editorial visual background layer behind the copy.
+- The background must support the copy, not overpower it; keep high text readability.
+- Use a consistent background style across every ${item}, while each ${item} keeps a distinct composition.
+- No fake screenshots, dashboards, testimonials, documents, logos, or metrics.
+${VISUAL_GUARDRAILS}${notes}`;
+  }
+  return `## Visual Mode: Text / Layout Only
+- No background image. Use typography, brand color blocks, and layout only.
+${VISUAL_GUARDRAILS}${notes}`;
+}
+
+export function selfContainedPrompt(brief: Record<string, unknown>, format: SupportedAssetFormat, index: number, count: number, visual: VisualDirection): string {
   const config = FORMAT_CONFIG[format];
   const content = String(brief.content_md ?? "").trim();
   const item = sequenceInstruction(content, format, index);
@@ -97,6 +173,8 @@ function selfContainedPrompt(brief: Record<string, unknown>, format: SupportedAs
 - Exact pixel dimensions: ${config.width}x${config.height}
 - Output: one finished PNG image only
 - Platform: Instagram
+
+${visualDirectionSection(visual, format)}
 
 ## Item-Specific Direction
 ${item}
@@ -121,31 +199,49 @@ ${content}
 Return one image for sequence item ${index} only. It must match the required dimensions, remain legible on mobile, follow the approved hierarchy, and contain no unapproved text or proof claims.`;
 }
 
-async function generateImage(prompt: string, config: FormatConfig): Promise<{ bytes: Uint8Array; model: string; quality: string }> {
+// When an uploaded image is provided we call the image EDITS endpoint (multipart
+// with the image) so the model actually uses the input. Otherwise we call the
+// text-to-image generations endpoint (original behaviour). `imageInputUsed`
+// truthfully records which path ran, for asset metadata.
+export async function generateImage(
+  prompt: string, config: FormatConfig, imageInput?: { bytes: Uint8Array; mime: string },
+): Promise<{ bytes: Uint8Array; model: string; quality: string; imageInputUsed: boolean }> {
   const apiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured.");
   const model = (Deno.env.get("OPENAI_IMAGE_MODEL") ?? "gpt-image-2").trim();
   const quality = (Deno.env.get("OPENAI_IMAGE_QUALITY") ?? "medium").trim();
   if (!new Set(["low", "medium", "high", "auto"]).has(quality)) throw new Error("OPENAI_IMAGE_QUALITY must be low, medium, high, or auto.");
-  const response = await fetch(OPENAI_IMAGE_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      n: 1,
-      size: `${config.width}x${config.height}`,
-      quality,
-      background: "opaque",
-      moderation: "auto",
-    }),
-    signal: AbortSignal.timeout(180_000),
-  });
+  const size = `${config.width}x${config.height}`;
+
+  let response: Response;
+  if (imageInput) {
+    const ext = imageInput.mime === "image/jpeg" ? "jpg" : imageInput.mime === "image/webp" ? "webp" : "png";
+    const form = new FormData();
+    form.append("model", model);
+    form.append("prompt", prompt);
+    form.append("n", "1");
+    form.append("size", size);
+    form.append("quality", quality);
+    form.append("image", new File([imageInput.bytes], `input.${ext}`, { type: imageInput.mime }));
+    response = await fetch(OPENAI_EDIT_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` }, // let fetch set the multipart boundary
+      body: form,
+      signal: AbortSignal.timeout(180_000),
+    });
+  } else {
+    response = await fetch(OPENAI_IMAGE_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, prompt, n: 1, size, quality, background: "opaque", moderation: "auto" }),
+      signal: AbortSignal.timeout(180_000),
+    });
+  }
   const body = await response.json().catch(() => ({})) as OpenAiImageResponse;
   if (!response.ok) throw new Error(`OpenAI Images returned HTTP ${response.status}: ${body.error?.message ?? "unknown provider error"}`);
   const base64 = body.data?.[0]?.b64_json;
   if (!base64) throw new Error("OpenAI Images returned no base64 image data.");
-  return { bytes: decodeBase64(base64), model, quality };
+  return { bytes: decodeBase64(base64), model, quality, imageInputUsed: !!imageInput };
 }
 
 export function serveAiAssetFunction(functionName: string, expectedFormat: SupportedAssetFormat): void {
@@ -164,9 +260,21 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
       if (operatorError) return failure(functionName, 500, "authorization", "Could not load operator role.", operatorError.message);
       if (!operator || !STAFF_ROLES.has(operator.role)) return failure(functionName, 403, "authorization", "Admin, account manager, or editor access is required.");
 
-      const body = await req.json() as { production_brief_id?: string; expected_count?: number };
+      const body = await req.json() as {
+        production_brief_id?: string; expected_count?: number;
+        visual_mode?: string; uploaded_image_path?: string | null; uploaded_image_mime_type?: string | null;
+        uploaded_image_filename?: string | null; visual_instructions?: string | null; background_strength?: string | null;
+      };
       briefId = body.production_brief_id?.trim() ?? "";
       const overrideCount = typeof body.expected_count === "number" ? body.expected_count : undefined;
+      // Visual direction — defaults to text_only when absent (backward compatible).
+      const visual: VisualDirection = {
+        visualMode: VISUAL_MODES.has(body.visual_mode as AiVisualMode) ? body.visual_mode as AiVisualMode : "text_only",
+        backgroundStrength: ["subtle", "moderate", "strong"].includes(body.background_strength ?? "") ? body.background_strength as VisualDirection["backgroundStrength"] : "subtle",
+        visualInstructions: typeof body.visual_instructions === "string" ? body.visual_instructions.trim().slice(0, 2000) : "",
+        hasImage: false,
+      };
+      const uploadedImagePath = typeof body.uploaded_image_path === "string" ? body.uploaded_image_path.trim() : "";
       if (!briefId) return failure(functionName, 400, "request", "production_brief_id is required.");
       const { data: brief, error: briefError } = await sb.from("client_production_briefs").select("*").eq("id", briefId).maybeSingle();
       if (briefError || !brief) return failure(functionName, 404, "load_brief", "Production brief not found.", briefError?.message);
@@ -176,6 +284,13 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
       if (!AI_FORMATS.has(brief.asset_format) || brief.asset_format !== expectedFormat) {
         return failure(functionName, 422, "gate", `${functionName} accepts ${expectedFormat} briefs only; received ${brief.asset_format}.`);
       }
+      // Multi-image formats (carousel/story) are RETIRED from this synchronous
+      // path — the N-image loop exhausts the edge wall-clock cap (HTTP 546). They
+      // must go through the persisted job model (start-carousel-generation →
+      // generate-carousel-slide). Single-image formats stay here (one call, safe).
+      if (MULTI_IMAGE_AI_FORMATS.has(brief.asset_format)) {
+        return failure(functionName, 410, "retired", `${brief.asset_format} generation moved to the persisted job model. Call start-carousel-generation then generate-carousel-slide.`);
+      }
       if (!(Deno.env.get("OPENAI_API_KEY") ?? "").trim()) return failure(functionName, 503, "configuration", "AI image production is not configured. OPENAI_API_KEY is required.");
 
       const format = brief.asset_format as SupportedAssetFormat;
@@ -183,6 +298,18 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
       let itemCount: number;
       try { itemCount = expectedItemCount(brief, overrideCount); }
       catch (error) { return failure(functionName, 422, "validate_brief", error instanceof Error ? error.message : String(error)); }
+
+      // Upload modes require the actual image — download it now and fail clearly
+      // if it is missing. Never let an uploaded mode silently generate text-only.
+      let imageInput: { bytes: Uint8Array; mime: string } | undefined;
+      if (visual.visualMode === "uploaded_background" || visual.visualMode === "uploaded_insert") {
+        if (!uploadedImagePath) return failure(functionName, 400, "validate_visual", `${visual.visualMode} requires an uploaded image, but none was provided.`);
+        const { data: blob, error: downloadError } = await sb.storage.from(BUCKET).download(uploadedImagePath);
+        if (downloadError || !blob) return failure(functionName, 502, "load_visual_input", `Could not read the uploaded image at ${uploadedImagePath}: ${downloadError?.message ?? "not found"}.`);
+        const mime = INPUT_MIME.has(body.uploaded_image_mime_type ?? "") ? body.uploaded_image_mime_type as string : (INPUT_MIME.has(blob.type) ? blob.type : "image/png");
+        imageInput = { bytes: new Uint8Array(await blob.arrayBuffer()), mime };
+        visual.hasImage = true;
+      }
 
       groupRef = `${cleanPathPart(brief.source_ref)}-${Date.now()}`;
       const startedAt = new Date().toISOString();
@@ -194,8 +321,10 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
 
       const generatedAssets: Record<string, unknown>[] = [];
       for (let index = 1; index <= itemCount; index += 1) {
-        const prompt = selfContainedPrompt(brief, format, index, itemCount);
-        const generated = await generateImage(prompt, config);
+        const prompt = selfContainedPrompt(brief, format, index, itemCount, visual);
+        // Same uploaded image is passed to every slide/frame so multi-image
+        // assets share a consistent visual base.
+        const generated = await generateImage(prompt, config, imageInput);
         const storagePath = `${brief.client_id}/${brief.execution_month}/${cleanPathPart(brief.source_ref)}/${groupRef}/${String(index).padStart(2, "0")}.png`;
         const { error: uploadError } = await sb.storage.from(BUCKET).upload(storagePath, generated.bytes, { contentType: "image/png", upsert: false });
         if (uploadError) throw new Error(`Storage upload failed for item ${index}: ${uploadError.message}`);
@@ -217,7 +346,17 @@ export function serveAiAssetFunction(functionName: string, expectedFormat: Suppo
           generation_provider: "openai",
           generation_model: generated.model,
           prompt_md: prompt,
-          metadata: { aspect_ratio: config.aspectRatio, sequence_count: itemCount, quality: generated.quality, function: functionName },
+          metadata: {
+            aspect_ratio: config.aspectRatio, sequence_count: itemCount, quality: generated.quality, function: functionName,
+            visual_mode: visual.visualMode,
+            uploaded_image_path: uploadedImagePath || null,
+            uploaded_image_filename: body.uploaded_image_filename ?? null,
+            visual_instructions: visual.visualInstructions || null,
+            background_strength: visual.visualMode === "generated_background" ? visual.backgroundStrength : null,
+            image_input_used: generated.imageInputUsed,
+            expected_output_count: itemCount,
+            actual_output_count: itemCount,
+          },
         }).select("*").single();
         if (assetError || !asset) throw new Error(`Asset row insert failed for item ${index}: ${assetError?.message ?? "no row returned"}`);
         generatedAssets.push(asset);

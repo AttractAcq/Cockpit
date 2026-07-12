@@ -8,6 +8,7 @@ import {
   publishDistributionRecordNow,
   saveDistributionRecord,
   scheduleDistributionRecord,
+  signDistributionMedia,
   type EffectiveStageEntry,
 } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
@@ -48,6 +49,15 @@ function statusDate(record: DistributionRecordRow): string {
   return "no date set";
 }
 
+/** "Frame X of N" for a Story-sequence frame record; null for single records. */
+function frameLabel(record: DistributionRecordRow): string | null {
+  return record.sequence_count && record.sequence_count > 1 ? `Frame ${record.sequence_index} of ${record.sequence_count}` : null;
+}
+
+function mediaIsVideo(media: Array<{ mime_type?: string }>): boolean {
+  return media.some((item) => (item.mime_type ?? "").toLowerCase().startsWith("video/"));
+}
+
 interface EditorState {
   caption: string; hashtags: string; destination: string; platform: string;
   contentType: string; aspectRatio: string; proofRestrictions: string; igUserId: string;
@@ -80,6 +90,19 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   const payload = record.publish_payload as Partial<DistributionPublishPayload>;
   const checklistItems = settings.safety_checklist?.length ? settings.safety_checklist : DEFAULT_CHECKLIST;
   const media = payload.media ?? [];
+  const contentType = settings.content_type ?? "IMAGE";
+  const isStory = contentType === "STORIES";
+  const videoStory = isStory && mediaIsVideo(media);
+  const frame = frameLabel(record);
+
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const first = media[0];
+    if (!first) { setPreview(null); return; }
+    void signDistributionMedia(first.storage_bucket, first.storage_path).then((url) => { if (active) setPreview(url); });
+    return () => { active = false; };
+  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [step, setStep] = useState<"mode" | "publish_now" | "schedule">("mode");
   const [editor, setEditor] = useState<EditorState>(() => ({ ...seedEditor(record), checklist: checklistItems.map(() => false) }));
@@ -114,7 +137,8 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
 
   async function publishNow() {
     if (!checklistComplete) return;
-    if (!window.confirm(`Publish ${record.source_ref} to ${editor.platform} now? This attempts a real publish via Meta.`)) return;
+    if (videoStory) { setNotice({ error: true, message: "Video Story publishing is not yet supported." }); return; }
+    if (!window.confirm(`Publish ${record.source_ref}${frame ? ` (${frame})` : ""} to ${editor.platform} now? This attempts a real publish via Meta.`)) return;
     setBusy("publish"); setNotice(null); setMissing(null);
     try {
       // Persist edits first so nothing is lost regardless of the publish outcome.
@@ -163,14 +187,21 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Meta IG business account id</span><input className={field} placeholder="numeric ig_user_id" value={editor.igUserId} onChange={(event) => setEditor((current) => ({ ...current, igUserId: event.target.value }))} /></label>
       <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-2xs uppercase text-paper-3">Proof / claim restrictions</span><textarea className={`${field} min-h-16`} value={editor.proofRestrictions} onChange={(event) => setEditor((current) => ({ ...current, proofRestrictions: event.target.value }))} /></label>
       <div className="sm:col-span-2">
-        <div className="text-2xs uppercase text-paper-3">Media ({media.length} file{media.length === 1 ? "" : "s"}) · from client-assets (not editable)</div>
-        <ul className="mt-1 space-y-1">{media.map((item, index) => <li key={index} className="break-all font-mono text-2xs text-paper-3">{item.storage_bucket}/{item.storage_path} · {item.width}×{item.height}</li>)}</ul>
+        <div className="flex items-center gap-2 text-2xs uppercase text-paper-3">Media ({media.length} file{media.length === 1 ? "" : "s"}) · from client-assets (not editable){frame && <span className="rounded border border-teal/30 bg-teal/5 px-1.5 py-0.5 normal-case text-teal">{frame}</span>}{isStory && <span className="rounded border border-line px-1.5 py-0.5 normal-case text-paper-3">Story</span>}</div>
+        <div className="mt-2 flex gap-3">
+          <div className={`w-24 shrink-0 overflow-hidden rounded border border-line bg-black/20 ${isStory ? "aspect-[9/16]" : "aspect-[4/5]"}`}>{preview ? <img src={preview} alt={`${record.source_ref} preview`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center p-1 text-center text-2xs text-paper-3">no preview</div>}</div>
+          <ul className="min-w-0 flex-1 space-y-1">{media.map((item, index) => <li key={index} className="break-all font-mono text-2xs text-paper-3">{item.storage_bucket}/{item.storage_path} · {item.width}×{item.height} · {item.mime_type}</li>)}</ul>
+        </div>
+        {isStory && <div className="mt-2 rounded border border-warn/20 bg-warn/5 px-2.5 py-1.5 text-2xs text-warn">Story caption is planning-only — Meta does not render this caption on an image Story. One frame publishes per record; multi-frame Stories are separate records published in sequence order.</div>}
       </div>
       <div className="sm:col-span-2 rounded-lg border border-line bg-ink p-3">
         <div className="text-2xs uppercase text-paper-3">Safety checklist — all required</div>
         <ul className="mt-2 space-y-1.5">{checklistItems.map((item, index) => <li key={index}><label className="flex items-start gap-2 text-xs text-paper-2"><input type="checkbox" className="mt-0.5 accent-teal" checked={editor.checklist[index] ?? false} onChange={(event) => setEditor((current) => { const checklist = [...current.checklist]; checklist[index] = event.target.checked; return { ...current, checklist }; })} />{item}</label></li>)}</ul>
       </div>
-      <div className="sm:col-span-2 text-2xs text-paper-3">Published URL: <span className="font-mono">{record.published_url ?? "— (set automatically on successful publish)"}</span></div>
+      <div className="sm:col-span-2 grid gap-1 rounded-lg border border-line bg-ink p-2.5 text-2xs text-paper-3">
+        <div>External post id: <span className="font-mono text-paper">{record.external_post_id ?? "— (set on successful publish)"}</span></div>
+        <div>Published URL: <span className="font-mono">{record.published_url ? record.published_url : record.published_at ? (isStory ? "— (Stories have no stable public permalink)" : "— (none returned)") : "— (set automatically on successful publish)"}</span></div>
+      </div>
     </div>
   );
 
@@ -197,7 +228,7 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
           </div>
         )}
       </main>
-      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className="text-2xs text-paper-3">{checklistComplete ? "Real publish — never faked. Missing config fails safely." : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!checklistComplete || busy !== null} onClick={() => void publishNow()}>{busy === "publish" ? "Publishing…" : "Publish"}</Button></footer>}
+      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${videoStory ? "text-neg" : "text-paper-3"}`}>{videoStory ? "Video Story publishing is not yet supported" : checklistComplete ? (isStory ? "Publishes this one Story frame. Real publish — never faked." : "Real publish — never faked. Missing config fails safely.") : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!checklistComplete || busy !== null || videoStory} title={videoStory ? "Video Story publishing is not yet supported" : undefined} onClick={() => void publishNow()}>{busy === "publish" ? "Publishing…" : isStory ? "Publish Story" : "Publish"}</Button></footer>}
       {step === "schedule" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className="text-2xs text-paper-3">{checklistComplete ? "Saved as scheduled — not published now." : "Complete the safety checklist to enable scheduling."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!checklistComplete || busy !== null} onClick={() => void schedule()}>{busy === "schedule" ? "Scheduling…" : "Schedule Post"}</Button></footer>}
     </div>
   </div>;
@@ -239,7 +270,12 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   }
 
   if (loading && !records.length) return <div className="p-6 text-xs text-paper-3">Loading distribution queue…</div>;
-  return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+  // Layout: a fixed (shrink-0) header, then a dedicated scroll body
+  // (min-h-0 flex-1 overflow-y-auto). The whole panel is a bounded flex column
+  // under the app's h-dvh shell, so the body scrolls without any viewport-height
+  // hack, and long lists + expanded record details are always reachable.
+  return <div className="flex min-h-0 flex-1 flex-col">
+    <div className="shrink-0 px-4 pt-4">
     <div className="rounded-[10px] border border-line bg-ink-200 px-4 py-3">
       <div className="flex flex-wrap items-center gap-4 text-xs">
         <span className="text-paper">{active.length} active</span>
@@ -249,6 +285,8 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
       </div>
       <p className="mt-2 text-2xs text-paper-3">Approved assets arrive as distribution-ready. Publish Now attempts a real Meta publish (safe if credentials are missing). Schedule stores a record the shared worker publishes when due — no publishing happens on this screen.</p>
     </div>
+    </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 pt-3">
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {!active.length ? (
       <div className="rounded-[10px] border border-dashed border-line p-10 text-center">
@@ -264,6 +302,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
               <div className="break-words text-xs text-paper">{record.title ?? record.source_ref}</div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">
                 <span>{record.asset_format.replaceAll("_", " ")}</span>
+                {frameLabel(record) && <span className="text-teal">{frameLabel(record)}</span>}
                 <span>{record.platform ?? "instagram"}</span>
                 {record.destination && <span>→ {record.destination}</span>}
                 {record.publish_mode && <span>{record.publish_mode.replaceAll("_", " ")}</span>}
@@ -280,6 +319,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
         ))}
       </div>
     )}
+    </div>
     {open && <PublishRecordModal record={open} onClose={() => setOpen(null)} onUpdated={accept} />}
     {drawerOpen && <PassedThroughDrawer tabStage="distribution" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}
   </div>;
