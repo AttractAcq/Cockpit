@@ -3,6 +3,10 @@ dist
 dist-ssr
 *.local
 tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
+# tsc -b byproducts of vite.config.ts — vite.config.ts is the source of truth
+vite.config.js
+vite.config.d.ts
 supabase/.temp/
 src/lib/api/
 .DS_Store
