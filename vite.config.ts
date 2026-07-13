@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  base: "/aa-cockpit/",
+  base: "/Cockpit/",
   plugins: [react()],
   resolve: {
     alias: {

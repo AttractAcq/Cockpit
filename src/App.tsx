@@ -12,7 +12,7 @@ import { ROUTES } from "@/lib/constants";
 
 export function App() {
   return (
-    <BrowserRouter basename="/aa-cockpit">
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
