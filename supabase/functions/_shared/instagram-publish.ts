@@ -53,6 +53,9 @@ export type MetaErrorCategory =
   | "container_error"
   | "container_expired"
   | "meta_authentication"
+  | "meta_rate_limited"
+  | "meta_server_error"
+  | "transient_media"
   | "meta_publish_failed"
   | "story_validation";
 
@@ -106,6 +109,14 @@ export function classifyMetaError(
   // Invalid/expired access token or session — not retryable without new creds.
   if (code === 190 || subcode === 463 || subcode === 467 || (type === "OAuthException" && code === 102)) {
     return { provider: "meta", category: "meta_authentication", retryable: false, code, subcode, message };
+  }
+  // Rate limiting (HTTP 429, or Meta app/user/page throttle codes) — retryable with backoff.
+  if (httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613) {
+    return { provider: "meta", category: "meta_rate_limited", retryable: true, code, subcode, message };
+  }
+  // Transient Meta server errors (5xx / code 1 & 2) — retryable.
+  if (httpStatus >= 500 || code === 1 || code === 2) {
+    return { provider: "meta", category: "meta_server_error", retryable: true, code, subcode, message };
   }
   return {
     provider: "meta", category: fallback,
@@ -241,6 +252,12 @@ export interface PublishDeps {
   waitReady(containerId: string, token: string, maxWaitMs: number): Promise<void>;
   mediaPublish(igUserId: string, creationId: string, token: string): Promise<string>;
   fetchPermalink(mediaId: string, token: string): Promise<string | null>;
+  /**
+   * Called the instant media_publish returns a real external post id, BEFORE the
+   * permalink fetch — so publication evidence is durably persisted as early as
+   * possible. If the worker then dies, the duplicate guard still blocks a re-post.
+   */
+  persistExternalId?(externalPostId: string): Promise<void>;
   now(): number;
 }
 
@@ -291,6 +308,7 @@ export async function runPublish(deps: PublishDeps, opts: RunPublishOptions): Pr
     await deps.waitReady(containerId, opts.token, opts.childMaxWaitMs); // must FINISH first
     ensureBudget();
     const publishedId = await deps.mediaPublish(opts.igUserId, containerId, opts.token);
+    await deps.persistExternalId?.(publishedId); // durable evidence before permalink fetch
     // Stories may not expose a stable permalink — success requires external_post_id only.
     return { external_post_id: publishedId, permalink: await deps.fetchPermalink(publishedId, opts.token) };
   }
@@ -311,6 +329,7 @@ export async function runPublish(deps: PublishDeps, opts: RunPublishOptions): Pr
     await deps.waitReady(parentId, opts.token, opts.parentMaxWaitMs); // parent must FINISH
     ensureBudget();
     const publishedId = await deps.mediaPublish(opts.igUserId, parentId, opts.token);
+    await deps.persistExternalId?.(publishedId); // durable evidence before permalink fetch
     return { external_post_id: publishedId, permalink: await deps.fetchPermalink(publishedId, opts.token) };
   }
 
@@ -321,6 +340,7 @@ export async function runPublish(deps: PublishDeps, opts: RunPublishOptions): Pr
   await deps.waitReady(containerId, opts.token, opts.childMaxWaitMs);
   ensureBudget();
   const publishedId = await deps.mediaPublish(opts.igUserId, containerId, opts.token);
+  await deps.persistExternalId?.(publishedId); // durable evidence before permalink fetch
   return { external_post_id: publishedId, permalink: await deps.fetchPermalink(publishedId, opts.token) };
 }
 
@@ -362,6 +382,14 @@ async function publishToInstagram(sb: SupabaseClient, record: DistributionRecord
     waitReady: (containerId, tok, maxWaitMs) => waitForContainerReady(containerId, tok, { maxWaitMs, pollIntervalMs: POLL_INTERVAL_MS, deadline: overallDeadline, fetchStatus: fetchContainerStatus }),
     mediaPublish: (ig, creationId, tok) => graph(`${ig}/media_publish`, { creation_id: creationId }, tok).then((d) => String(d.id)),
     fetchPermalink: (mediaId, tok) => fetchPermalink(mediaId, tok),
+    // Persist the external post id the moment it exists — shrinks the window in
+    // which a crash could lose evidence and cause a duplicate re-post.
+    persistExternalId: async (externalPostId: string) => {
+      await sb.from("client_distribution_records").update({
+        publish_status: "published", external_post_id: externalPostId,
+        published_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }).eq("id", record.id);
+    },
     now: () => Date.now(),
   };
 
@@ -447,7 +475,22 @@ export async function publishDistributionRecord(
     last_error: null, updated_at: publishedAt,
   }).eq("id", recordId).select("*").single();
 
-  await handoffToAnalytics(sb, working, result, publishedAt).catch(() => { /* record is published; analytics handoff is best-effort */ });
+  // The record is PUBLISHED. Analytics/Archive/Pipeline handoff is best-effort:
+  // its failure NEVER reverts the record to failed/scheduled (that would risk a
+  // re-post). A handoff failure is recorded as a local lifecycle error instead.
+  await handoffToAnalytics(sb, working, result, publishedAt).catch(async (handoffError) => {
+    try {
+      await sb.from("activity_log").insert({
+        client_id: working.client_id, event_type: "publish_handoff_failed",
+        plain_english_message: `${working.source_ref} published (${result.external_post_id}) but analytics/archive handoff failed — the post is live; handoff can be re-run.`,
+        metadata: {
+          distribution_record_id: working.id, external_post_id: result.external_post_id, source_ref: working.source_ref,
+          failed_stage: "analytics_handoff", error: handoffError instanceof Error ? handoffError.message : String(handoffError),
+          occurred_at: new Date().toISOString(),
+        },
+      });
+    } catch { /* audit is best-effort; the record stays correctly published */ }
+  });
 
   return { ok: true, status: "published", record: updated as Record<string, unknown>, message: "Published to Instagram." };
 }

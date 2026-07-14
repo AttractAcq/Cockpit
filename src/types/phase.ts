@@ -513,8 +513,33 @@ export interface DestructiveExecuteResult {
   ok?: boolean;
 }
 
-export type PublishStatus = "ready" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+export type PublishStatus = "ready" | "scheduled" | "publishing" | "published" | "failed" | "cancelled" | "needs_reconciliation";
 export type PublishMode = "publish_now" | "scheduled";
+
+export type PublishAttemptResult = "started" | "published" | "retryable_failure" | "permanent_failure" | "ambiguous" | "skipped";
+
+/** One row per scheduled-publish attempt — the operator's diagnosis trail. */
+export interface PublishAttemptRow {
+  id: string;
+  distribution_record_id: string;
+  client_id: string;
+  source_ref: string;
+  asset_format: string | null;
+  attempt_number: number;
+  worker_invocation_id: string | null;
+  claimed_by: string | null;
+  started_at: string;
+  completed_at: string | null;
+  result: PublishAttemptResult;
+  category: string | null;
+  retryable: boolean | null;
+  meta_error_code: number | null;
+  meta_error_subcode: number | null;
+  external_post_id: string | null;
+  container_ids: unknown[];
+  message: string | null;
+  created_at: string;
+}
 
 export interface DistributionRecordRow {
   id: string;
@@ -544,6 +569,13 @@ export interface DistributionRecordRow {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Scheduled-publishing reliability fields (P1). Optional so reads work before
+  // the migration is applied.
+  claimed_at?: string | null;
+  claimed_by?: string | null;
+  attempt_count?: number;
+  next_attempt_at?: string | null;
+  permanent_failure?: boolean;
 }
 
 export type AnalyticsStatus = "awaiting_metrics" | "metrics_partial" | "complete" | "failed";

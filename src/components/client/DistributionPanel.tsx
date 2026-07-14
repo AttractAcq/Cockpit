@@ -6,13 +6,17 @@ import {
   fetchDistributionRecords,
   fetchEffectiveStageMap,
   publishDistributionRecordNow,
+  reconcileDistributionRecord,
+  retryDistributionRecord,
   saveDistributionRecord,
   scheduleDistributionRecord,
   signDistributionMedia,
   type EffectiveStageEntry,
+  type ReconcileResolution,
 } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
+import { zonedWallClockToUtcIso } from "@/lib/schedule-time";
 import type { DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishStatus } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 
@@ -23,9 +27,17 @@ const STATUS_STYLE: Record<PublishStatus, string> = {
   published: "border-teal/20 bg-teal/10 text-teal",
   failed: "border-neg/20 bg-neg/10 text-neg",
   cancelled: "border-line bg-ink text-paper-3",
+  needs_reconciliation: "border-neg/40 bg-neg/15 text-neg",
 };
 
-const ACTIVE_STATUSES: PublishStatus[] = ["ready", "scheduled", "publishing", "failed"];
+const ACTIVE_STATUSES: PublishStatus[] = ["ready", "scheduled", "publishing", "failed", "needs_reconciliation"];
+
+/** Common IANA zones for the scheduler selector; the operator's browser zone is added on top. */
+const COMMON_TIMEZONES = [
+  "Europe/London", "Europe/Rome", "Europe/Paris", "Europe/Madrid", "Europe/Berlin",
+  "Africa/Johannesburg", "America/New_York", "America/Los_Angeles", "Asia/Dubai", "UTC",
+];
+
 
 const DEFAULT_CHECKLIST = [
   "Caption reviewed for accuracy and approved claims only",
@@ -108,7 +120,9 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   const [editor, setEditor] = useState<EditorState>(() => ({ ...seedEditor(record), checklist: checklistItems.map(() => false) }));
   const [date, setDate] = useState(record.planned_publish_date ?? "");
   const [time, setTime] = useState("09:00");
-  const [tz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [tz, setTz] = useState(browserTz);
+  const tzOptions = useMemo(() => Array.from(new Set([browserTz, ...COMMON_TIMEZONES])), [browserTz]);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; message: string } | null>(null);
   const [missing, setMissing] = useState<string[] | null>(null);
@@ -161,16 +175,20 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   async function schedule() {
     if (!checklistComplete) return;
     if (!date || !time) { setNotice({ error: true, message: "Choose a publish date and time." }); return; }
-    const scheduledAt = new Date(`${date}T${time}`);
-    if (Number.isNaN(scheduledAt.getTime())) { setNotice({ error: true, message: "Invalid date/time." }); return; }
+    let scheduledIso: string;
+    try { scheduledIso = zonedWallClockToUtcIso(date, time, tz); }
+    catch { setNotice({ error: true, message: "Invalid date/time." }); return; }
+    if (Number.isNaN(new Date(scheduledIso).getTime())) { setNotice({ error: true, message: "Invalid date/time." }); return; }
     setBusy("schedule"); setNotice(null);
     try {
+      // Persist the chosen IANA zone so the schedule is unambiguous (not browser-local).
       const settingsWithTz = { ...buildSettings(), meta: { ...(buildSettings().meta as Record<string, unknown>), timezone: tz } };
       const saved = await scheduleDistributionRecord(record.id, {
-        scheduledPublishAt: scheduledAt.toISOString(), publishPayload: buildPayload(), publishSettings: settingsWithTz, destination: editor.destination.trim() || null,
+        scheduledPublishAt: scheduledIso, timezone: tz, plannedPublishDate: date || null,
+        publishPayload: buildPayload(), publishSettings: settingsWithTz, destination: editor.destination.trim() || null,
       });
       onUpdated(saved);
-      setNotice({ error: false, message: `Scheduled for ${scheduledAt.toLocaleString()} (${tz}). The scheduled worker publishes it when due — nothing is published now.` });
+      setNotice({ error: false, message: `Scheduled for ${date} ${time} (${tz}) → ${new Date(scheduledIso).toLocaleString()} local. The worker publishes it when due — nothing is published now.` });
     } catch (error) { setNotice({ error: true, message: errorText(error) }); }
     finally { setBusy(null); }
   }
@@ -223,8 +241,9 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
             <div className="grid gap-3 rounded-lg border border-line bg-ink p-3 sm:grid-cols-3">
               <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Publish date</span><input type="date" className={field} value={date} onChange={(event) => setDate(event.target.value)} /></label>
               <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Publish time</span><input type="time" className={field} value={time} onChange={(event) => setTime(event.target.value)} /></label>
-              <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Timezone</span><input className={field} value={tz} readOnly /></label>
+              <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Timezone</span><select className={field} value={tz} onChange={(event) => setTz(event.target.value)}>{tzOptions.map((zone) => <option key={zone} value={zone}>{zone}{zone === browserTz ? " (your browser)" : ""}</option>)}</select></label>
             </div>
+            {date && time && <p className="text-2xs text-paper-3">Publishes at <span className="font-mono text-paper">{date} {time}</span> in <span className="font-mono text-paper">{tz}</span>. Stored as UTC; the worker publishes at that instant regardless of daylight-saving shifts.</p>}
           </div>
         )}
       </main>
@@ -269,6 +288,29 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
     try { accept(await cancelDistributionRecord(record.id)); } catch (value) { setError(errorText(value)); }
   }
 
+  async function retry(record: DistributionRecordRow) {
+    if (!window.confirm(`Re-queue ${record.source_ref} for the scheduled worker (fresh retry budget)? Nothing publishes now; the worker attempts it on its next run.`)) return;
+    try { accept(await retryDistributionRecord(record.id)); } catch (value) { setError(errorText(value)); }
+  }
+
+  async function reconcile(record: DistributionRecordRow, resolution: ReconcileResolution) {
+    if (resolution === "confirm_published") {
+      const hasEvidence = !!(record.external_post_id || record.published_at || record.published_url);
+      let externalId: string | null = null;
+      if (!hasEvidence) {
+        const entered = window.prompt(`Confirm ${record.source_ref} actually posted on Instagram.\nEnter the numeric Instagram media ID from the live post:`, "");
+        if (entered === null) return;
+        if (!/^\d+$/.test(entered.trim())) { setError("A numeric Instagram media ID is required to confirm a published post."); return; }
+        externalId = entered.trim();
+      } else if (!window.confirm(`Confirm ${record.source_ref} as published (evidence already on record)?`)) return;
+      try { accept(await reconcileDistributionRecord(record.id, "confirm_published", externalId)); } catch (value) { setError(errorText(value)); }
+      return;
+    }
+    const verb = resolution === "reset_scheduled" ? "re-queue for a fresh attempt — only if you verified it did NOT post" : "cancel this record";
+    if (!window.confirm(`Reconcile ${record.source_ref}: ${verb}?`)) return;
+    try { accept(await reconcileDistributionRecord(record.id, resolution)); } catch (value) { setError(errorText(value)); }
+  }
+
   if (loading && !records.length) return <div className="p-6 text-xs text-paper-3">Loading distribution queue…</div>;
   // Layout: a fixed (shrink-0) header, then a dedicated scroll body
   // (min-h-0 flex-1 overflow-y-auto). The whole panel is a bounded flex column
@@ -307,14 +349,23 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
                 {record.destination && <span>→ {record.destination}</span>}
                 {record.publish_mode && <span>{record.publish_mode.replaceAll("_", " ")}</span>}
                 <span>{statusDate(record)}</span>
+                {typeof record.attempt_count === "number" && record.attempt_count > 0 && <span className="text-warn">attempt {record.attempt_count}</span>}
+                {record.next_attempt_at && record.publish_status === "scheduled" && <span className="text-warn">next retry {new Date(record.next_attempt_at).toLocaleString()}</span>}
+                {record.permanent_failure && <span className="text-neg">permanent</span>}
                 {record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}
               </div>
               {record.last_error && <div className="mt-1 text-2xs text-neg">{record.last_error}</div>}
+              {record.publish_status === "needs_reconciliation" && <div className="mt-1 text-2xs text-neg">External Instagram state is uncertain — verify on Instagram before resolving. Do not blind-retry.</div>}
             </div>
             <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[record.publish_status]}`}>{record.publish_status}</span>
             {onViewAssets && <Button size="sm" variant="ghost" onClick={onViewAssets}>Asset</Button>}
+            {record.publish_status === "failed" && <Button size="sm" variant="ghost" onClick={() => void retry(record)}>Retry</Button>}
+            {record.publish_status === "needs_reconciliation" && <>
+              <Button size="sm" variant="ghost" onClick={() => void reconcile(record, "confirm_published")}>It posted</Button>
+              <Button size="sm" variant="ghost" onClick={() => void reconcile(record, "reset_scheduled")}>Re-queue</Button>
+            </>}
             {record.publish_status !== "cancelled" && <Button size="sm" variant="ghost" onClick={() => void cancel(record)}>Cancel</Button>}
-            <Button size="sm" variant="primary" disabled={record.publish_status === "publishing"} onClick={() => setOpen(record)}>Publish Record</Button>
+            <Button size="sm" variant="primary" disabled={record.publish_status === "publishing" || record.publish_status === "needs_reconciliation"} onClick={() => setOpen(record)}>Publish Record</Button>
           </article>
         ))}
       </div>

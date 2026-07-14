@@ -590,7 +590,7 @@ import type {
   MasterRow, MasterTable, ProductionBriefRow, ContractorRow, ContractorAssignmentRow,
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
-  DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus,
+  DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2082,18 +2082,16 @@ export async function promoteAssetGroupToDistribution(input: {
       caption, hashtags: [], media: spec.rows.map(mapMedia),
       source_ref: input.sourceRef, asset_group_ref: input.assetGroupRef, asset_format: input.assetFormat,
     };
-    const record = {
-      client_id: input.clientId, execution_month: input.executionMonth, source_ref: input.sourceRef,
-      asset_group_ref: input.assetGroupRef, sequence_index: spec.seq, sequence_count: spec.count,
-      production_brief_id: input.productionBriefId, asset_format: input.assetFormat, title: spec.title,
-      publish_status: "ready" as const, platform: "instagram", planned_publish_date: plannedDate ?? null,
-      publish_payload: payload as unknown as Record<string, unknown>,
-      publish_settings: settings as unknown as Record<string, unknown>,
-      updated_at: now,
-    };
-    const { data, error } = await supabase.from(DISTRIBUTION_TABLE)
-      .upsert(record, { onConflict: "client_id,asset_group_ref,sequence_index" })
-      .select("*").single();
+    // Creation goes through the scoped draft RPC (staff-gated, forces a safe
+    // 'ready' draft with no caller-settable evidence/claim/status fields).
+    const { data, error } = await supabase.rpc("upsert_distribution_draft", {
+      p_client_id: input.clientId, p_execution_month: input.executionMonth, p_source_ref: input.sourceRef,
+      p_asset_group_ref: input.assetGroupRef, p_sequence_index: spec.seq, p_sequence_count: spec.count,
+      p_production_brief_id: input.productionBriefId, p_asset_format: input.assetFormat, p_title: spec.title,
+      p_planned_date: plannedDate ?? null,
+      p_publish_payload: payload as unknown as Record<string, unknown>,
+      p_publish_settings: settings as unknown as Record<string, unknown>,
+    });
     if (error) throw error;
     written.push(data as DistributionRecordRow);
   }
@@ -2145,30 +2143,78 @@ export async function saveDistributionRecord(recordId: string, patch: {
   return data as DistributionRecordRow;
 }
 
-/**
- * Schedule (no immediate publish): the scheduled worker publishes it when
- * `scheduled_publish_at` elapses via the shared publisher — no per-asset cron.
- */
-export async function scheduleDistributionRecord(recordId: string, input: {
-  scheduledPublishAt: string; publishPayload: Record<string, unknown>; publishSettings: Record<string, unknown>; destination?: string | null;
-}): Promise<DistributionRecordRow> {
-  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).update({
-    publish_status: "scheduled", publish_mode: "scheduled",
-    scheduled_publish_at: input.scheduledPublishAt,
-    publish_payload: input.publishPayload, publish_settings: input.publishSettings,
-    destination: input.destination ?? null, last_error: null,
-    updated_at: new Date().toISOString(),
-  }).eq("id", recordId).select("*").single();
+/** Re-read one distribution record (the RPCs return a status result, not the row). */
+export async function fetchDistributionRecordById(recordId: string): Promise<DistributionRecordRow> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*").eq("id", recordId).single();
   if (error) throw error;
   return data as DistributionRecordRow;
 }
 
-export async function cancelDistributionRecord(recordId: string): Promise<DistributionRecordRow> {
-  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).update({
-    publish_status: "cancelled", updated_at: new Date().toISOString(),
-  }).eq("id", recordId).select("*").single();
+/**
+ * Schedule / reschedule. Operator content edits (payload/settings/destination)
+ * are saved via the allowed editor columns; the STATUS transition goes through
+ * the scoped `schedule_distribution_record` RPC — the frontend can no longer set
+ * privileged fields (status/evidence/claim) directly.
+ */
+export async function scheduleDistributionRecord(recordId: string, input: {
+  scheduledPublishAt: string; timezone?: string | null; plannedPublishDate?: string | null;
+  publishPayload?: Record<string, unknown>; publishSettings?: Record<string, unknown>; destination?: string | null;
+}): Promise<DistributionRecordRow> {
+  if (input.publishPayload || input.publishSettings || input.destination !== undefined) {
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (input.publishPayload) patch.publish_payload = input.publishPayload;
+    if (input.publishSettings) patch.publish_settings = input.publishSettings;
+    if (input.destination !== undefined) patch.destination = input.destination;
+    const { error: saveError } = await supabase.from(DISTRIBUTION_TABLE).update(patch).eq("id", recordId);
+    if (saveError) throw saveError;
+  }
+  const { error } = await supabase.rpc("schedule_distribution_record", {
+    p_record_id: recordId, p_scheduled_at: input.scheduledPublishAt,
+    p_timezone: input.timezone ?? null, p_planned_date: input.plannedPublishDate ?? null,
+  });
   if (error) throw error;
-  return data as DistributionRecordRow;
+  return fetchDistributionRecordById(recordId);
+}
+
+export async function cancelDistributionRecord(recordId: string): Promise<DistributionRecordRow> {
+  const { error } = await supabase.rpc("cancel_distribution_record", { p_record_id: recordId });
+  if (error) throw error;
+  return fetchDistributionRecordById(recordId);
+}
+
+/**
+ * Manual retry of a `failed` record via the scoped RPC (re-queues immediately).
+ * `overridePermanent` is required to retry a permanent failure. Never publishes
+ * here; the publisher's duplicate guard still protects anything already posted.
+ */
+export async function retryDistributionRecord(recordId: string, overridePermanent = false): Promise<DistributionRecordRow> {
+  const { error } = await supabase.rpc("retry_distribution_record", { p_record_id: recordId, p_override_permanent: overridePermanent });
+  if (error) throw error;
+  return fetchDistributionRecordById(recordId);
+}
+
+export type ReconcileResolution = "confirm_published" | "reset_scheduled" | "cancel";
+
+/**
+ * Resolve a `needs_reconciliation` record via the scoped RPC. The operator must
+ * verify on Instagram first. `confirm_published` requires an existing external id
+ * or a supplied validated numeric media id (`externalId`).
+ */
+export async function reconcileDistributionRecord(recordId: string, resolution: ReconcileResolution, externalId?: string | null): Promise<DistributionRecordRow> {
+  const { error } = await supabase.rpc("reconcile_distribution_record", {
+    p_record_id: recordId, p_action: resolution,
+    p_external_id: externalId ?? null, p_confirm: resolution === "confirm_published",
+  });
+  if (error) throw error;
+  return fetchDistributionRecordById(recordId);
+}
+
+/** The attempt-log trail for a distribution record (most recent first). */
+export async function fetchPublishAttempts(recordId: string): Promise<PublishAttemptRow[]> {
+  const { data, error } = await supabase.from("client_publish_attempts")
+    .select("*").eq("distribution_record_id", recordId).order("attempt_number", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as PublishAttemptRow[];
 }
 
 export interface PublishResult {
