@@ -6,6 +6,7 @@ import {
   fetchAdsMasterRows,
   fetchCalendarCells,
   fetchEffectiveStageMap,
+  fetchLifecycleDateContext,
   fetchProductionBriefBySourceRef,
   fetchOrganicMasterRows,
   fetchStoryMasterRows,
@@ -19,10 +20,12 @@ import {
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { masterDate, masterType, proofRisk, qaFlags, type QaFlag } from "@/lib/stage3Review";
+import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import type { CalendarCellRow, MasterRow, MasterTable, ProductionBriefRow } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
 import { ProductionBriefModal } from "./ContentCreationPanel";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
+import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
 const TABLE_LABEL: Record<MasterTable, string> = {
   organic_master: "Organic",
@@ -187,8 +190,8 @@ export function MasterContentModal({ table, initialRow, cells, onClose, onUpdate
 
 function MasterCard({ table, row, flags, selected, onSelected, onOpen, updating, onApprove }: { table: MasterTable; row: MasterRow; flags: QaFlag[]; selected: boolean; onSelected: (checked: boolean) => void; onOpen: () => void; updating: boolean; onApprove: () => void }) {
   const hook = "hook" in row ? row.hook : "hook_angle" in row ? row.hook_angle : row.frame_1;
-  const type = "content_type" in row ? row.content_type : "story_type" in row ? row.story_type : row.lane;
-  return <div className="min-w-0 border-b border-line px-4 py-3.5 last:border-b-0"><div className="flex flex-col gap-2 sm:flex-row sm:items-start"><input aria-label={`Select ${row.ref}`} type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} className="mt-1 accent-teal" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">{row.ref}</span><span className="text-2xs font-mono text-paper-3">{type ?? "—"}</span><span className="text-2xs font-mono text-paper-3">{masterDate(row) ?? "No date"}</span><StateBadge state={row.review_state} />{flags.map((flag) => <span key={flag.code} className={`rounded border px-1.5 py-0.5 text-2xs ${flag.severity === "block" ? "border-neg/20 text-neg" : "border-warn/20 text-warn"}`}>{flag.label}</span>)}</div><h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{titleFor(row)}</h3>{hook && <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-paper-3">{hook}</p>}</div><div className="flex shrink-0 gap-2"><Button size="sm" variant="ghost" onClick={onOpen}>View</Button>{row.review_state === "needs_review" && <Button size="sm" variant="subtle" disabled={updating} onClick={onApprove}>Approve</Button>}</div></div></div>;
+  const contentType = resolveLifecycleContentType(row);
+  return <div className="min-w-0 border-b border-line px-4 py-3.5 last:border-b-0"><div className="flex flex-col gap-2 sm:flex-row sm:items-start"><input aria-label={`Select ${row.ref}`} type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} className="mt-1 accent-teal" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">{row.ref}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{contentType.label}</span><span className="text-2xs font-mono text-paper-3">{TABLE_LABEL[table]}</span><span className="text-2xs font-mono text-paper-3">{masterDate(row) ?? "No date"}</span><StateBadge state={row.review_state} />{flags.map((flag) => <span key={flag.code} className={`rounded border px-1.5 py-0.5 text-2xs ${flag.severity === "block" ? "border-neg/20 text-neg" : "border-warn/20 text-warn"}`}>{flag.label}</span>)}</div><h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{titleFor(row)}</h3>{hook && <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-paper-3">{hook}</p>}</div><div className="flex shrink-0 gap-2"><Button size="sm" variant="ghost" onClick={onOpen}>View</Button>{row.review_state === "needs_review" && <Button size="sm" variant="subtle" disabled={updating} onClick={onApprove}>Approve</Button>}</div></div></div>;
 }
 
 export function MastersPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
@@ -201,22 +204,24 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [open, setOpen] = useState<{ table: MasterTable; row: MasterRow } | null>(null);
-  const [expanded, setExpanded] = useState<Record<MasterTable, boolean>>({ organic_master: true, story_master: true, ads_master: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [proofFilter, setProofFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [dateDirection, setDateDirection] = useState<DateDirection>("asc");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
   const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [organic, stories, ads, calendar, stages] = await Promise.all([fetchOrganicMasterRows(clientId, executionMonth), fetchStoryMasterRows(clientId, executionMonth), fetchAdsMasterRows(clientId, executionMonth), fetchCalendarCells(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth)]);
+      const [organic, stories, ads, calendar, stages, dateContext] = await Promise.all([fetchOrganicMasterRows(clientId, executionMonth), fetchStoryMasterRows(clientId, executionMonth), fetchAdsMasterRows(clientId, executionMonth), fetchCalendarCells(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]);
       setRows([...organic.map((row) => ({ table: "organic_master" as const, row })), ...stories.map((row) => ({ table: "story_master" as const, row })), ...ads.map((row) => ({ table: "ads_master" as const, row }))]);
       setCells(calendar);
       setStageMap(stages);
+      setLifecycleContext(dateContext);
     } catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
@@ -228,10 +233,10 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const passedThroughEntries = useMemo(() => [...stageMap.values()].filter((entry) => isPassedThrough(entry.stage, "master")), [stageMap]);
   const assessed = useMemo(() => rows
     .filter((item) => { const entry = stageMap.get(item.row.ref); return !entry || !isPassedThrough(entry.stage, "master"); })
-    .map((item) => ({ ...item, flags: qaFlags(item.table, item.row, cells) })), [rows, cells, stageMap]);
+    .map((item) => ({ ...item.row, ...item, flags: qaFlags(item.table, item.row, cells) })), [rows, cells, stageMap]);
   const types = useMemo(() => [...new Set(assessed.map(({ table, row }) => masterType(table, row)))].sort(), [assessed]);
   const filtered = useMemo(() => assessed.filter((item) => {
-    const date = masterDate(item.row);
+    const date = resolveCanonicalPublishDate(item.row, "content", lifecycleContext).date;
     const matchesQuery = !query.trim() || `${item.row.ref} ${titleFor(item.row)} ${valueText(item.row)}`.toLowerCase().includes(query.trim().toLowerCase());
     return matchesQuery
       && (typeFilter === "all" || masterType(item.table, item.row) === typeFilter)
@@ -240,7 +245,7 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
       && (!dateFrom || (!!date && date >= dateFrom))
       && (!dateTo || (!!date && date <= dateTo));
   }), [assessed, dateFrom, dateTo, proofFilter, query, statusFilter, typeFilter]);
-  const grouped = useMemo(() => ({ organic_master: filtered.filter((item) => item.table === "organic_master"), story_master: filtered.filter((item) => item.table === "story_master"), ads_master: filtered.filter((item) => item.table === "ads_master") }), [filtered]);
+  const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(filtered, { lifecycleStage: "content", context: lifecycleContext, direction: dateDirection }), [dateDirection, filtered, lifecycleContext]);
   const approved = rows.filter((item) => item.row.review_state === "approved").length;
   const blocking = assessed.filter((item) => item.flags.some((flag) => flag.severity === "block")).length;
   function accept(table: MasterTable, next: MasterRow, keepOpen = true) { setRows((current) => current.map((item) => item.table === table && item.row.id === next.id ? { table, row: next } : item)); setCells((current) => current.map((cell) => cell.ref === next.ref ? { ...cell, review_state: next.review_state } : cell)); if (keepOpen) setOpen({ table, row: next }); }
@@ -269,20 +274,15 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
 
   if (loading && rows.length === 0) return <div className="p-6 text-xs text-paper-3">Loading Phase 3 masters…</div>;
   return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4"><div className="shrink-0 rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex flex-wrap items-center gap-4 text-xs"><span className="text-paper">{rows.length} master rows</span><span className="text-teal">{approved} approved</span><span className="text-warn">{rows.length - approved} require review</span><span className={blocking ? "text-neg" : "text-teal"}>{blocking} blocking QA flags</span><span className="text-paper-3">{filtered.length} active shown</span><Button size="sm" variant="ghost" className="ml-auto" disabled={!passedThroughEntries.length} onClick={() => setDrawerOpen(true)}>Archived / Passed Through{passedThroughEntries.length ? ` (${passedThroughEntries.length})` : ""}</Button></div></div>
-    <div className="shrink-0 rounded-[10px] border border-line bg-ink-200 p-3"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or content…" className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50 xl:col-span-2" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All content types</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select value={proofFilter} onChange={(event) => setProofFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All proof risk</option><option value="risk">Proof review required</option><option value="clear">No proof flags</option></select><div className="flex gap-1"><input aria-label="From date" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /><input aria-label="To date" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /></div></div><div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" variant="ghost" onClick={() => setSelected(new Set(filtered.map(({ row }) => row.id)))}>Select shown</Button><Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>Clear selection</Button><span className="text-2xs text-paper-3">{selected.size} selected</span><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => void bulkReview("approved")}>Bulk approve</Button><Button size="sm" variant="danger" disabled={!selected.size || updating} onClick={() => void bulkReview("rejected")}>Bulk reject</Button></div></div>
-    {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}{(["organic_master", "story_master", "ads_master"] as MasterTable[]).map((table) => {
-    const items = grouped[table];
-    const tableApproved = items.filter(({ row }) => row.review_state === "approved").length;
-    return <section key={table} className="min-w-0 shrink-0 overflow-hidden rounded-[10px] border border-line bg-ink-200">
-      <button aria-expanded={expanded[table]} onClick={() => setExpanded((current) => ({ ...current, [table]: !current[table] }))} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-ink-100">
-        <span className="text-2xs text-paper-3">{expanded[table] ? "▼" : "▶"}</span>
-        <span className="text-2xs font-medium uppercase tracking-wide text-paper-2">{TABLE_LABEL[table]} Master</span>
-        <span className="ml-auto font-mono text-2xs text-paper-3">{items.length} rows</span>
-        <span className="font-mono text-2xs text-teal">{tableApproved} approved</span>
-        <span className="font-mono text-2xs text-warn">{items.length - tableApproved} need review</span>
-      </button>
-      {expanded[table] && <div className="border-t border-line">{items.length ? items.map(({ row, flags }) => <MasterCard key={row.id} table={table} row={row} flags={flags} selected={selected.has(row.id)} onSelected={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} updating={updating} onOpen={() => setOpen({ table, row })} onApprove={() => void approve(table, row)} />) : <div className="px-4 py-6 text-xs text-paper-3">No rows match the current filters.</div>}</div>}
-    </section>;
-  })}{open && <MasterContentModal key={`${open.table}:${open.row.id}`} table={open.table} initialRow={open.row} cells={cells} onClose={() => setOpen(null)} onUpdated={accept} onApproveNext={approveNext} onProgressed={() => { void refreshStages(); window.dispatchEvent(new Event("aa:reload")); }} />}
+    <div className="shrink-0 rounded-[10px] border border-line bg-ink-200 p-3"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or content…" className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50 xl:col-span-2" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All content types</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select value={proofFilter} onChange={(event) => setProofFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All proof risk</option><option value="risk">Proof review required</option><option value="clear">No proof flags</option></select><div className="flex gap-1"><input aria-label="From date" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /><input aria-label="To date" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /></div></div><div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><Button size="sm" variant="ghost" onClick={() => setSelected(new Set(filtered.map(({ row }) => row.id)))}>Select shown</Button><Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>Clear selection</Button><span className="text-2xs text-paper-3">{selected.size} selected</span><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => void bulkReview("approved")}>Bulk approve</Button><Button size="sm" variant="danger" disabled={!selected.size || updating} onClick={() => void bulkReview("rejected")}>Bulk reject</Button></div></div>
+    {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
+    {groupedByDate.map((group) => {
+      const approvedInGroup = group.records.filter(({ row }) => row.review_state === "approved").length;
+      return <LifecycleDateSection key={group.key} group={group} statusSummary={<><span className="text-teal">{approvedInGroup} approved</span>{approvedInGroup < group.records.length && <> · <span className="text-warn">{group.records.length - approvedInGroup} need review</span></>}</>}>
+        <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">{group.records.map(({ table, row, flags }) => <MasterCard key={row.id} table={table} row={row} flags={flags} selected={selected.has(row.id)} onSelected={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} updating={updating} onOpen={() => setOpen({ table, row })} onApprove={() => void approve(table, row)} />)}</div>
+      </LifecycleDateSection>;
+    })}
+    {filtered.length === 0 && <div className="rounded-[10px] border border-dashed border-line p-10 text-center text-xs text-paper-3">No rows match the current filters.</div>}
+    {open && <MasterContentModal key={`${open.table}:${open.row.id}`} table={open.table} initialRow={open.row} cells={cells} onClose={() => setOpen(null)} onUpdated={accept} onApproveNext={approveNext} onProgressed={() => { void refreshStages(); window.dispatchEvent(new Event("aa:reload")); }} />}
     {drawerOpen && <PassedThroughDrawer tabStage="master" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}</div>;
 }

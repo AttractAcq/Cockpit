@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/primitives";
-import { fetchArchiveDetail, fetchArchiveIndex, type ArchiveDetail, type ArchiveIndexEntry } from "@/lib/api";
+import { fetchArchiveDetail, fetchArchiveIndex, fetchLifecycleDateContext, type ArchiveDetail, type ArchiveIndexEntry } from "@/lib/api";
 import { STAGE_LABEL } from "@/lib/pipeline";
+import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import type { ArchiveSnapshotRow, PipelineStage } from "@/types/phase";
 import { DestructiveDialog } from "./DestructiveDialog";
 import { MarkdownPreview } from "./ExecutionFilesPanel";
+import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
 type DetailTab = "master" | "content_creation" | "assets" | "distribution" | "analytics" | "analysis";
 const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
@@ -123,10 +125,12 @@ export function ArchivePanel({ clientId, executionMonth }: { clientId: string; e
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dateDirection, setDateDirection] = useState<DateDirection>("desc");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setEntries(await fetchArchiveIndex(clientId, executionMonth)); }
+    try { const [nextEntries, dateContext] = await Promise.all([fetchArchiveIndex(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]); setEntries(nextEntries); setLifecycleContext(dateContext); }
     catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
@@ -145,6 +149,7 @@ export function ArchivePanel({ clientId, executionMonth }: { clientId: string; e
     const q = query.trim().toLowerCase();
     return entries.filter((entry) => !q || `${entry.source_ref} ${entry.title ?? ""}`.toLowerCase().includes(q));
   }, [entries, query]);
+  const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(filtered, { lifecycleStage: "archive", context: lifecycleContext, direction: dateDirection }), [dateDirection, filtered, lifecycleContext]);
 
   if (loading && !entries.length) return <div className="p-6 text-xs text-paper-3">Loading archive…</div>;
   return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -152,6 +157,7 @@ export function ArchivePanel({ clientId, executionMonth }: { clientId: string; e
       <div className="flex flex-wrap items-center gap-3">
         <div><div className="text-sm text-paper">Lifecycle Archive</div><div className="mt-1 text-2xs text-paper-3">Every ref that has progressed beyond master. Live records + immutable snapshots, by source_ref.</div></div>
         <input aria-label="Search archive" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or title…" className="ml-auto rounded border border-line bg-ink px-2.5 py-1.5 text-xs text-paper outline-none focus:border-teal" />
+        <LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} />
         <Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>{loading ? "Reloading…" : "Reload"}</Button>
       </div>
     </div>
@@ -159,22 +165,30 @@ export function ArchivePanel({ clientId, executionMonth }: { clientId: string; e
     {!filtered.length ? (
       <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">{entries.length ? "No refs match this search." : "Nothing in the lifecycle archive yet."}</div><div className="mt-2 text-xs text-paper-3">{entries.length ? "" : "Refs appear here once they progress past the Master stage."}</div></div>
     ) : (
-      <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
-        {filtered.map((entry) => (
+      <div className="flex flex-col gap-4">
+        {groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.length} archived refs`}>
+        <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
+        {section.records.map((entry) => {
+          const lifecycleDate = resolveCanonicalPublishDate(entry, "archive", lifecycleContext).date;
+          const contentType = resolveLifecycleContentType(entry);
+          return (
           <article key={entry.source_ref} className={`flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 ${highlightRef === entry.source_ref ? "bg-teal/5" : ""}`}>
             <span className="w-28 shrink-0 font-mono text-2xs text-teal">{entry.source_ref}</span>
             <div className="min-w-[240px] flex-1">
               <div className="break-words text-xs text-paper">{entry.title ?? entry.source_ref}</div>
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-2xs text-paper-3">
-                <span>{(entry.asset_format ?? "asset").replaceAll("_", " ")}</span>
+                <span>{contentType.label}</span>
                 <span>· stages: {entry.stages_present.map((stage) => STAGE_LABEL[stage]).join(" ▸ ")}</span>
               </div>
-              <div className="mt-1 text-2xs text-paper-3">{entry.latest_status.replaceAll("_", " ")} · updated {new Date(entry.updated_at).toLocaleString()}</div>
+              <div className="mt-1 text-2xs text-paper-3">{entry.latest_status.replaceAll("_", " ")} · content date {lifecycleDate ?? "date unavailable"} · archive updated {new Date(entry.updated_at).toLocaleString()}</div>
             </div>
             <span className="rounded border border-teal/20 bg-teal/10 px-1.5 py-0.5 font-mono text-2xs text-teal">{STAGE_LABEL[entry.current_stage]}</span>
             <Button size="sm" variant="ghost" onClick={() => { setHighlightRef(entry.source_ref); setOpenRef(entry.source_ref); }}>View</Button>
           </article>
-        ))}
+          );
+        })}
+        </div>
+        </LifecycleDateSection>)}
       </div>
     )}
     {openRef && <ArchiveDetailModal clientId={clientId} executionMonth={executionMonth} sourceRef={openRef} onClose={() => setOpenRef(null)} />}

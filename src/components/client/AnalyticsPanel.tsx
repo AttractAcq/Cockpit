@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/primitives";
-import { fetchAnalyticsRecords, saveAnalyticsRecord } from "@/lib/api";
+import { fetchAnalyticsRecords, fetchLifecycleDateContext, saveAnalyticsRecord } from "@/lib/api";
+import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import type { AnalyticsRecordRow, AnalyticsStatus } from "@/types/phase";
+import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
 const STATUS_STYLE: Record<AnalyticsStatus, string> = {
   awaiting_metrics: "border-warn/20 bg-warn/10 text-warn",
@@ -93,10 +95,12 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
   const [open, setOpen] = useState<AnalyticsRecordRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dateDirection, setDateDirection] = useState<DateDirection>("desc");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setRecords(await fetchAnalyticsRecords(clientId, executionMonth)); }
+    try { const [nextRecords, dateContext] = await Promise.all([fetchAnalyticsRecords(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]); setRecords(nextRecords); setLifecycleContext(dateContext); }
     catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
@@ -104,6 +108,7 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
   useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
 
   const completeCount = useMemo(() => records.filter((record) => record.analytics_status === "complete").length, [records]);
+  const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(records, { lifecycleStage: "analytics", context: lifecycleContext, direction: dateDirection }), [dateDirection, lifecycleContext, records]);
   function accept(next: AnalyticsRecordRow) { setRecords((current) => current.map((record) => record.id === next.id ? next : record)); setOpen((current) => current && current.id === next.id ? next : current); }
 
   if (loading && !records.length) return <div className="p-6 text-xs text-paper-3">Loading analytics…</div>;
@@ -115,6 +120,7 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
         <Button size="sm" variant="ghost" className="ml-auto" disabled={loading} onClick={() => void load()}>{loading ? "Reloading…" : "Reload"}</Button>
       </div>
       <p className="mt-2 text-2xs text-paper-3">Only assets with a successful publish appear here. Metrics are entered manually — nothing is auto-collected or invented in this build.</p>
+      <div className="mt-3"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /></div>
     </div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {!records.length ? (
@@ -122,16 +128,23 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
         <div className="text-sm text-paper">No published assets yet. Assets appear here only after successful publishing.</div>
       </div>
     ) : (
-      <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
-        {records.map((record) => (
+      <div className="flex flex-col gap-4">
+        {groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.filter((record) => record.analytics_status === "complete").length} complete`}>
+        <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
+        {section.records.map((record) => {
+          const lifecycleDate = resolveCanonicalPublishDate(record, "analytics", lifecycleContext).date;
+          const contentType = resolveLifecycleContentType(record);
+          return (
           <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
             <span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span>
             <div className="min-w-[240px] flex-1">
               <div className="break-words text-xs text-paper">{record.title ?? record.source_ref}</div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">
-                <span>{(record.asset_format ?? "asset").replaceAll("_", " ")}</span>
+                <span>{contentType.label}</span>
                 <span>{record.platform ?? "instagram"}</span>
+                <span>content date {lifecycleDate ?? "date unavailable"}</span>
                 <span>published {new Date(record.published_at).toLocaleString()}</span>
+                <span>measured {new Date(record.updated_at).toLocaleString()}</span>
                 {record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}
               </div>
               <div className="mt-1 text-2xs text-paper-3">{metricsSummary(record.metrics)}</div>
@@ -140,7 +153,10 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
             <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[record.analytics_status]}`}>{record.analytics_status.replaceAll("_", " ")}</span>
             <Button size="sm" variant="ghost" onClick={() => setOpen(record)}>View / Edit</Button>
           </article>
-        ))}
+          );
+        })}
+        </div>
+        </LifecycleDateSection>)}
       </div>
     )}
     {open && <AnalyticsEditModal record={open} onClose={() => setOpen(null)} onSaved={accept} />}

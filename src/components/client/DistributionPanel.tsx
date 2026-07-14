@@ -5,6 +5,7 @@ import {
   cancelDistributionRecord,
   fetchDistributionRecords,
   fetchEffectiveStageMap,
+  fetchLifecycleDateContext,
   publishDistributionRecordNow,
   reconcileDistributionRecord,
   retryDistributionRecord,
@@ -17,8 +18,10 @@ import {
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { zonedWallClockToUtcIso } from "@/lib/schedule-time";
+import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import type { DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishStatus } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
+import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
 const STATUS_STYLE: Record<PublishStatus, string> = {
   ready: "border-teal/20 bg-teal/10 text-teal",
@@ -266,12 +269,14 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dateDirection, setDateDirection] = useState<DateDirection>("asc");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [nextRecords, stages] = await Promise.all([fetchDistributionRecords(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth)]);
-      setRecords(nextRecords); setStageMap(stages);
+      const [nextRecords, stages, dateContext] = await Promise.all([fetchDistributionRecords(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]);
+      setRecords(nextRecords); setStageMap(stages); setLifecycleContext(dateContext);
     } catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
@@ -279,6 +284,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
 
   const active = useMemo(() => records.filter((record) => ACTIVE_STATUSES.includes(record.publish_status)), [records]);
+  const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(active, { lifecycleStage: "distribution", context: lifecycleContext, direction: dateDirection }), [active, dateDirection, lifecycleContext]);
   const publishedCount = records.filter((record) => record.publish_status === "published").length;
   const passedThroughEntries = useMemo(() => [...stageMap.values()].filter((entry) => isPassedThrough(entry.stage, "distribution")), [stageMap]);
   function accept(next: DistributionRecordRow) { setRecords((current) => current.map((record) => record.id === next.id ? next : record)); setOpen((current) => current && current.id === next.id ? next : current); window.dispatchEvent(new Event("aa:reload")); }
@@ -326,6 +332,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
         <Button size="sm" variant="ghost" disabled={!passedThroughEntries.length} onClick={() => setDrawerOpen(true)}>Archived / Passed Through{passedThroughEntries.length ? ` (${passedThroughEntries.length})` : ""}</Button>
       </div>
       <p className="mt-2 text-2xs text-paper-3">Approved assets arrive as distribution-ready. Publish Now attempts a real Meta publish (safe if credentials are missing). Schedule stores a record the shared worker publishes when due — no publishing happens on this screen.</p>
+      <div className="mt-3"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /></div>
     </div>
     </div>
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 pt-3">
@@ -336,18 +343,24 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
         <div className="mt-2 text-xs text-paper-3">Approve an asset group in the Assets tab to make it distribution-ready.</div>
       </div>
     ) : (
-      <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
-        {active.map((record) => (
+      <div className="flex flex-col gap-4">
+        {groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.filter((record) => record.publish_status === "scheduled").length} scheduled · ${section.records.filter((record) => record.publish_status === "failed").length} failed`}>
+        <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
+        {section.records.map((record) => {
+          const contentType = resolveLifecycleContentType(record);
+          const lifecycleDate = resolveCanonicalPublishDate(record, "distribution", lifecycleContext).date;
+          return (
           <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
             <span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span>
             <div className="min-w-[240px] flex-1">
               <div className="break-words text-xs text-paper">{record.title ?? record.source_ref}</div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">
-                <span>{record.asset_format.replaceAll("_", " ")}</span>
+                <span>{contentType.label}</span>
                 {frameLabel(record) && <span className="text-teal">{frameLabel(record)}</span>}
                 <span>{record.platform ?? "instagram"}</span>
                 {record.destination && <span>→ {record.destination}</span>}
                 {record.publish_mode && <span>{record.publish_mode.replaceAll("_", " ")}</span>}
+                <span>planned {lifecycleDate ?? "date unavailable"}</span>
                 <span>{statusDate(record)}</span>
                 {typeof record.attempt_count === "number" && record.attempt_count > 0 && <span className="text-warn">attempt {record.attempt_count}</span>}
                 {record.next_attempt_at && record.publish_status === "scheduled" && <span className="text-warn">next retry {new Date(record.next_attempt_at).toLocaleString()}</span>}
@@ -367,7 +380,10 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
             {record.publish_status !== "cancelled" && <Button size="sm" variant="ghost" onClick={() => void cancel(record)}>Cancel</Button>}
             <Button size="sm" variant="primary" disabled={record.publish_status === "publishing" || record.publish_status === "needs_reconciliation"} onClick={() => setOpen(record)}>Publish Record</Button>
           </article>
-        ))}
+          );
+        })}
+        </div>
+        </LifecycleDateSection>)}
       </div>
     )}
     </div>

@@ -10,24 +10,28 @@ import { fmtRelative } from "@/lib/format";
 import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
 import { ContractorManagerModal } from "@/components/ContractorManagerModal";
 
-function HealthBadge({ score }: { score: number }) {
-  const colour =
-    score >= 70 ? "text-teal" : score >= 40 ? "text-warn" : "text-neg";
-  return <span className={`font-mono text-xs ${colour}`}>{score}</span>;
-}
-
 function StageBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     not_run:  "text-paper-3",
+    not_started: "text-paper-3",
     running:  "text-warn",
+    in_progress: "text-warn",
+    partial: "text-warn",
+    needs_review: "text-warn",
     complete: "text-teal",
-    error:    "text-neg",
+    error: "text-neg",
+    failed: "text-neg",
   };
   const labels: Record<string, string> = {
     not_run: "—",
+    not_started: "Not started",
     running:  "Running",
+    in_progress: "In progress",
+    partial: "Partial",
+    needs_review: "Needs review",
     complete: "Done",
-    error:    "Error",
+    error: "Error",
+    failed: "Failed",
   };
   return (
     <span className={`text-2xs font-mono uppercase ${styles[status] ?? "text-paper-3"}`}>
@@ -80,13 +84,14 @@ export function CockpitPage() {
   const activeClients  = clients.filter((c) => c.status === "active");
   const stage1Missing  = clients.filter((c) => c.stage1_status === "not_run").length;
   const stage2Missing  = clients.filter((c) => c.stage2_status === "not_run").length;
-  const stage3Missing  = clients.filter((c) => (stage3Statuses[c.id] ?? "not_run") === "not_run").length;
+  const stage3Missing  = clients.filter((c) => (stage3Statuses[c.id] ?? "not_started") === "not_started").length;
 
   return (
+    <div className="flex min-h-0 flex-1 flex-col">
     <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
-      <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => setContractorsOpen(true)}>Manage Contractors</Button></div>
+      <div className="shrink-0 flex justify-end"><Button variant="ghost" size="sm" onClick={() => setContractorsOpen(true)}>Manage Contractors</Button></div>
       {/* System Readiness Band */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Total Clients",    value: clients.length,                              sub: `${activeClients.length} active` },
           { label: "Stage 1 Not Run",  value: stage1Missing,                               sub: "need context input" },
@@ -105,8 +110,8 @@ export function CockpitPage() {
         ))}
       </div>
 
-      {/* Client Health + Activity */}
-      <div className="grid grid-cols-[1fr_360px] gap-4 min-h-0">
+      {/* Clients + Activity */}
+      <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         {/* Client list */}
         <Panel title="Clients" meta={`${clients.length} total`}>
           {clients.length === 0 ? (
@@ -121,10 +126,11 @@ export function CockpitPage() {
               }
             />
           ) : (
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full text-xs">
               <thead>
                 <tr className="border-b border-line">
-                  {["Name", "Tier", "Stage 1", "Stage 2", "Health"].map((h) => (
+                  {["Name", "Tier", "Stage 1", "Stage 2", "Phase 3"].map((h) => (
                     <th
                       key={h}
                       className="px-3 py-2 text-left text-2xs uppercase tracking-cap text-paper-3 font-medium"
@@ -152,11 +158,12 @@ export function CockpitPage() {
                     <td className="px-3 py-2.5 text-paper-2 text-2xs">{TL[c.package_tier]}</td>
                     <td className="px-3 py-2.5"><StageBadge status={c.stage1_status} /></td>
                     <td className="px-3 py-2.5"><StageBadge status={c.stage2_status} /></td>
-                    <td className="px-3 py-2.5"><HealthBadge score={c.health_score} /></td>
+                    <td className="px-3 py-2.5"><button className="rounded px-1 py-0.5 hover:bg-teal/10 focus:outline-none focus:ring-1 focus:ring-teal/50" onClick={(event) => { event.stopPropagation(); navigate(ROUTES.clientSection(c.id, "calendar")); }} title="Open Phase 3 calendar"><StageBadge status={stage3Statuses[c.id] ?? "not_started"} /></button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Panel>
 
@@ -189,6 +196,7 @@ export function CockpitPage() {
         </Panel>
       </div>
       {contractorsOpen && <ContractorManagerModal onClose={() => setContractorsOpen(false)} />}
+    </div>
     </div>
   );
 }

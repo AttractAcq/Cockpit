@@ -13,13 +13,17 @@ const TIERS: PackageTier[] = ["proof_sprint", "proof_brand", "proof_brand_scale"
 function StagePill({ status }: { status: string }) {
   const styles: Record<string, string> = {
     not_run:  "bg-ink-100 text-paper-3",
+    not_started: "bg-ink-100 text-paper-3",
     running:  "bg-warn/10 text-warn",
+    in_progress: "bg-warn/10 text-warn",
+    partial: "bg-warn/10 text-warn",
     complete: "bg-teal/10 text-teal",
     error:    "bg-neg/10 text-neg",
+    failed: "bg-neg/10 text-neg",
     needs_review: "bg-warn/10 text-warn",
   };
   const labels: Record<string, string> = {
-    not_run: "Not Run", running: "Running", complete: "Complete", error: "Error", needs_review: "Needs Review",
+    not_run: "Not Run", not_started: "Not started", running: "Running", in_progress: "In progress", complete: "Complete", partial: "Partial", failed: "Failed", error: "Error", needs_review: "Needs review",
   };
   return (
     <span className={`text-2xs font-mono px-1.5 py-0.5 rounded ${styles[status] ?? "bg-ink-100 text-paper-3"}`}>
@@ -168,12 +172,12 @@ export function ClientsPage() {
 
   const filtered = clients.filter((c) => {
     if (filterTier !== "all" && c.package_tier !== filterTier) return false;
-    const stage3 = stage3Statuses[c.id] ?? "not_run";
+    const stage3 = stage3Statuses[c.id] ?? "not_started";
     if (stageFilter === "stage1_not_run" && c.stage1_status !== "not_run") return false;
     if (stageFilter === "stage1_complete" && c.stage1_status !== "complete") return false;
     if (stageFilter === "stage2_not_run" && c.stage2_status !== "not_run") return false;
     if (stageFilter === "stage2_complete" && c.stage2_status !== "complete") return false;
-    if (stageFilter === "stage3_not_run" && stage3 !== "not_run") return false;
+    if (stageFilter === "stage3_not_run" && stage3 !== "not_started") return false;
     if (stageFilter === "stage3_needs_review" && stage3 !== "needs_review") return false;
     if (stageFilter === "stage3_complete" && stage3 !== "complete") return false;
     const needle = query.trim().toLocaleLowerCase();
@@ -277,7 +281,7 @@ export function ClientsPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-line">
-                  {["Name", "Tier", "Stage 1", "Stage 2", "Stage 3", "Health", "Status"].map((h) => (
+                  {["Name", "Tier", "Stage 1", "Stage 2", "Stage 3", "Status"].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-left text-2xs uppercase tracking-cap text-paper-3 font-medium">
                       {h}
                     </th>
@@ -300,12 +304,7 @@ export function ClientsPage() {
                     <td className="px-3 py-2.5 text-paper-2 text-2xs">{TL[c.package_tier]}</td>
                     <td className="px-3 py-2.5"><StagePill status={c.stage1_status} /></td>
                     <td className="px-3 py-2.5"><StagePill status={c.stage2_status} /></td>
-                    <td className="px-3 py-2.5"><StagePill status={stage3Statuses[c.id] ?? "not_run"} /></td>
-                    <td className="px-3 py-2.5">
-                      <span className={`font-mono text-xs ${
-                        c.health_score >= 70 ? "text-teal" : c.health_score >= 40 ? "text-warn" : "text-neg"
-                      }`}>{c.health_score}</span>
-                    </td>
+                    <td className="px-3 py-2.5"><button className="rounded hover:bg-teal/10 focus:outline-none focus:ring-1 focus:ring-teal/50" onClick={(event) => { event.stopPropagation(); navigate(ROUTES.clientSection(c.id, "calendar")); }} title="Open Phase 3 calendar"><StagePill status={stage3Statuses[c.id] ?? "not_started"} /></button></td>
                     <td className="px-3 py-2.5">
                       <span className={`text-2xs capitalize ${
                         c.status === "active" ? "text-teal" : c.status === "churned" ? "text-neg" : "text-paper-3"
