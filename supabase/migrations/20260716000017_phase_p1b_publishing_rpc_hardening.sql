@@ -239,6 +239,12 @@ revoke insert, update, delete, truncate, trigger, references on public.client_di
 grant update (publish_payload, publish_settings, destination, planned_publish_date, updated_at)
   on public.client_distribution_records to authenticated;
 
+-- Same lockdown for the attempt log: authenticated keeps SELECT only (staff-select
+-- policy); the Supabase-default write privileges are stripped. service_role (used
+-- by the worker) keeps its write access; anon/public have none.
+revoke insert, update, delete, truncate, trigger, references
+  on public.client_publish_attempts from authenticated;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3. Harden claim_due_distribution_records: clamp limit, reject empty worker,
 --    exclude evidence-bearing + permanent-failure rows. Story gate + SKIP LOCKED kept.
