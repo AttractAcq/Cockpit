@@ -109,6 +109,39 @@ Deno.test("classifyMetaError: token error (190) → meta_authentication non-retr
   assertEquals(c.retryable, false);
 });
 
+Deno.test("classifyMetaError: HTTP 429 → meta_rate_limited retryable", () => {
+  const c = classifyMetaError(429, { error: { code: 4, message: "Application request limit reached" } });
+  assertEquals(c.category, "meta_rate_limited");
+  assertEquals(c.retryable, true);
+});
+
+Deno.test("classifyMetaError: HTTP 5xx → meta_server_error retryable", () => {
+  const c = classifyMetaError(500, { error: { code: 2, message: "temporary" } });
+  assertEquals(c.category, "meta_server_error");
+  assertEquals(c.retryable, true);
+});
+
+Deno.test("classifyMetaError: unclassified 400 stays non-retryable meta_publish_failed", () => {
+  const c = classifyMetaError(400, { error: { code: 100, message: "bad param" } });
+  assertEquals(c.category, "meta_publish_failed");
+  assertEquals(c.retryable, false);
+});
+
+Deno.test("runPublish: persistExternalId is called with the published id BEFORE fetchPermalink", async () => {
+  const order: string[] = [];
+  const rec = fakeDeps({
+    fetchPermalink: () => { order.push("permalink"); return Promise.resolve("https://instagram.com/p/xyz"); },
+    persistExternalId: (id: string) => { order.push(`persist:${id}`); return Promise.resolve(); },
+  });
+  const result = await runPublish(rec.deps, {
+    media: [{ storage_bucket: "b", storage_path: "01.png" }],
+    caption: "c", contentType: "IMAGE", igUserId: "ig", token: "tok",
+    overallDeadline: 1_000_000, childMaxWaitMs: 45_000, parentMaxWaitMs: 60_000,
+  });
+  assertEquals(result.external_post_id, "PUBLISHED_ID");
+  assertEquals(order, ["persist:PUBLISHED_ID", "permalink"]); // evidence persisted first
+});
+
 // ── runPublish orchestration ─────────────────────────────────────────────────
 interface Recorder {
   deps: PublishDeps;
