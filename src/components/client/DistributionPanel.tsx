@@ -19,6 +19,7 @@ import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { zonedWallClockToUtcIso } from "@/lib/schedule-time";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishStatus } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
@@ -287,6 +288,12 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(active, { lifecycleStage: "distribution", context: lifecycleContext, direction: dateDirection }), [active, dateDirection, lifecycleContext]);
   const publishedCount = records.filter((record) => record.publish_status === "published").length;
   const passedThroughEntries = useMemo(() => [...stageMap.values()].filter((entry) => isPassedThrough(entry.stage, "distribution")), [stageMap]);
+  useFocusedRecord({
+    queryKeys: ["distribution_id", "source_ref"],
+    records,
+    getMatchValue: useCallback((record: DistributionRecordRow, queryKey: string) => queryKey === "distribution_id" ? record.id : record.source_ref, []),
+    onFound: useCallback((record: DistributionRecordRow) => setOpen(record), []),
+  });
   function accept(next: DistributionRecordRow) { setRecords((current) => current.map((record) => record.id === next.id ? next : record)); setOpen((current) => current && current.id === next.id ? next : current); window.dispatchEvent(new Event("aa:reload")); }
 
   async function cancel(record: DistributionRecordRow) {

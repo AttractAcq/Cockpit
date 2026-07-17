@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { EmptyState, Panel } from "@/components/primitives";
 import { Button } from "@/components/primitives";
 import { fetchClients, fetchActivityLog, fetchStage3StatusMap } from "@/lib/api";
@@ -9,6 +9,7 @@ import { TIER_LABELS as TL } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
 import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
 import { ContractorManagerModal } from "@/components/ContractorManagerModal";
+import { resolveOperationDestination } from "@/lib/operation-destination";
 
 function StageBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -177,20 +178,33 @@ export function CockpitPage() {
             />
           ) : (
             <ul>
-              {activity.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="px-3 py-2.5 border-b border-line last:border-b-0 flex flex-col gap-0.5"
-                >
+              {activity.map((entry) => {
+                const destination = resolveOperationDestination(entry);
+                const content = <>
                   <span className="text-xs text-paper leading-snug">
                     {entry.plain_english_message}
                   </span>
                   <span className="text-2xs text-paper-3 font-mono">
                     {fmtRelative(entry.created_at)}
                     {entry.clients?.name ? ` · ${entry.clients.name}` : ""}
+                    {destination ? ` · ${destination.label}` : ""}
                   </span>
-                </li>
-              ))}
+                </>;
+                return (
+                  <li key={entry.id} className="border-b border-line last:border-b-0">
+                    {destination ? (
+                      <Link
+                        to={{ pathname: destination.pathname, search: destination.search }}
+                        className="flex flex-col gap-0.5 px-3 py-2.5 transition-colors hover:bg-ink-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-teal/50"
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <div className="flex flex-col gap-0.5 px-3 py-2.5">{content}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>

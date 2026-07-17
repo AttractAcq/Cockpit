@@ -6,6 +6,7 @@ import { assetPngFilename, assetVersion, downloadAssetPng, downloadAssetsZip } f
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { ReviewState } from "@/types/client";
 import type { AssetFormat, AssetGenerationJobRow, ClientAssetRow, ProductionMode } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
@@ -296,6 +297,16 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
   const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(filtered.map((group) => ({ ...group, source_ref: group.first.source_ref, production_brief_id: group.first.production_brief_id, asset_format: group.first.asset_format })), { lifecycleStage: "asset", context: lifecycleContext, direction: dateDirection }), [dateDirection, filtered, lifecycleContext]);
   const openGroup = groups.find((group) => group.ref === openRef) ?? null;
   const pendingGroup = pending ? groups.find((group) => group.ref === pending.groupRef) ?? null : null;
+  useFocusedRecord({
+    queryKeys: ["asset_group_ref", "source_ref"],
+    records: groups,
+    getMatchValue: useCallback((group: AssetGroup, queryKey: string) => queryKey === "asset_group_ref" ? group.ref : group.first.source_ref, []),
+    onFound: useCallback((group: AssetGroup) => {
+      setOpenRef(group.ref);
+      setSearch(group.first.source_ref);
+      setNotice(null);
+    }, []),
+  });
 
   async function confirmAction() {
     if (!pending || !pendingGroup) return;

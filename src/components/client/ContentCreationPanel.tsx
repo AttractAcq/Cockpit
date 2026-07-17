@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import { MarkdownPreview } from "./ExecutionFilesPanel";
 import { assignProductionBriefToContractor, createContractor, driveAssetJob, fetchAssignmentsForBrief, fetchAssetJobItems, fetchContractors, fetchEffectiveStageMap, fetchLatestAssetJobForBrief, fetchLifecycleDateContext, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, isAssetJobActive, logActivity, startAssetGeneration, transitionContentCreationToAssets, updateProductionBrief, updateProductionBriefReviewState, uploadVisualInputImage, type EffectiveStageEntry } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { AiVisualDirection, AiVisualMode, AssetGenerationItemRow, AssetGenerationJobRow, AssetJobProgress, BackgroundStrength, ContractorAssignmentRow, ContractorRow, ProductionBriefRow, VisualInputUpload } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
 import { resolveMultiImageCount, MULTI_IMAGE_SOURCE_LABEL, type MultiImageCountSource } from "../../../supabase/functions/_shared/production-brief-contract";
@@ -426,7 +427,6 @@ function byPlannedThenRef(a: ProductionBriefRow, b: ProductionBriefRow): number 
 
 export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }: { clientId: string; executionMonth: string; onViewAssets?: () => void }) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [briefs, setBriefs] = useState<ProductionBriefRow[]>([]);
   const [stageMap, setStageMap] = useState<Map<string, EffectiveStageEntry>>(new Map());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -442,14 +442,15 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
   const load = useCallback(async () => { setLoading(true); setError(null); try { const [next, stages, dateContext] = await Promise.all([fetchProductionBriefs(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]); setBriefs(next); setStageMap(stages); setLifecycleContext(dateContext); const histories = await Promise.all(next.map((brief) => fetchAssignmentsForBrief(brief.id))); setLatestAssignments(Object.fromEntries(next.map((brief, index) => [brief.id, histories[index][0]]))); } catch (value) { setError(errorText(value)); } finally { setLoading(false); } }, [clientId, executionMonth]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
-  useEffect(() => {
-    const sourceRef = searchParams.get("source_ref");
-    if (!sourceRef || !briefs.length) return;
-    const match = briefs.find((brief) => brief.source_ref === sourceRef);
-    if (!match) return;
-    setOpen(match);
-    setSearchParams({}, { replace: true });
-  }, [briefs, searchParams, setSearchParams]);
+  useFocusedRecord({
+    queryKeys: ["brief_id", "source_ref"],
+    records: briefs,
+    getMatchValue: useCallback((brief: ProductionBriefRow, queryKey: string) => queryKey === "brief_id" ? brief.id : brief.source_ref, []),
+    onFound: useCallback((brief: ProductionBriefRow) => {
+      setOpen(brief);
+      setSearch(brief.source_ref);
+    }, []),
+  });
   // Active = briefs whose ref is still in content_creation. Once a ref has an
   // asset (stage assets or later) it drops into the passed-through drawer.
   const activeBriefs = useMemo(() => briefs.filter((brief) => { const entry = stageMap.get(brief.source_ref); return !entry || !isPassedThrough(entry.stage, "content_creation"); }), [briefs, stageMap]);

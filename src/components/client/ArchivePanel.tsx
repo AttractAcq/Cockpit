@@ -118,7 +118,7 @@ function ArchiveDetailModal({ clientId, executionMonth, sourceRef, onClose }: {
  * Read-only — nothing is deleted, moved, or overwritten.
  */
 export function ArchivePanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [entries, setEntries] = useState<ArchiveIndexEntry[]>([]);
   const [openRef, setOpenRef] = useState<string | null>(null);
   const [highlightRef, setHighlightRef] = useState<string | null>(null);
@@ -142,8 +142,7 @@ export function ArchivePanel({ clientId, executionMonth }: { clientId: string; e
     const ref = searchParams.get("source_ref");
     if (!ref) return;
     setOpenRef(ref); setHighlightRef(ref); setQuery(ref);
-    setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

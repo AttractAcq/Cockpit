@@ -466,6 +466,7 @@ import type { Client, CreateClientPayload, ActivityLogEntry, ReviewState } from 
 import { deriveStage3Status, EMPTY_STAGE3_SNAPSHOT, expectedCalendarCellCount, type Stage3Snapshot, type Stage3Status } from "@/lib/stage3";
 import type { LifecycleDateContext } from "@/lib/lifecycle-date";
 import { isMissingPhase3StatusViewError } from "@/lib/phase3-status-view";
+import { buildActivityTargetMetadata } from "@/lib/operation-destination";
 
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
@@ -730,11 +731,15 @@ export async function logActivity(
   message: string,
   metadata: Record<string, unknown> = {}
 ): Promise<void> {
+  const targetMetadata = buildActivityTargetMetadata({
+    ...(metadata as Record<string, string | undefined>),
+    client_id: typeof metadata.client_id === "string" ? metadata.client_id : clientId ?? undefined,
+  });
   const { error } = await supabase.from("activity_log").insert({
     client_id: clientId,
     event_type: eventType,
     plain_english_message: message,
-    metadata,
+    metadata: { ...metadata, ...targetMetadata },
   });
   if (error) console.error("[logActivity]", error.message);
 }

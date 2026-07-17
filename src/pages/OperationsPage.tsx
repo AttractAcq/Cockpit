@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState, Icon } from "@/components/primitives";
 import { fetchActivityLog, fetchClients } from "@/lib/api";
 import type { ActivityLogEntry, Client } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
+import { resolveOperationDestination } from "@/lib/operation-destination";
 
 const EVENT_TYPE_COLOURS: Record<string, string> = {
   phase1_started:   "text-teal",
@@ -17,6 +19,7 @@ const EVENT_TYPE_COLOURS: Record<string, string> = {
 };
 
 export function OperationsPage() {
+  const [searchParams] = useSearchParams();
   const [entries, setEntries]     = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
@@ -60,6 +63,7 @@ export function OperationsPage() {
     return true;
   });
   const visible = filtered.slice(0, pageSize);
+  const focusedOperationId = searchParams.get("operation_id");
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-paper-3 text-xs">Loading…</div>;
   if (error)   return <div className="flex-1 flex items-center justify-center text-neg text-xs">{error}</div>;
@@ -118,13 +122,14 @@ export function OperationsPage() {
         />
       ) : (
         <div className="min-w-0 shrink-0 rounded-[10px] border border-line bg-ink-200">
-          {visible.map((entry, i) => (
-            <div
-              key={entry.id}
-              className={`px-4 py-3 flex items-start gap-3 ${
-                i < visible.length - 1 ? "border-b border-line" : ""
-              }`}
-            >
+          {visible.map((entry, i) => {
+            const destination = resolveOperationDestination(entry);
+            const meta = entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
+            const highlighted = focusedOperationId && meta.operation_id === focusedOperationId;
+            const rowClass = `px-4 py-3 flex items-start gap-3 ${
+              i < visible.length - 1 ? "border-b border-line" : ""
+            } ${highlighted ? "bg-teal/5" : ""}`;
+            const content = <>
               <div className="flex-shrink-0 w-2 h-2 rounded-full bg-paper-3 mt-1.5" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-paper">{entry.plain_english_message}</p>
@@ -142,13 +147,27 @@ export function OperationsPage() {
                   {entry.users?.full_name && (
                     <span className="text-2xs text-paper-3">· {entry.users.full_name}</span>
                   )}
+                  {destination && (
+                    <span className="text-2xs text-teal">· {destination.label}</span>
+                  )}
                 </div>
               </div>
               <span className="text-2xs text-paper-3 font-mono flex-shrink-0">
                 {fmtRelative(entry.created_at)}
               </span>
-            </div>
-          ))}
+            </>;
+            return destination ? (
+              <Link
+                key={entry.id}
+                to={{ pathname: destination.pathname, search: destination.search }}
+                className={`${rowClass} transition-colors hover:bg-ink-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-teal/50`}
+              >
+                {content}
+              </Link>
+            ) : (
+              <div key={entry.id} className={rowClass}>{content}</div>
+            );
+          })}
         </div>
       )}
     </div>

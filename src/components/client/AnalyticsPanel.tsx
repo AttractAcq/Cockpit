@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/primitives";
 import { fetchAnalyticsRecords, fetchLifecycleDateContext, saveAnalyticsRecord } from "@/lib/api";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { AnalyticsRecordRow, AnalyticsStatus } from "@/types/phase";
 import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
@@ -109,6 +110,16 @@ export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string;
 
   const completeCount = useMemo(() => records.filter((record) => record.analytics_status === "complete").length, [records]);
   const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(records, { lifecycleStage: "analytics", context: lifecycleContext, direction: dateDirection }), [dateDirection, lifecycleContext, records]);
+  useFocusedRecord({
+    queryKeys: ["analytics_id", "distribution_id", "source_ref"],
+    records,
+    getMatchValue: useCallback((record: AnalyticsRecordRow, queryKey: string) => {
+      if (queryKey === "analytics_id") return record.id;
+      if (queryKey === "distribution_id") return record.distribution_record_id;
+      return record.source_ref;
+    }, []),
+    onFound: useCallback((record: AnalyticsRecordRow) => setOpen(record), []),
+  });
   function accept(next: AnalyticsRecordRow) { setRecords((current) => current.map((record) => record.id === next.id ? next : record)); setOpen((current) => current && current.id === next.id ? next : current); }
 
   if (loading && !records.length) return <div className="p-6 text-xs text-paper-3">Loading analytics…</div>;

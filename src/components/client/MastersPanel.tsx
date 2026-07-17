@@ -21,6 +21,7 @@ import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { masterDate, masterType, proofRisk, qaFlags, type QaFlag } from "@/lib/stage3Review";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { CalendarCellRow, MasterRow, MasterTable, ProductionBriefRow } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
 import { ProductionBriefModal } from "./ContentCreationPanel";
@@ -234,6 +235,15 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const assessed = useMemo(() => rows
     .filter((item) => { const entry = stageMap.get(item.row.ref); return !entry || !isPassedThrough(entry.stage, "master"); })
     .map((item) => ({ ...item.row, ...item, flags: qaFlags(item.table, item.row, cells) })), [rows, cells, stageMap]);
+  useFocusedRecord({
+    queryKeys: ["source_ref"],
+    records: assessed,
+    getMatchValue: useCallback((item: typeof assessed[number]) => item.row.ref, []),
+    onFound: useCallback((item: typeof assessed[number]) => {
+      setOpen({ table: item.table, row: item.row });
+      setQuery(item.row.ref);
+    }, []),
+  });
   const types = useMemo(() => [...new Set(assessed.map(({ table, row }) => masterType(table, row)))].sort(), [assessed]);
   const filtered = useMemo(() => assessed.filter((item) => {
     const date = resolveCanonicalPublishDate(item.row, "content", lifecycleContext).date;
