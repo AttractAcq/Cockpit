@@ -1,9 +1,9 @@
 // collect-instagram-insights · verify_jwt=false at deployment.
 // Protected by CRON_SECRET before service-role client creation or any DB access.
-// This branch intentionally does not deploy or schedule the function.
+// Scheduling is managed separately through the database cron job.
 import { json, cors, svc } from "../_shared/aa.ts";
 import { resolveMetaConfig, type DistributionRecord } from "../_shared/instagram-publish.ts";
-import { clampBatchSize, classifyInsightsError, insightsKind, metricsForKind, nextDueSnapshot, normalizeMetaInsights, type InsightsErrorCategory } from "../_shared/instagram-insights.ts";
+import { clampBatchSize, classifyInsightsError, insightsKind, isTerminallyExpiredStory, metricsForKind, nextDueSnapshot, normalizeMetaInsights, type InsightsErrorCategory } from "../_shared/instagram-insights.ts";
 
 const FUNCTION_NAME = "collect-instagram-insights";
 const GRAPH_VERSION = "v24.0";
@@ -69,10 +69,19 @@ Deno.serve(async (req: Request) => {
     ? await sb.from("client_metric_snapshots").select("distribution_record_id,snapshot_label").eq("collection_method", "api").in("distribution_record_id", candidateIds)
     : { data: [], error: null };
   if (snapshotsError) return json({ ok: false, function: FUNCTION_NAME, error: snapshotsError.message }, 500);
+  const { data: expiredAttempts, error: expiredAttemptsError } = candidateIds.length
+    ? await sb.from("client_insights_collection_attempts").select("distribution_record_id,snapshot_label")
+      .eq("status", "skipped").eq("reason", "skipped_expired").in("distribution_record_id", candidateIds)
+    : { data: [], error: null };
+  if (expiredAttemptsError) return json({ ok: false, function: FUNCTION_NAME, error: expiredAttemptsError.message }, 500);
   const labels = new Map<string, string[]>();
   for (const row of snapshots ?? []) labels.set(row.distribution_record_id, [...(labels.get(row.distribution_record_id) ?? []), row.snapshot_label]);
+  const terminallyExpiredStoryIds = new Set((expiredAttempts ?? []).map((row) => row.distribution_record_id));
 
-  const due = candidates.map((record) => ({ record, due: nextDueSnapshot(record, labels.get(record.id) ?? []) })).filter((item) => item.due).slice(0, batchSize) as Array<{ record: Candidate; due: NonNullable<ReturnType<typeof nextDueSnapshot>> }>;
+  const due = candidates
+    .filter((record) => !isTerminallyExpiredStory(record, terminallyExpiredStoryIds.has(record.id)))
+    .map((record) => ({ record, due: nextDueSnapshot(record, labels.get(record.id) ?? []) }))
+    .filter((item) => item.due).slice(0, batchSize) as Array<{ record: Candidate; due: NonNullable<ReturnType<typeof nextDueSnapshot>> }>;
   const results: Result[] = [];
   if (dryRun) {
     for (const { record, due: snapshot } of due) {
