@@ -13,6 +13,7 @@
 import { supabase, invokeFn } from "./supabase";
 import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
+import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
 import type { PulseMetric } from "@/types";
 
 // Helper: normalise entity_name from Supabase FK join
@@ -672,7 +673,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
-  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2413,18 +2414,24 @@ export async function fetchAnalyticsForDistributionRecord(distributionRecordId: 
 export async function fetchAnalyticsForClient(clientId: string, executionMonth: string): Promise<AnalyticsSummary[]> {
   const records = await fetchAnalyticsRecords(clientId, executionMonth);
   const ids = records.map((record) => record.distribution_record_id).filter((id): id is string => Boolean(id));
-  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null, insights_attempts: [], automatic_status: "no_automatic_metrics", latest_automatic_snapshot_at: null }));
-  const [metricsResult, signalsResult, attemptsResult] = await Promise.all([
+  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null, insights_attempts: [], automatic_status: "no_automatic_metrics", latest_automatic_snapshot_at: null, performance_score: null, performance_insights: [] }));
+  const [metricsResult, signalsResult, attemptsResult, scoresResult, performanceInsightsResult] = await Promise.all([
     supabase.from("client_metric_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("snapshot_at", { ascending: false }),
     supabase.from("client_business_signal_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("signal_at", { ascending: false }),
     supabase.from("client_insights_collection_attempts").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("created_at", { ascending: false }),
+    supabase.from("client_performance_scores").select("*").eq("client_id", clientId).in("distribution_record_id", ids),
+    supabase.from("client_performance_insights").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("created_at", { ascending: false }),
   ]);
   if (metricsResult.error) throw metricsResult.error;
   if (signalsResult.error) throw signalsResult.error;
   if (attemptsResult.error) throw attemptsResult.error;
+  if (scoresResult.error) throw scoresResult.error;
+  if (performanceInsightsResult.error) throw performanceInsightsResult.error;
   const metrics = (metricsResult.data ?? []) as ClientMetricSnapshot[];
   const signals = (signalsResult.data ?? []) as ClientBusinessSignalSnapshot[];
   const attempts = (attemptsResult.data ?? []) as InsightsCollectionAttempt[];
+  const performanceScores = (scoresResult.data ?? []) as ClientPerformanceScore[];
+  const performanceInsights = (performanceInsightsResult.data ?? []) as ClientPerformanceInsight[];
   return records.map((record) => {
     const metricSnapshots = metrics.filter((row) => row.distribution_record_id === record.distribution_record_id);
     const businessSignals = signals.filter((row) => row.distribution_record_id === record.distribution_record_id);
@@ -2446,8 +2453,48 @@ export async function fetchAnalyticsForClient(clientId: string, executionMonth: 
       insights_attempts: recordAttempts,
       automatic_status: automaticStatus,
       latest_automatic_snapshot_at: automaticSnapshots[0]?.snapshot_at ?? null,
+      performance_score: performanceScores.find((row) => row.distribution_record_id === record.distribution_record_id) ?? null,
+      performance_insights: performanceInsights.filter((row) => row.distribution_record_id === record.distribution_record_id),
     };
   });
+}
+
+export async function fetchPerformanceAnalysisRuns(clientId: string, limit = 10): Promise<ClientPerformanceAnalysisRun[]> {
+  const { data, error } = await supabase.from("client_performance_analysis_runs").select("*").eq("client_id", clientId).order("started_at", { ascending: false }).limit(limit);
+  if (error) throw error;
+  return (data ?? []) as ClientPerformanceAnalysisRun[];
+}
+
+export async function updatePerformanceInsightStatus(insightId: string, status: "open" | "accepted" | "dismissed"): Promise<void> {
+  const { error } = await supabase.rpc("update_performance_insight_status", { p_insight_id: insightId, p_status: status });
+  if (error) throw error;
+}
+
+export async function runDeterministicPerformanceAnalysis(clientId: string, executionMonth: string): Promise<{ recordsScored: number; insightsCreated: number; skipped: number }> {
+  const summaries = await fetchAnalyticsForClient(clientId, executionMonth);
+  const { data: runId, error: runError } = await supabase.rpc("run_performance_analysis_for_client", { p_client_id: clientId });
+  if (runError) throw runError;
+  const drafts = summaries.filter((summary) => summary.record.distribution_record_id).map((summary) => {
+    const metric = summary.metric_snapshots[0] ?? null;
+    const signals = summary.business_signals[0] ?? null;
+    return { summary, input: { distributionRecordId: summary.record.distribution_record_id!, sourceRef: summary.record.source_ref, contentFormat: summary.record.asset_format ?? "content", platform: summary.record.platform ?? "instagram", publishedAt: summary.record.published_at, metricSnapshotId: metric?.id, businessSignalSnapshotId: signals?.id, metrics: metric?.metrics ?? {}, businessSignals: signals ? { ...signals } : {} }, score: null as ReturnType<typeof calculatePerformanceScore> | null };
+  });
+  for (const item of drafts) item.score = calculatePerformanceScore(item.input);
+  let recordsScored = 0; let insightsCreated = 0; let skipped = 0;
+  for (const item of drafts) {
+    const score = item.score!;
+    const { error } = await supabase.rpc("upsert_performance_score", { p_distribution_record_id:score.distribution_record_id,p_latest_metric_snapshot_id:score.latest_metric_snapshot_id,p_latest_business_signal_snapshot_id:score.latest_business_signal_snapshot_id,p_score_version:score.score_version,p_attention:score.attention_score,p_engagement:score.engagement_score,p_trust:score.trust_score,p_conversion:score.conversion_signal_score,p_overall:score.overall_score,p_sample_quality:score.sample_quality,p_score_status:score.score_status,p_score_reasons:score.score_reasons });
+    if (error) { skipped += 1; continue; }
+    recordsScored += 1;
+    const baseline = drafts.filter((other) => other !== item && other.score?.content_format === score.content_format && other.score.score_status === "scored").map((other) => other.score!.overall_score);
+    for (const insight of generateInsightCandidates(score, item.input, baseline)) {
+      const { error: insightError } = await supabase.rpc("create_performance_insight", { p_distribution_record_id:score.distribution_record_id,p_insight_type:insight.insight_type,p_severity:insight.severity,p_confidence:insight.confidence,p_title:insight.title,p_summary:insight.summary,p_evidence:insight.evidence,p_recommended_action:insight.recommended_action });
+      if (!insightError) insightsCreated += 1;
+    }
+  }
+  const { error: completeError } = await supabase.rpc("complete_performance_analysis_run", { p_run_id:runId,p_records_scored:recordsScored,p_insights_created:insightsCreated,p_skipped_count:skipped });
+  if (completeError) throw completeError;
+  return { recordsScored, insightsCreated, skipped };
 }
 
 export async function fetchInsightsCollectionRuns(limit = 10): Promise<InsightsCollectionRun[]> {
@@ -2552,6 +2599,8 @@ export interface ArchiveDetail {
   analytics: AnalyticsRecordRow | null;
   metricSnapshots: ClientMetricSnapshot[];
   businessSignals: ClientBusinessSignalSnapshot[];
+  performanceScore: ClientPerformanceScore | null;
+  performanceInsights: ClientPerformanceInsight[];
 }
 
 /**
@@ -2571,7 +2620,11 @@ export async function fetchArchiveDetail(clientId: string, executionMonth: strin
   const manualAnalytics = analytics?.distribution_record_id
     ? await fetchAnalyticsForDistributionRecord(analytics.distribution_record_id).catch(() => ({ metric_snapshots: [], business_signals: [] }))
     : { metric_snapshots: [], business_signals: [] };
-  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals };
+  const performance = analytics?.distribution_record_id ? await Promise.all([
+    supabase.from("client_performance_scores").select("*").eq("distribution_record_id",analytics.distribution_record_id).maybeSingle(),
+    supabase.from("client_performance_insights").select("*").eq("distribution_record_id",analytics.distribution_record_id).order("created_at",{ascending:false}),
+  ]).then(([score,insights]) => ({ score:(score.data as ClientPerformanceScore|null)??null, insights:(insights.data??[]) as ClientPerformanceInsight[] })).catch(() => ({ score:null, insights:[] as ClientPerformanceInsight[] })) : { score:null, insights:[] as ClientPerformanceInsight[] };
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights };
 }
 
 export interface ArchiveIndexEntry {
