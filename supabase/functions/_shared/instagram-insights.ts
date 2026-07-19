@@ -31,6 +31,10 @@ export function isCollectable(record: InsightsCandidate): boolean {
   return record.publish_status === "published" && Boolean(record.external_post_id) && Boolean(record.published_at) && (record.platform ?? "").toLowerCase() === "instagram" && insightsKind(record.asset_format, record.publish_settings) !== "unsupported";
 }
 
+export function isTerminallyExpiredStory(record: InsightsCandidate, hasSkippedExpiredAttempt: boolean): boolean {
+  return hasSkippedExpiredAttempt && insightsKind(record.asset_format, record.publish_settings) === "story";
+}
+
 export function nextDueSnapshot(record: InsightsCandidate, existingLabels: readonly string[], now = new Date()): DueSnapshot | null {
   if (!isCollectable(record) || !record.published_at) return null;
   const published = new Date(record.published_at).getTime();
