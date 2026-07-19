@@ -683,7 +683,7 @@ export function ClientDetailPage() {
               {TL[client.package_tier]}
             </span>
           </h1>
-          {/* Phase/Health status strip removed (H4): detailed stage status now
+          {/* Phase status strip removed (H4): detailed stage status now
               lives in the Pipeline tab. Underlying stage status logic is retained
               and still gates the Run Phase buttons below. */}
         </div>

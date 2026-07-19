@@ -462,20 +462,15 @@ export type Api = typeof api;
 // ── V1 CLIENT API (new schema) ────────────────────────────────────────────────
 // These functions target the v1 `clients` table and related views.
 
-import type { Client, CreateClientPayload, ClientHealth, ActivityLogEntry, ReviewState } from "@/types/client";
+import type { Client, CreateClientPayload, ActivityLogEntry, ReviewState } from "@/types/client";
 import { deriveStage3Status, EMPTY_STAGE3_SNAPSHOT, expectedCalendarCellCount, type Stage3Snapshot, type Stage3Status } from "@/lib/stage3";
+import type { LifecycleDateContext } from "@/lib/lifecycle-date";
+import { isMissingPhase3StatusViewError } from "@/lib/phase3-status-view";
+import { buildActivityTargetMetadata } from "@/lib/operation-destination";
+import type { AssetGroupCompletenessOverrideRow, AssetWarningAcknowledgementRow } from "@/lib/asset-completeness";
 
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function fetchClientHealth(): Promise<ClientHealth[]> {
-  const { data, error } = await supabase
-    .from("client_health_v")
-    .select("*")
-    .order("health_score", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -515,14 +510,53 @@ function settledValue<T>(context: string, result: PromiseSettledResult<T>, fallb
 }
 
 export async function fetchStage3StatusMap(month: string): Promise<Record<string, Stage3Status>> {
-  // allSettled: one flaky table read degrades that table's counts to zero
-  // rather than throwing and breaking the entire clients/cockpit dashboard.
-  const [organic, story, ads, calendar] = await Promise.allSettled([
+  return fetchPhase3StatusMap(month);
+}
+
+function assertPhase3StatusViewRows(rows: unknown): asserts rows is Array<{ client_id: string; status: Stage3Status }> {
+  if (!Array.isArray(rows)) throw new Error("Invalid client_phase3_status_v response: expected an array");
+  const validStatuses = new Set<Stage3Status>(["not_started", "in_progress", "needs_review", "complete", "partial", "failed"]);
+  for (const row of rows) {
+    if (!row || typeof row !== "object") throw new Error("Invalid client_phase3_status_v response: expected row objects");
+    const candidate = row as { client_id?: unknown; status?: unknown };
+    if (typeof candidate.client_id !== "string" || !validStatuses.has(candidate.status as Stage3Status)) {
+      throw new Error("Invalid client_phase3_status_v response: unexpected row shape");
+    }
+  }
+}
+
+function monthEndDate(month: string): string {
+  const match = month.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return `${month}-31`;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]);
+  const end = new Date(Date.UTC(year, monthIndex, 0));
+  return end.toISOString().slice(0, 10);
+}
+
+export async function fetchPhase3StatusMap(month: string): Promise<Record<string, Stage3Status>> {
+  const { data: viewRows, error: viewError } = await supabase
+    .from("client_phase3_status_v")
+    .select("client_id,status")
+    .eq("execution_month", month);
+  if (!viewError) {
+    assertPhase3StatusViewRows(viewRows ?? []);
+    return Object.fromEntries(viewRows.map((row) => [row.client_id, row.status]));
+  }
+  if (!isMissingPhase3StatusViewError(viewError)) throw viewError;
+
+  const [organic, story, ads, calendar, scopedRuns] = await Promise.all([
     supabase.from("organic_master").select("client_id, review_state").eq("month", month),
     supabase.from("story_master").select("client_id, review_state").eq("month", month),
     supabase.from("ads_master").select("client_id, review_state").eq("month", month),
     supabase.from("calendar_cells").select("client_id, review_state").eq("month", month),
+    supabase.from("client_phase3_scoped_runs").select("*").lte("start_date", monthEndDate(month)).gte("end_date", `${month}-01`).order("created_at", { ascending: false }),
   ]);
+  if (organic.error) throw organic.error;
+  if (story.error) throw story.error;
+  if (ads.error) throw ads.error;
+  if (calendar.error) throw calendar.error;
+  if (scopedRuns.error) throw scopedRuns.error;
   const snapshots = new Map<string, Stage3Snapshot>();
   function add(rows: Array<{ client_id: string; review_state: string }>, countKey: keyof Stage3Snapshot, approvedKey: keyof Stage3Snapshot) {
     for (const row of rows) {
@@ -533,11 +567,57 @@ export async function fetchStage3StatusMap(month: string): Promise<Record<string
     }
   }
   type StageRow = { client_id: string; review_state: string };
-  add(settledRows("stage3:organic_master", organic) as StageRow[], "organicCount", "organicApproved");
-  add(settledRows("stage3:story_master", story) as StageRow[], "storyCount", "storyApproved");
-  add(settledRows("stage3:ads_master", ads) as StageRow[], "adsCount", "adsApproved");
-  add(settledRows("stage3:calendar_cells", calendar) as StageRow[], "calendarCount", "calendarApproved");
-  return Object.fromEntries([...snapshots].map(([clientId, snapshot]) => [clientId, deriveStage3Status(snapshot)]));
+  add((organic.data ?? []) as StageRow[], "organicCount", "organicApproved");
+  add((story.data ?? []) as StageRow[], "storyCount", "storyApproved");
+  add((ads.data ?? []) as StageRow[], "adsCount", "adsApproved");
+  add((calendar.data ?? []) as StageRow[], "calendarCount", "calendarApproved");
+  const statuses = new Map<string, Stage3Status>([...snapshots].map(([clientId, snapshot]) => [clientId, deriveStage3Status(snapshot)]));
+  const activeRunByClient = new Map<string, Phase3ScopedRunRow>();
+  const latestRunByClient = new Map<string, Phase3ScopedRunRow>();
+  for (const run of (scopedRuns.data ?? []) as Phase3ScopedRunRow[]) {
+    if ((run.status === "planned" || run.status === "generating") && !activeRunByClient.has(run.client_id)) activeRunByClient.set(run.client_id, run);
+    if (!latestRunByClient.has(run.client_id)) latestRunByClient.set(run.client_id, run);
+  }
+  for (const clientId of activeRunByClient.keys()) statuses.set(clientId, "in_progress");
+  for (const [clientId, run] of latestRunByClient) {
+    if (activeRunByClient.has(clientId)) continue;
+    if (run.status === "failed") statuses.set(clientId, "failed");
+    else if (run.status === "partial" || run.status === "cancelled" || run.conflicted_count > 0 || run.skipped_count > 0 || run.created_count < run.total_slots) statuses.set(clientId, "partial");
+    else if (run.status === "complete" && run.created_count > 0) statuses.set(clientId, statuses.get(clientId) === "complete" ? "complete" : "needs_review");
+  }
+  return Object.fromEntries(statuses);
+}
+
+export async function fetchLifecycleDateContext(clientId: string, executionMonth: string): Promise<LifecycleDateContext> {
+  const [organic, story, ads, calendar, briefs, distribution] = await Promise.all([
+    supabase.from("organic_master").select("ref,distribution_date,content_type").eq("client_id", clientId).eq("month", executionMonth),
+    supabase.from("story_master").select("ref,distribution_date,story_type").eq("client_id", clientId).eq("month", executionMonth),
+    supabase.from("ads_master").select("ref,start_date,lane").eq("client_id", clientId).eq("month", executionMonth),
+    supabase.from("calendar_cells").select("ref,date").eq("client_id", clientId).eq("month", executionMonth),
+    supabase.from("client_production_briefs").select("id,source_ref,asset_format,metadata").eq("client_id", clientId).eq("execution_month", executionMonth),
+    supabase.from("client_distribution_records").select("id,source_ref,production_brief_id,asset_format,planned_publish_date,scheduled_publish_at,published_at,metadata").eq("client_id", clientId).eq("execution_month", executionMonth),
+  ]);
+  if (organic.error) throw organic.error;
+  if (story.error) throw story.error;
+  if (ads.error) throw ads.error;
+  if (calendar.error) throw calendar.error;
+  if (briefs.error) throw briefs.error;
+  if (distribution.error) throw distribution.error;
+  const masters = [
+    ...((organic.data ?? []) as Array<{ ref: string }>),
+    ...((story.data ?? []) as Array<{ ref: string }>),
+    ...((ads.data ?? []) as Array<{ ref: string }>),
+  ];
+  const briefRows = (briefs.data ?? []) as Array<{ id: string; source_ref: string }>;
+  const distributionRows = (distribution.data ?? []) as Array<{ id: string; source_ref: string }>;
+  return {
+    mastersByRef: new Map(masters.map((row) => [row.ref, row])),
+    calendarDateByRef: new Map(((calendar.data ?? []) as Array<{ ref: string; date: string }>).map((row) => [row.ref, row.date])),
+    briefsById: new Map(briefRows.map((row) => [row.id, row])),
+    briefsByRef: new Map(briefRows.map((row) => [row.source_ref, row])),
+    distributionById: new Map(distributionRows.map((row) => [row.id, row])),
+    distributionByRef: new Map(distributionRows.map((row) => [row.source_ref, row])),
+  };
 }
 
 export async function createClient(payload: CreateClientPayload): Promise<Client> {
@@ -652,11 +732,15 @@ export async function logActivity(
   message: string,
   metadata: Record<string, unknown> = {}
 ): Promise<void> {
+  const targetMetadata = buildActivityTargetMetadata({
+    ...(metadata as Record<string, string | undefined>),
+    client_id: typeof metadata.client_id === "string" ? metadata.client_id : clientId ?? undefined,
+  });
   const { error } = await supabase.from("activity_log").insert({
     client_id: clientId,
     event_type: eventType,
     plain_english_message: message,
-    metadata,
+    metadata: { ...metadata, ...targetMetadata },
   });
   if (error) console.error("[logActivity]", error.message);
 }
@@ -1355,6 +1439,58 @@ export async function fetchLatestAssetJobsByBrief(clientId: string): Promise<Map
   return map;
 }
 
+export async function fetchAssetCompletenessOverrides(clientId: string): Promise<Map<string, AssetGroupCompletenessOverrideRow>> {
+  const { data, error } = await supabase.from("client_asset_group_completeness_overrides")
+    .select("*").eq("client_id", clientId).eq("is_active", true).is("revoked_at", null).order("created_at", { ascending: false });
+  if (error) throw error;
+  const map = new Map<string, AssetGroupCompletenessOverrideRow>();
+  for (const row of (data ?? []) as AssetGroupCompletenessOverrideRow[]) {
+    if (!map.has(row.asset_group_ref)) map.set(row.asset_group_ref, row);
+  }
+  return map;
+}
+
+export async function fetchAssetWarningAcknowledgements(clientId: string): Promise<Map<string, AssetWarningAcknowledgementRow[]>> {
+  const { data, error } = await supabase.from("client_asset_group_warning_acknowledgements")
+    .select("*").eq("client_id", clientId).order("dismissed_at", { ascending: false });
+  if (error) throw error;
+  const map = new Map<string, AssetWarningAcknowledgementRow[]>();
+  for (const row of (data ?? []) as AssetWarningAcknowledgementRow[]) {
+    map.set(row.asset_group_ref, [...(map.get(row.asset_group_ref) ?? []), row]);
+  }
+  return map;
+}
+
+export async function acknowledgeAssetGroupWarning(input: {
+  assetGroupRef: string;
+  warningCode: string;
+  warningFingerprint: string;
+}): Promise<AssetWarningAcknowledgementRow> {
+  const { data, error } = await supabase.rpc("acknowledge_asset_group_warning", {
+    p_asset_group_ref: input.assetGroupRef,
+    p_warning_code: input.warningCode,
+    p_warning_fingerprint: input.warningFingerprint,
+  });
+  if (error) throw error;
+  return data as AssetWarningAcknowledgementRow;
+}
+
+export async function acceptPartialAssetGroup(input: {
+  assetGroupRef: string;
+  generationJobId: string;
+  reason: string;
+  acceptedSequenceIndexes?: number[];
+}): Promise<AssetGroupCompletenessOverrideRow> {
+  const { data, error } = await supabase.rpc("accept_partial_asset_group", {
+    p_asset_group_ref: input.assetGroupRef,
+    p_generation_job_id: input.generationJobId,
+    p_reason: input.reason,
+    p_accepted_sequence_indexes: input.acceptedSequenceIndexes ?? null,
+  });
+  if (error) throw error;
+  return data as AssetGroupCompletenessOverrideRow;
+}
+
 export async function fetchAssetJobItems(jobId: string): Promise<AssetGenerationItemRow[]> {
   const { data, error } = await supabase.from("client_asset_generation_items")
     .select("*").eq("generation_job_id", jobId).order("sequence_index");
@@ -1423,15 +1559,19 @@ export async function updateClientAssetGroupStatus(
   assetGroupRef: string,
   status: ReviewState,
 ): Promise<ClientAssetRow[]> {
-  // Review/approval applies to the CURRENT version of each frame only — historical
-  // versions keep their own status and remain for history.
-  const { data, error } = await supabase.from("client_assets")
-    .update({ status, updated_at: new Date().toISOString() })
+  const { error } = await supabase.rpc("review_asset_group", {
+    p_client_id: clientId,
+    p_asset_group_ref: assetGroupRef,
+    p_status: status,
+  });
+  if (error) throw error;
+  const { data, error: readError } = await supabase.from("client_assets")
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)")
     .eq("client_id", clientId)
     .eq("asset_group_ref", assetGroupRef)
     .eq("is_current", true)
-    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)");
-  if (error) throw error;
+    .order("sequence_index");
+  if (readError) throw readError;
   if (!data?.length) throw new Error(`Asset group ${assetGroupRef} was not found or could not be updated.`);
   return addSignedAssetUrls(data as ClientAssetRow[]);
 }

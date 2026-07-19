@@ -32,13 +32,20 @@ export interface JobRow {
   visual_mode: string | null;
   generation_config: Record<string, unknown>;
   last_error: string | null;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  closure_reason?: string | null;
+  closure_type?: "completed" | "cancelled" | "partial_accepted" | null;
+  accepted_partial?: boolean;
+  accepted_output_count?: number | null;
+  accepted_sequence_indexes?: number[] | null;
 }
 
 export interface ItemRow {
   id: string;
   generation_job_id: string;
   sequence_index: number;
-  status: "queued" | "processing" | "complete" | "failed";
+  status: "queued" | "processing" | "complete" | "failed" | "cancelled";
   prompt_md: string;
   storage_path: string | null;
   client_asset_id: string | null;
@@ -61,6 +68,14 @@ export interface ProcessResult {
 
 const TERMINAL = new Set(["complete", "partial", "failed", "cancelled"]);
 
+function jobClosed(job: JobRow): boolean {
+  return !!job.closed_at || job.accepted_partial === true || job.closure_type === "partial_accepted" || job.closure_type === "cancelled";
+}
+
+function isPersistenceClosureRefusal(message: string): boolean {
+  return message.includes("GENERATION_CLOSED") || message.includes("GENERATION_ITEM_NOT_PROCESSING");
+}
+
 async function loadJob(sb: SupabaseClient, jobId: string): Promise<JobRow> {
   const { data, error } = await sb.from("client_asset_generation_jobs").select("*").eq("id", jobId).maybeSingle();
   if (error) throw new Error(`Could not load generation job: ${error.message}`);
@@ -71,7 +86,7 @@ async function loadJob(sb: SupabaseClient, jobId: string): Promise<JobRow> {
 async function itemStatusCounts(sb: SupabaseClient, jobId: string): Promise<Record<ItemRow["status"], number>> {
   const { data, error } = await sb.from("client_asset_generation_items").select("status").eq("generation_job_id", jobId);
   if (error) throw new Error(`Could not read item statuses: ${error.message}`);
-  const counts: Record<ItemRow["status"], number> = { queued: 0, processing: 0, complete: 0, failed: 0 };
+  const counts: Record<ItemRow["status"], number> = { queued: 0, processing: 0, complete: 0, failed: 0, cancelled: 0 };
   for (const row of (data ?? []) as { status: ItemRow["status"] }[]) counts[row.status] += 1;
   return counts;
 }
@@ -142,6 +157,62 @@ async function markBriefFailed(sb: SupabaseClient, briefId: string): Promise<voi
     .eq("production_status", "producing");
 }
 
+async function assertJobOpenForItem(sb: SupabaseClient, jobId: string, itemId: string, stage: string): Promise<JobRow> {
+  const job = await loadJob(sb, jobId);
+  if (jobClosed(job)) {
+    await sb.from("client_asset_generation_items")
+      .update({ status: "cancelled", last_error: `Generation discarded at ${stage}: job is closed.`, updated_at: new Date().toISOString() })
+      .eq("id", itemId).in("status", ["queued", "processing"]);
+    await sb.from("activity_log").insert({
+      client_id: job.client_id,
+      event_type: "late_asset_generation_discarded",
+      plain_english_message: `${job.source_ref} late generation was discarded because the asset group is closed.`,
+      object_type: "client_asset_generation_job",
+      object_id: job.id,
+      metadata: {
+        client_id: job.client_id,
+        source_ref: job.source_ref,
+        asset_group_ref: job.asset_group_ref,
+        generation_job_id: job.id,
+        item_id: itemId,
+        stage,
+        closure_type: job.closure_type,
+        target_type: "asset_group",
+        target_id: job.asset_group_ref,
+        route_tab: "assets",
+      },
+    }).select("id").maybeSingle();
+    throw new Error("Generation job is closed; refusing late asset persistence.");
+  }
+  return job;
+}
+
+async function recordLateDiscard(sb: SupabaseClient, job: JobRow, itemId: string, stage: string, message: string): Promise<void> {
+  await sb.from("client_asset_generation_items")
+    .update({ status: "cancelled", last_error: message.slice(0, 500), updated_at: new Date().toISOString() })
+    .eq("id", itemId).eq("status", "processing");
+  await sb.from("activity_log").insert({
+    client_id: job.client_id,
+    event_type: "late_asset_generation_discarded",
+    plain_english_message: `${job.source_ref} late generation was discarded because the asset group is closed.`,
+    object_type: "client_asset_generation_job",
+    object_id: job.id,
+    metadata: {
+      client_id: job.client_id,
+      source_ref: job.source_ref,
+      asset_group_ref: job.asset_group_ref,
+      generation_job_id: job.id,
+      item_id: itemId,
+      stage,
+      error: message.slice(0, 500),
+      closure_type: job.closure_type,
+      target_type: "asset_group",
+      target_id: job.asset_group_ref,
+      route_tab: "assets",
+    },
+  }).select("id").maybeSingle();
+}
+
 // Download the operator's uploaded visual once (per slide invocation) for upload
 // visual modes. Released as soon as the image is generated.
 async function loadImageInput(sb: SupabaseClient, config: Record<string, unknown>): Promise<{ bytes: Uint8Array; mime: string } | undefined> {
@@ -163,7 +234,7 @@ async function loadImageInput(sb: SupabaseClient, config: Record<string, unknown
  */
 export async function retryFailedItems(sb: SupabaseClient, jobId: string): Promise<JobRow> {
   const job = await loadJob(sb, jobId);
-  if (job.status === "complete" || job.status === "cancelled") return job;
+  if (job.status === "complete" || job.status === "cancelled" || jobClosed(job)) return job;
   await sb.from("client_asset_generation_items")
     .update({ status: "queued", last_error: null, updated_at: new Date().toISOString() })
     .eq("generation_job_id", jobId).eq("status", "failed");
@@ -183,7 +254,7 @@ export async function retryFailedItems(sb: SupabaseClient, jobId: string): Promi
  */
 export async function processNextItem(sb: SupabaseClient, jobId: string): Promise<ProcessResult> {
   let job = await loadJob(sb, jobId);
-  if (TERMINAL.has(job.status)) return result(job, job.completed_output_count, { terminal: true });
+  if (TERMINAL.has(job.status) || jobClosed(job)) return result(job, job.completed_output_count, { terminal: true });
 
   if (job.status === "queued") {
     await sb.from("client_asset_generation_jobs").update({ status: "processing", updated_at: new Date().toISOString() }).eq("id", job.id);
@@ -219,35 +290,21 @@ export async function processNextItem(sb: SupabaseClient, jobId: string): Promis
   const cfg = job.generation_config;
   const str = (key: string): string | null => (typeof cfg[key] === "string" ? cfg[key] as string : null);
   const storagePrefix = str("storage_prefix") ?? job.client_id;
-  const briefTitle = str("brief_title") ?? job.source_ref;
   const storagePath = `${storagePrefix}/${job.asset_group_ref}/${String(item.sequence_index).padStart(2, "0")}.png`;
   let uploaded = false;
   try {
+    job = await assertJobOpenForItem(sb, job.id, item.id, "pre_generation");
     const imageInput = await loadImageInput(sb, cfg);
+    job = await assertJobOpenForItem(sb, job.id, item.id, "pre_external_call");
     // ── single image; bytes released after upload ──
     const generated = await generateImage(item.prompt_md, config, imageInput);
+    job = await assertJobOpenForItem(sb, job.id, item.id, "pre_upload");
     const { error: uploadError } = await sb.storage.from(BUCKET).upload(storagePath, generated.bytes, { contentType: "image/png", upsert: true });
     if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
     uploaded = true;
+    job = await assertJobOpenForItem(sb, job.id, item.id, "pre_persistence");
 
-    const { data: asset, error: assetError } = await sb.from("client_assets").insert({
-      client_id: job.client_id,
-      production_brief_id: job.production_brief_id,
-      source_ref: job.source_ref,
-      asset_format: job.asset_format,
-      asset_group_ref: job.asset_group_ref,
-      sequence_index: item.sequence_index,
-      title: job.expected_output_count === 1 ? briefTitle : `${briefTitle} — ${job.asset_format === "carousel" ? "Slide" : "Frame"} ${item.sequence_index}`,
-      storage_bucket: BUCKET,
-      storage_path: storagePath,
-      mime_type: "image/png",
-      width: config.width,
-      height: config.height,
-      status: "needs_review",
-      generation_provider: "openai",
-      generation_model: generated.model,
-      prompt_md: item.prompt_md,
-      metadata: {
+    const metadata = {
         aspect_ratio: config.aspectRatio, sequence_count: job.expected_output_count, quality: generated.quality,
         function: "generate-carousel-slide", generation_job_id: job.id,
         visual_mode: str("visual_mode") ?? "text_only",
@@ -258,19 +315,32 @@ export async function processNextItem(sb: SupabaseClient, jobId: string): Promis
         image_input_used: generated.imageInputUsed,
         expected_output_count: job.expected_output_count,
         actual_output_count: job.expected_output_count,
-      },
-    }).select("id").single();
-    if (assetError || !asset) throw new Error(`Asset row insert failed: ${assetError?.message ?? "no row returned"}`);
-
-    await sb.from("client_asset_generation_items")
-      .update({ status: "complete", storage_path: storagePath, client_asset_id: asset.id, last_error: null, updated_at: new Date().toISOString() })
-      .eq("id", item.id);
+      };
+    const { error: persistError } = await sb.rpc("persist_asset_generation_result", {
+      p_generation_job_id: job.id,
+      p_generation_item_id: item.id,
+      p_storage_path: storagePath,
+      p_mime_type: "image/png",
+      p_width: config.width,
+      p_height: config.height,
+      p_generation_provider: "openai",
+      p_generation_model: generated.model,
+      p_prompt_md: item.prompt_md,
+      p_metadata: metadata,
+    });
+    if (persistError) throw new Error(`Asset persistence refused: ${persistError.message}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (uploaded) await sb.storage.from(BUCKET).remove([storagePath]).catch(() => {}); // avoid orphaned object
+    if (isPersistenceClosureRefusal(message)) {
+      const latestJob = await loadJob(sb, job.id).catch(() => job);
+      await recordLateDiscard(sb, latestJob, item.id, "persist_asset_generation_result", message);
+      const counts = await itemStatusCounts(sb, job.id);
+      return result(latestJob, counts.complete, { terminal: TERMINAL.has(latestJob.status) || jobClosed(latestJob), sequenceProcessed: item.sequence_index, lastError: message });
+    }
     await sb.from("client_asset_generation_items")
       .update({ status: "failed", last_error: message.slice(0, 500), updated_at: new Date().toISOString() })
-      .eq("id", item.id);
+      .eq("id", item.id).eq("status", "processing");
     const counts = await itemStatusCounts(sb, job.id);
     // One failed slide must NOT abandon the others: if slides are still queued,
     // keep the job 'processing' and record the error — the driver moves on to the

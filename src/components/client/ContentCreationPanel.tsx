@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import { MarkdownPreview } from "./ExecutionFilesPanel";
-import { assignProductionBriefToContractor, createContractor, driveAssetJob, fetchAssignmentsForBrief, fetchAssetJobItems, fetchContractors, fetchEffectiveStageMap, fetchLatestAssetJobForBrief, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, isAssetJobActive, logActivity, startAssetGeneration, transitionContentCreationToAssets, updateProductionBrief, updateProductionBriefReviewState, uploadVisualInputImage, type EffectiveStageEntry } from "@/lib/api";
+import { assignProductionBriefToContractor, createContractor, driveAssetJob, fetchAssignmentsForBrief, fetchAssetJobItems, fetchContractors, fetchEffectiveStageMap, fetchLatestAssetJobForBrief, fetchLifecycleDateContext, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, isAssetJobActive, logActivity, startAssetGeneration, transitionContentCreationToAssets, updateProductionBrief, updateProductionBriefReviewState, uploadVisualInputImage, type EffectiveStageEntry } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
+import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { AiVisualDirection, AiVisualMode, AssetGenerationItemRow, AssetGenerationJobRow, AssetJobProgress, BackgroundStrength, ContractorAssignmentRow, ContractorRow, ProductionBriefRow, VisualInputUpload } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
 import { resolveMultiImageCount, MULTI_IMAGE_SOURCE_LABEL, type MultiImageCountSource } from "../../../supabase/functions/_shared/production-brief-contract";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 import { DestructiveDialog } from "./DestructiveDialog";
+import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
 type ViewMode = "preview" | "edit" | "split";
 type Notice = { error: boolean; message: string } | null;
@@ -53,6 +56,7 @@ const ITEM_DOT: Record<AssetGenerationItemRow["status"], string> = {
   complete: "bg-teal",
   processing: "bg-warn animate-pulse",
   failed: "bg-neg",
+  cancelled: "bg-paper-3",
   queued: "bg-line",
 };
 
@@ -424,7 +428,6 @@ function byPlannedThenRef(a: ProductionBriefRow, b: ProductionBriefRow): number 
 
 export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }: { clientId: string; executionMonth: string; onViewAssets?: () => void }) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [briefs, setBriefs] = useState<ProductionBriefRow[]>([]);
   const [stageMap, setStageMap] = useState<Map<string, EffectiveStageEntry>>(new Map());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -435,17 +438,20 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("All Formats");
-  const load = useCallback(async () => { setLoading(true); setError(null); try { const [next, stages] = await Promise.all([fetchProductionBriefs(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth)]); setBriefs(next); setStageMap(stages); const histories = await Promise.all(next.map((brief) => fetchAssignmentsForBrief(brief.id))); setLatestAssignments(Object.fromEntries(next.map((brief, index) => [brief.id, histories[index][0]]))); } catch (value) { setError(errorText(value)); } finally { setLoading(false); } }, [clientId, executionMonth]);
+  const [dateDirection, setDateDirection] = useState<DateDirection>("asc");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
+  const load = useCallback(async () => { setLoading(true); setError(null); try { const [next, stages, dateContext] = await Promise.all([fetchProductionBriefs(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]); setBriefs(next); setStageMap(stages); setLifecycleContext(dateContext); const histories = await Promise.all(next.map((brief) => fetchAssignmentsForBrief(brief.id))); setLatestAssignments(Object.fromEntries(next.map((brief, index) => [brief.id, histories[index][0]]))); } catch (value) { setError(errorText(value)); } finally { setLoading(false); } }, [clientId, executionMonth]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
-  useEffect(() => {
-    const sourceRef = searchParams.get("source_ref");
-    if (!sourceRef || !briefs.length) return;
-    const match = briefs.find((brief) => brief.source_ref === sourceRef);
-    if (!match) return;
-    setOpen(match);
-    setSearchParams({}, { replace: true });
-  }, [briefs, searchParams, setSearchParams]);
+  useFocusedRecord({
+    queryKeys: ["brief_id", "source_ref"],
+    records: briefs,
+    getMatchValue: useCallback((brief: ProductionBriefRow, queryKey: string) => queryKey === "brief_id" ? brief.id : brief.source_ref, []),
+    onFound: useCallback((brief: ProductionBriefRow) => {
+      setOpen(brief);
+      setSearch(brief.source_ref);
+    }, []),
+  });
   // Active = briefs whose ref is still in content_creation. Once a ref has an
   // asset (stage assets or later) it drops into the passed-through drawer.
   const activeBriefs = useMemo(() => briefs.filter((brief) => { const entry = stageMap.get(brief.source_ref); return !entry || !isPassedThrough(entry.stage, "content_creation"); }), [briefs, stageMap]);
@@ -460,27 +466,18 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
       return true;
     });
   }, [activeBriefs, search, statusFilter, formatFilter]);
-  // Group the visible briefs by format; only non-empty sections render, ordered
-  // by the central config. Each brief lands in exactly one section.
-  const sections = useMemo(() => {
-    const map = new Map<string, { label: string; order: number; briefs: ProductionBriefRow[] }>();
-    for (const brief of filteredBriefs) {
-      const group = formatGroupFor(brief.asset_format);
-      const entry = map.get(group.label) ?? { label: group.label, order: group.order, briefs: [] };
-      entry.briefs.push(brief);
-      map.set(group.label, entry);
-    }
-    return [...map.values()].map((section) => ({ ...section, briefs: [...section.briefs].sort(byPlannedThenRef) })).sort((a, b) => a.order - b.order);
-  }, [filteredBriefs]);
+  const sections = useMemo(() => groupLifecycleRecordsByDate(filteredBriefs, { lifecycleStage: "brief", context: lifecycleContext, direction: dateDirection }), [dateDirection, filteredBriefs, lifecycleContext]);
   const counts = useMemo(() => ({ total: filteredBriefs.length, approved: filteredBriefs.filter((brief) => brief.status === "approved").length, review: filteredBriefs.filter((brief) => brief.status === "needs_review").length }), [filteredBriefs]);
   function accept(next: ProductionBriefRow) { setBriefs((current) => current.map((brief) => brief.id === next.id ? next : brief)); setOpen(next); }
   function clearFilters() { setSearch(""); setStatusFilter("all"); setFormatFilter("All Formats"); }
 
   const briefCard = (brief: ProductionBriefRow) => {
     const assignment = latestAssignments[brief.id];
+    const contentType = resolveLifecycleContentType(brief);
+    const plannedDate = resolveCanonicalPublishDate(brief, "brief", lifecycleContext).date;
     return <article key={brief.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
       <span className="w-28 shrink-0 font-mono text-2xs text-teal">{brief.source_ref}</span>
-      <div className="min-w-[200px] flex-1"><div className="break-words text-xs text-paper">{brief.title}</div><div className="mt-1 text-2xs text-paper-3">{brief.asset_format.replaceAll("_", " ")} · {brief.production_status.replaceAll("_", " ")} · v{brief.version} · {new Date(brief.updated_at).toLocaleString()}</div>{assignment && <div className={`mt-1 text-2xs ${assignment.status === "failed" ? "text-neg" : "text-paper-3"}`}>{assignment.contractors?.name ?? "Contractor"} · {assignment.status}{assignment.sent_at ? ` · sent ${new Date(assignment.sent_at).toLocaleString()}` : ""}</div>}</div>
+      <div className="min-w-[200px] flex-1"><div className="break-words text-xs text-paper">{brief.title}</div><div className="mt-1 text-2xs text-paper-3">{contentType.label} · {brief.production_status.replaceAll("_", " ")} · planned {plannedDate ?? "date unavailable"} · v{brief.version}</div>{assignment && <div className={`mt-1 text-2xs ${assignment.status === "failed" ? "text-neg" : "text-paper-3"}`}>{assignment.contractors?.name ?? "Contractor"} · {assignment.status}{assignment.sent_at ? ` · sent ${new Date(assignment.sent_at).toLocaleString()}` : ""}</div>}</div>
       <StateBadge state={brief.status} />
       <Button size="sm" variant="ghost" onClick={() => setOpen(brief)}>View / Edit</Button>
     </article>;
@@ -496,7 +493,7 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
         <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={field}>{STATUS_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
         <select aria-label="Format filter" value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)} className={field}>{FORMAT_FILTER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select>
       </div>
-      <p className="mt-2 text-2xs text-paper-3">Grouped by content format. Approved static, carousel, and story briefs support AI image production. Reels remain human-only.</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><p className="text-2xs text-paper-3">Grouped by canonical publish date. Approved static, carousel, and story briefs support AI image production. Reels remain human-only.</p></div>
     </div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {!activeBriefs.length ? (
@@ -505,12 +502,11 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
       <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No briefs match these filters.</div><button className="mt-2 text-xs text-teal hover:underline" onClick={clearFilters}>Clear filters</button></div>
     ) : (
       <div className="flex flex-col gap-4">{sections.map((section) => {
-        const secApproved = section.briefs.filter((brief) => brief.status === "approved").length;
-        const secReview = section.briefs.filter((brief) => brief.status === "needs_review").length;
-        return <section key={section.label}>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1 pb-2"><h3 className="text-sm font-medium text-paper">{section.label}</h3><span className="font-mono text-xs text-paper-3">· {section.briefs.length}</span>{(secApproved > 0 || secReview > 0) && <span className="text-2xs text-paper-3">{secApproved > 0 && <span className="text-teal">{secApproved} approved</span>}{secApproved > 0 && secReview > 0 && " · "}{secReview > 0 && <span className="text-warn">{secReview} need review</span>}</span>}</div>
-          <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">{section.briefs.map(briefCard)}</div>
-        </section>;
+        const secApproved = section.records.filter((brief) => brief.status === "approved").length;
+        const secReview = section.records.filter((brief) => brief.status === "needs_review").length;
+        return <LifecycleDateSection key={section.key} group={section} statusSummary={(secApproved > 0 || secReview > 0) ? <>{secApproved > 0 && <span className="text-teal">{secApproved} approved</span>}{secApproved > 0 && secReview > 0 && " · "}{secReview > 0 && <span className="text-warn">{secReview} need review</span>}</> : null}>
+          <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">{section.records.sort(byPlannedThenRef).map(briefCard)}</div>
+        </LifecycleDateSection>;
       })}</div>
     )}
     {open && <ProductionBriefModal initialBrief={open} onClose={() => setOpen(null)} onUpdated={accept} onAssignment={(assignment) => setLatestAssignments((current) => ({ ...current, [assignment.production_brief_id]: assignment }))} onViewAssets={onViewAssets} />}
