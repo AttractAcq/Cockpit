@@ -727,6 +727,32 @@ export interface ClientContextUpdateReview {
   new_status: ContextUpdateProposalStatus; review_note: string | null; reviewed_by: string; created_at: string;
 }
 
+export type ContextPatchType = "add" | "revise" | "remove" | "clarify" | "emphasize" | "de_emphasize" | "replace_section" | "other";
+export type ContextPatchStatus = "draft" | "needs_review" | "approved" | "dismissed" | "applied" | "superseded";
+
+export interface ClientContextPatchDraft {
+  id: string; client_id: string; context_update_proposal_id: string; proposal_item_id: string | null;
+  target_file_id: string; target_file_name: string | null; target_file_path: string | null; target_section: string | null;
+  patch_type: ContextPatchType; title: string; summary: string; rationale: string; current_state_summary: string | null;
+  proposed_change_summary: string; base_file_version: number; base_content_hash: string;
+  proposed_content: string | null; proposed_diff: string | null; evidence: Record<string, unknown>;
+  confidence: "low" | "medium" | "high"; priority: "low" | "medium" | "high"; status: ContextPatchStatus;
+  created_from: "context_update_proposal" | "manual"; created_by: "operator" | "system"; reviewer_notes: string | null;
+  reviewed_at: string | null; applied_at: string | null; superseded_at: string | null; created_at: string; updated_at: string;
+  reviews?: ClientContextPatchReview[]; applications?: ClientContextPatchApplication[];
+}
+
+export interface ClientContextPatchReview {
+  id: string; client_id: string; patch_draft_id: string; previous_status: ContextPatchStatus | null;
+  new_status: ContextPatchStatus; review_note: string | null; reviewed_by: string; created_at: string;
+}
+
+export interface ClientContextPatchApplication {
+  id: string; client_id: string; patch_draft_id: string; target_file_id: string;
+  previous_version: number; new_version: number; previous_content_hash: string; new_content_hash: string;
+  previous_content_snapshot: string | null; applied_content_snapshot: string; applied_by: string; applied_at: string;
+}
+
 export interface ManualMetricFormState {
   snapshot_at: string; snapshot_label: MetricSnapshotLabel; metrics: Partial<Record<SupportedMetricKey, string>>;
   notes: string; evidence_url: string;
