@@ -673,7 +673,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
-  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus, ClientContextUpdateProposal, ClientContextUpdateProposalItem, ContextUpdateProposalStatus, ContextUpdateProposalType, ContextUpdateTargetType, ContextUpdateChangeIntent,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2484,6 +2484,41 @@ export async function updateIterationCandidateStatus(candidateId:string,newStatu
   if (error) throw error;
 }
 
+export async function fetchContextUpdateProposals(clientId: string): Promise<ClientContextUpdateProposal[]> {
+  const [proposalsResult,itemsResult] = await Promise.all([
+    supabase.from("client_context_update_proposals").select("*").eq("client_id",clientId).order("created_at",{ascending:false}),
+    supabase.from("client_context_update_proposal_items").select("*").eq("client_id",clientId).order("created_at",{ascending:true}),
+  ]);
+  if (proposalsResult.error) throw proposalsResult.error;
+  if (itemsResult.error) throw itemsResult.error;
+  const items = (itemsResult.data ?? []) as ClientContextUpdateProposalItem[];
+  return ((proposalsResult.data ?? []) as ClientContextUpdateProposal[]).map((proposal)=>({
+    ...proposal,
+    items:items.filter((item)=>item.proposal_id===proposal.id),
+  }));
+}
+
+export async function createContextUpdateProposal(input: {
+  clientId:string; iterationCandidateId?:string|null; sourceRef?:string|null; distributionRecordId?:string|null;
+  proposalType:ContextUpdateProposalType; title:string; summary:string; rationale:string; evidence:Record<string,unknown>;
+  confidence:"low"|"medium"|"high"; priority:"low"|"medium"|"high"; createdFrom:"iteration_candidate"|"manual";
+  proposalItems:Array<{targetType:ContextUpdateTargetType;targetFileId?:string|null;targetFileName?:string|null;targetFilePath?:string|null;targetSection?:string|null;currentStateSummary?:string|null;proposedChangeSummary:string;changeIntent:ContextUpdateChangeIntent;evidence?:Record<string,unknown>}>;
+}): Promise<string> {
+  const { data,error } = await supabase.rpc("create_context_update_proposal",{
+    p_client_id:input.clientId,p_iteration_candidate_id:input.iterationCandidateId??null,p_source_ref:input.sourceRef??null,
+    p_distribution_record_id:input.distributionRecordId??null,p_proposal_type:input.proposalType,p_title:input.title,p_summary:input.summary,
+    p_rationale:input.rationale,p_evidence:input.evidence,p_confidence:input.confidence,p_priority:input.priority,p_created_from:input.createdFrom,
+    p_proposal_items:input.proposalItems.map((item)=>({target_type:item.targetType,target_file_id:item.targetFileId??null,target_file_name:item.targetFileName??null,target_file_path:item.targetFilePath??null,target_section:item.targetSection??null,current_state_summary:item.currentStateSummary??null,proposed_change_summary:item.proposedChangeSummary,change_intent:item.changeIntent,evidence:item.evidence??{}})),
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function updateContextUpdateProposalStatus(proposalId:string,newStatus:ContextUpdateProposalStatus,reviewerNotes?:string|null):Promise<void> {
+  const { error } = await supabase.rpc("update_context_update_proposal_status",{p_proposal_id:proposalId,p_new_status:newStatus,p_reviewer_notes:reviewerNotes??null});
+  if (error) throw error;
+}
+
 export async function fetchPerformanceAnalysisRuns(clientId: string, limit = 10): Promise<ClientPerformanceAnalysisRun[]> {
   const { data, error } = await supabase.from("client_performance_analysis_runs").select("*").eq("client_id", clientId).order("started_at", { ascending: false }).limit(limit);
   if (error) throw error;
@@ -2627,6 +2662,7 @@ export interface ArchiveDetail {
   performanceScore: ClientPerformanceScore | null;
   performanceInsights: ClientPerformanceInsight[];
   iterationCandidates: ClientIterationCandidate[];
+  contextUpdateProposals: ClientContextUpdateProposal[];
 }
 
 /**
@@ -2657,7 +2693,10 @@ export async function fetchArchiveDetail(clientId: string, executionMonth: strin
       candidate.distribution_record_id === analytics.distribution_record_id || candidate.source_ref === sourceRef
     ),
   })).catch(() => ({ score:null, insights:[] as ClientPerformanceInsight[], candidates:[] as ClientIterationCandidate[] })) : { score:null, insights:[] as ClientPerformanceInsight[], candidates:[] as ClientIterationCandidate[] };
-  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights, iterationCandidates:performance.candidates };
+  const contextUpdateProposals = await fetchContextUpdateProposals(clientId).then((proposals)=>proposals.filter((proposal)=>
+    proposal.source_ref===sourceRef || (distribution?.id && proposal.distribution_record_id===distribution.id)
+  )).catch(()=>[] as ClientContextUpdateProposal[]);
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights, iterationCandidates:performance.candidates, contextUpdateProposals };
 }
 
 export interface ArchiveIndexEntry {
