@@ -660,6 +660,7 @@ export interface AnalyticsSummary {
   latest_automatic_snapshot_at: string | null;
   performance_score?: ClientPerformanceScore | null;
   performance_insights?: ClientPerformanceInsight[];
+  iteration_candidates?: ClientIterationCandidate[];
 }
 
 export interface ClientPerformanceScore {
@@ -683,6 +684,22 @@ export interface ClientPerformanceAnalysisRun {
   id: string; client_id: string; run_mode: "manual" | "scheduled_later"; started_at: string; finished_at: string | null;
   status: "running" | "completed" | "completed_with_errors" | "failed"; records_scored: number; insights_created: number;
   skipped_count: number; error_message: string | null; created_at: string;
+}
+
+export type IterationCandidateStatus = "needs_review" | "approved" | "dismissed" | "converted";
+export interface ClientIterationCandidate {
+  id: string; client_id: string; source_ref: string | null; distribution_record_id: string | null;
+  performance_score_id: string | null; performance_insight_id: string | null;
+  candidate_type: "hook" | "proof_angle" | "cta" | "format" | "story_sequence" | "content_angle" | "offer" | "audience" | "distribution" | "asset" | "calendar" | "other";
+  recommendation: string; rationale: string; evidence: Record<string, unknown>;
+  confidence: "low" | "medium" | "high"; priority: "low" | "medium" | "high";
+  status: IterationCandidateStatus; created_by: "operator" | "system"; created_from: "performance_score" | "performance_insight" | "manual";
+  reviewer_notes: string | null; reviewed_at: string | null; converted_at: string | null; created_at: string; updated_at: string;
+}
+
+export interface ClientIterationReview {
+  id: string; client_id: string; iteration_candidate_id: string; previous_status: IterationCandidateStatus | null;
+  new_status: IterationCandidateStatus; review_note: string | null; reviewed_by: string; created_at: string;
 }
 
 export interface ManualMetricFormState {

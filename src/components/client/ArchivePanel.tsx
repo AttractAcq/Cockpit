@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/primitives";
-import { fetchArchiveDetail, fetchArchiveIndex, fetchLifecycleDateContext, type ArchiveDetail, type ArchiveIndexEntry } from "@/lib/api";
+import { fetchArchiveDetail, fetchArchiveIndex, fetchLifecycleDateContext, updateIterationCandidateStatus, type ArchiveDetail, type ArchiveIndexEntry } from "@/lib/api";
 import { STAGE_LABEL } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import { normalizeDestinationDisplay, STATUS_GUIDANCE } from "@/lib/distribution-operator";
@@ -54,7 +54,7 @@ function KeyValues({ row }: { row: Record<string, unknown> }) {
   return <div className="grid gap-2 md:grid-cols-2">{entries.map(([key, value]) => <div key={key} className="min-w-0 rounded border border-line bg-ink p-2.5"><div className="text-2xs font-mono uppercase text-paper-3">{key.replaceAll("_", " ")}</div><div className="mt-1 whitespace-pre-wrap break-words text-xs text-paper-2">{value === null || value === "" ? "—" : typeof value === "string" ? value : JSON.stringify(value)}</div></div>)}</div>;
 }
 
-function DetailBody({ tab, detail, clientId, onDeleteAsset }: { tab: DetailTab; detail: ArchiveDetail; clientId: string; onDeleteAsset?: (assetId: string) => void }) {
+function DetailBody({ tab, detail, clientId, onDeleteAsset, onReviewCandidate }: { tab: DetailTab; detail: ArchiveDetail; clientId: string; onDeleteAsset?: (assetId: string) => void; onReviewCandidate?: (candidateId: string, status: "approved" | "dismissed" | "converted") => void }) {
   if (tab === "master") {
     return <div>{detail.master ? <><div className="mb-2 flex items-center gap-2 text-2xs text-paper-3"><span className="rounded border border-line px-1.5 py-0.5">{detail.master.table}</span><span className="font-mono text-teal">{detail.master.row.ref}</span><span>· live source row</span></div><KeyValues row={detail.master.row as unknown as Record<string, unknown>} /></> : <Empty text="No master row could be resolved for this ref." />}<Snapshots snapshots={detail.snapshots} stage="master" /></div>;
   }
@@ -70,14 +70,24 @@ function DetailBody({ tab, detail, clientId, onDeleteAsset }: { tab: DetailTab; 
   }
   if (tab === "analytics") {
     const record = detail.analytics;
-    return <div>{record ? <div className="space-y-3"><div className="flex flex-wrap gap-2 text-2xs text-paper-3"><span className="rounded border border-line px-1.5 py-0.5">{record.analytics_status.replaceAll("_", " ")}</span><span>· published {new Date(record.published_at).toLocaleString()}</span><span>· {detail.metricSnapshots.length} metric snapshot{detail.metricSnapshots.length === 1 ? "" : "s"}</span><span>· {detail.businessSignals.length} business signal snapshot{detail.businessSignals.length === 1 ? "" : "s"}</span>{detail.performanceScore && <span className="rounded border border-teal/20 bg-teal/10 px-1.5 py-0.5 text-teal">score {detail.performanceScore.overall_score}/100 · {detail.performanceScore.score_status.replaceAll("_"," ")}</span>}<span>· {detail.performanceInsights.length} performance signal{detail.performanceInsights.length===1?"":"s"}</span>{detail.performanceInsights.some((item)=>item.status==="open"&&item.confidence!=="low") && <span className="text-teal">· ready for iteration later</span>}</div><div className="text-2xs text-paper-3">Published URL: {record.published_url ? <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">{record.published_url}</a> : "—"}</div><a className="text-2xs text-teal hover:underline" href={`${ROUTES.clientSection(clientId, "analytics")}?distribution_id=${encodeURIComponent(record.distribution_record_id ?? "")}`}>Open Analytics and Performance Intelligence</a>{record.notes && <div className="text-xs text-paper-2">{record.notes}</div>}<div><div className="text-2xs uppercase text-paper-3">Legacy lifecycle metrics</div><Json value={record.metrics} /></div>{detail.metricSnapshots[0] && <div className="text-2xs text-paper-3">Latest metrics: {new Date(detail.metricSnapshots[0].snapshot_at).toLocaleString()}</div>}</div> : <Empty text="This ref has not been published, so no analytics record exists." />}<Snapshots snapshots={detail.snapshots} stage="analytics" /></div>;
+    return <div>{record ? <div className="space-y-3"><div className="flex flex-wrap gap-2 text-2xs text-paper-3"><span className="rounded border border-line px-1.5 py-0.5">{record.analytics_status.replaceAll("_", " ")}</span><span>· published {new Date(record.published_at).toLocaleString()}</span><span>· {detail.metricSnapshots.length} metric snapshot{detail.metricSnapshots.length === 1 ? "" : "s"}</span><span>· {detail.businessSignals.length} business signal snapshot{detail.businessSignals.length === 1 ? "" : "s"}</span>{detail.performanceScore && <span className="rounded border border-teal/20 bg-teal/10 px-1.5 py-0.5 text-teal">score {detail.performanceScore.overall_score}/100 · {detail.performanceScore.score_status.replaceAll("_"," ")}</span>}<span>· {detail.performanceInsights.length} performance signal{detail.performanceInsights.length===1?"":"s"}</span><span>· {detail.iterationCandidates.length} iteration candidate{detail.iterationCandidates.length===1?"":"s"}</span>{detail.iterationCandidates.some((item)=>item.status==="approved"&&item.confidence!=="low") && <span className="text-teal">· Ready for future iteration review</span>}</div><div className="text-2xs text-paper-3">Published URL: {record.published_url ? <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">{record.published_url}</a> : "—"}</div><a className="text-2xs text-teal hover:underline" href={`${ROUTES.clientSection(clientId, "performance-iteration")}?distribution_id=${encodeURIComponent(record.distribution_record_id ?? "")}`}>Open Performance &amp; Iteration</a>{record.notes && <div className="text-xs text-paper-2">{record.notes}</div>}<div><div className="text-2xs uppercase text-paper-3">Legacy lifecycle metrics</div><Json value={record.metrics} /></div>{detail.metricSnapshots[0] && <div className="text-2xs text-paper-3">Latest metrics: {new Date(detail.metricSnapshots[0].snapshot_at).toLocaleString()}</div>}</div> : <Empty text="This ref has not been published, so no analytics record exists." />}<Snapshots snapshots={detail.snapshots} stage="analytics" /></div>;
   }
   // analysis / iteration
   const inAnalysis = detail.pipelineState?.current_stage === "analysis";
   return <div>
-    <div className="rounded-lg border border-dashed border-line p-6 text-center text-xs text-paper-3">
-      {inAnalysis ? "This ref is in the analysis / iteration stage, ready for the future iteration loop." : "Iteration outputs will appear here once the analysis / iteration loop is built. No iteration output is generated yet."}
+    <div className="rounded-lg border border-line bg-ink p-4 text-xs text-paper-3">
+      <div className="font-medium text-paper">Iteration Intake</div>
+      <p className="mt-1">{inAnalysis ? "This ref is in analysis and can hold reviewed iteration candidates." : "Candidates capture reviewed evidence for a future planning cycle without changing content or strategy."}</p>
+      <p className="mt-1">Approved candidates do not automatically change strategy. Converted means reviewed for future workflow; no files are changed in this gate.</p>
     </div>
+    <div className="mt-3 space-y-2">{detail.iterationCandidates.length === 0 ? <Empty text="No iteration candidates yet." /> : detail.iterationCandidates.map((candidate) => <article key={candidate.id} className="rounded-lg border border-line bg-ink p-3 text-2xs">
+      <div className="flex flex-wrap gap-2"><span className="font-medium text-paper">{candidate.candidate_type.replaceAll("_", " ")}</span><span className="text-paper-3">{candidate.status.replaceAll("_", " ")} · {candidate.priority} priority · {candidate.confidence} confidence</span></div>
+      <p className="mt-2 text-teal">{candidate.recommendation}</p><p className="mt-1 text-paper-3">{candidate.rationale}</p>
+      <details className="mt-2 text-paper-3"><summary>Evidence</summary><Json value={candidate.evidence} /></details>
+      {onReviewCandidate && candidate.status === "needs_review" && <div className="mt-3 flex gap-2"><Button size="sm" variant="primary" onClick={() => onReviewCandidate(candidate.id, "approved")}>Approve</Button><Button size="sm" variant="ghost" onClick={() => onReviewCandidate(candidate.id, "dismissed")}>Dismiss</Button></div>}
+      {onReviewCandidate && candidate.status === "approved" && <div className="mt-3 flex gap-2"><Button size="sm" variant="primary" onClick={() => onReviewCandidate(candidate.id, "converted")}>Mark converted</Button><Button size="sm" variant="ghost" onClick={() => onReviewCandidate(candidate.id, "dismissed")}>Dismiss</Button></div>}
+    </article>)}</div>
+    <a className="mt-3 inline-block text-2xs text-teal hover:underline" href={`${ROUTES.clientSection(clientId, "performance-iteration")}?source_ref=${encodeURIComponent(detail.sourceRef)}`}>Open Performance &amp; Iteration</a>
     {detail.pipelineState && <div className="mt-3"><div className="text-2xs uppercase text-paper-3">Pipeline state</div><Json value={detail.pipelineState} /></div>}
     <Snapshots snapshots={detail.snapshots} stage="analysis" />
   </div>;
@@ -92,6 +102,7 @@ function ArchiveDetailModal({ clientId, executionMonth, sourceRef, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const [deleteAssetId, setDeleteAssetId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [reviewingCandidate, setReviewingCandidate] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -104,11 +115,20 @@ function ArchiveDetailModal({ clientId, executionMonth, sourceRef, onClose }: {
   }, [clientId, executionMonth, sourceRef, reloadKey]);
   useEffect(() => { function onEscape(event: KeyboardEvent) { if (event.key === "Escape") onClose(); } window.addEventListener("keydown", onEscape); return () => window.removeEventListener("keydown", onEscape); }, [onClose]);
 
+  async function reviewCandidate(candidateId: string, status: "approved" | "dismissed" | "converted") {
+    try {
+      setReviewingCandidate(true); setError(null);
+      await updateIterationCandidateStatus(candidateId, status);
+      setReloadKey((value) => value + 1);
+      window.dispatchEvent(new Event("aa:reload"));
+    } catch (value) { setError(errorText(value)); } finally { setReviewingCandidate(false); }
+  }
+
   return <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 sm:items-center" onClick={onClose}>
     <div className="flex h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:h-[90vh] sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
       <header className="shrink-0 border-b border-line px-5 py-4"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{sourceRef}</span>{detail?.pipelineState && <span className="rounded border border-teal/20 bg-teal/10 px-1.5 py-0.5 font-mono text-2xs text-teal">stage: {STAGE_LABEL[detail.pipelineState.current_stage]}</span>}</div><h2 className="mt-1 break-words text-base font-medium text-paper">{detail?.brief?.title ?? detail?.distribution?.title ?? sourceRef}</h2><div className="mt-1 text-2xs text-paper-3">Full lifecycle · live records + immutable stage snapshots</div></div><button onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
       <div className="flex shrink-0 flex-wrap gap-1 border-b border-line px-4 py-2">{DETAIL_TABS.map(({ key, label }) => <button key={key} onClick={() => setTab(key)} className={`rounded-md px-2.5 py-1 text-2xs font-medium ${tab === key ? "bg-teal/15 text-teal" : "text-paper-3 hover:bg-ink hover:text-paper"}`}>{label}</button>)}</div>
-      <main className="min-h-0 flex-1 overflow-y-auto p-5">{loading ? <div className="text-xs text-paper-3">Loading lifecycle…</div> : error ? <div className="text-xs text-neg">{error}</div> : detail ? <DetailBody tab={tab} detail={detail} clientId={clientId} onDeleteAsset={setDeleteAssetId} /> : null}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">{loading ? <div className="text-xs text-paper-3">Loading lifecycle…</div> : error ? <div className="text-xs text-neg">{error}</div> : detail ? <div className={reviewingCandidate ? "pointer-events-none opacity-70" : ""}><DetailBody tab={tab} detail={detail} clientId={clientId} onDeleteAsset={setDeleteAssetId} onReviewCandidate={reviewCandidate} /></div> : null}</main>
     </div>
     {deleteAssetId && <DestructiveDialog target={{ operation_type: "delete_asset", asset_id: deleteAssetId }} title="Permanently delete asset" confirmWord="DELETE" onClose={() => setDeleteAssetId(null)} onDone={() => { setReloadKey((k) => k + 1); window.dispatchEvent(new Event("aa:reload")); }} />}
   </div>;
