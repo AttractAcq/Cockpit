@@ -672,7 +672,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
-  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2413,18 +2413,29 @@ export async function fetchAnalyticsForDistributionRecord(distributionRecordId: 
 export async function fetchAnalyticsForClient(clientId: string, executionMonth: string): Promise<AnalyticsSummary[]> {
   const records = await fetchAnalyticsRecords(clientId, executionMonth);
   const ids = records.map((record) => record.distribution_record_id).filter((id): id is string => Boolean(id));
-  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null }));
-  const [metricsResult, signalsResult] = await Promise.all([
+  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null, insights_attempts: [], automatic_status: "no_automatic_metrics", latest_automatic_snapshot_at: null }));
+  const [metricsResult, signalsResult, attemptsResult] = await Promise.all([
     supabase.from("client_metric_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("snapshot_at", { ascending: false }),
     supabase.from("client_business_signal_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("signal_at", { ascending: false }),
+    supabase.from("client_insights_collection_attempts").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("created_at", { ascending: false }),
   ]);
   if (metricsResult.error) throw metricsResult.error;
   if (signalsResult.error) throw signalsResult.error;
+  if (attemptsResult.error) throw attemptsResult.error;
   const metrics = (metricsResult.data ?? []) as ClientMetricSnapshot[];
   const signals = (signalsResult.data ?? []) as ClientBusinessSignalSnapshot[];
+  const attempts = (attemptsResult.data ?? []) as InsightsCollectionAttempt[];
   return records.map((record) => {
     const metricSnapshots = metrics.filter((row) => row.distribution_record_id === record.distribution_record_id);
     const businessSignals = signals.filter((row) => row.distribution_record_id === record.distribution_record_id);
+    const recordAttempts = attempts.filter((row) => row.distribution_record_id === record.distribution_record_id);
+    const automaticSnapshots = metricSnapshots.filter((row) => row.collection_method === "api");
+    const latestAttempt = recordAttempts[0];
+    const storyUnavailable = (record.asset_format ?? "").toLowerCase().includes("story") && (latestAttempt?.reason === "skipped_expired" || latestAttempt?.error_category === "meta_media_unavailable");
+    const automaticStatus: AutomaticInsightsStatus = automaticSnapshots.length ? "automatic_metrics_collected"
+      : storyUnavailable ? "story_metrics_expired"
+      : latestAttempt?.status === "failed" ? "collection_failed"
+      : record.distribution_record_id ? "automatic_metrics_pending" : "no_automatic_metrics";
     const populated = metricSnapshots.reduce((count, row) => count + Object.keys(row.metrics ?? {}).length, 0);
     return {
       record,
@@ -2432,8 +2443,17 @@ export async function fetchAnalyticsForClient(clientId: string, executionMonth: 
       business_signals: businessSignals,
       manual_status: deriveManualAnalyticsStatus(metricSnapshots.length, businessSignals.length, populated) as ManualAnalyticsStatus,
       latest_snapshot_at: metricSnapshots[0]?.snapshot_at ?? businessSignals[0]?.signal_at ?? null,
+      insights_attempts: recordAttempts,
+      automatic_status: automaticStatus,
+      latest_automatic_snapshot_at: automaticSnapshots[0]?.snapshot_at ?? null,
     };
   });
+}
+
+export async function fetchInsightsCollectionRuns(limit = 10): Promise<InsightsCollectionRun[]> {
+  const { data, error } = await supabase.from("client_insights_collection_runs").select("*").order("started_at", { ascending: false }).limit(limit);
+  if (error) throw error;
+  return (data ?? []) as InsightsCollectionRun[];
 }
 
 export async function upsertManualMetricSnapshot(input: {

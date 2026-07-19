@@ -614,10 +614,11 @@ export interface AnalyticsRecordRow {
   updated_at: string;
 }
 
-export type MetricSnapshotLabel = "manual" | "t_plus_1h" | "t_plus_6h" | "t_plus_24h" | "t_plus_48h" | "t_plus_7d";
-export type MetricCollectionMethod = "manual" | "api_later";
-export type SupportedMetricKey = "impressions" | "reach" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "follows" | "website_clicks" | "replies" | "taps_forward" | "taps_back" | "exits" | "completion_rate";
+export type MetricSnapshotLabel = "manual" | "t_plus_1h" | "t_plus_6h" | "t_plus_24h" | "t_plus_48h" | "t_plus_7d" | "story_t_plus_1h" | "story_t_plus_6h" | "story_t_plus_23h";
+export type MetricCollectionMethod = "manual" | "api_later" | "api";
+export type SupportedMetricKey = "impressions" | "reach" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "follows" | "website_clicks" | "replies" | "taps_forward" | "taps_back" | "exits" | "completion_rate" | "views" | "navigation" | "total_interactions";
 export type ManualAnalyticsStatus = "no_metrics" | "partial_metrics" | "metrics_entered" | "business_signals_entered";
+export type AutomaticInsightsStatus = "no_automatic_metrics" | "automatic_metrics_pending" | "automatic_metrics_collected" | "collection_failed" | "story_metrics_expired";
 
 export interface ClientMetricSnapshot {
   id: string; client_id: string; distribution_record_id: string; source_ref: string;
@@ -634,12 +635,29 @@ export interface ClientBusinessSignalSnapshot {
   operator_notes: string | null; created_by: string | null; created_at: string; updated_at: string;
 }
 
+export interface InsightsCollectionAttempt {
+  id: string; run_id: string; distribution_record_id: string; client_id: string; source_ref: string;
+  external_post_id: string; snapshot_label: MetricSnapshotLabel; status: "collected" | "skipped" | "failed";
+  reason: string | null; metrics_requested: string[]; metrics_collected: Record<string, number>;
+  unsupported_metrics: string[]; error_category: string | null; error_message: string | null; created_at: string;
+}
+
+export interface InsightsCollectionRun {
+  id: string; worker_id: string; started_at: string; finished_at: string | null;
+  status: "running" | "completed" | "completed_with_errors" | "failed"; mode: "dry_run" | "live";
+  due_count: number; collected_count: number; skipped_count: number; failed_count: number;
+  error_message: string | null; created_at: string;
+}
+
 export interface AnalyticsSummary {
   record: AnalyticsRecordRow;
   metric_snapshots: ClientMetricSnapshot[];
   business_signals: ClientBusinessSignalSnapshot[];
   manual_status: ManualAnalyticsStatus;
   latest_snapshot_at: string | null;
+  insights_attempts: InsightsCollectionAttempt[];
+  automatic_status: AutomaticInsightsStatus;
+  latest_automatic_snapshot_at: string | null;
 }
 
 export interface ManualMetricFormState {
