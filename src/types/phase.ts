@@ -658,6 +658,31 @@ export interface AnalyticsSummary {
   insights_attempts: InsightsCollectionAttempt[];
   automatic_status: AutomaticInsightsStatus;
   latest_automatic_snapshot_at: string | null;
+  performance_score?: ClientPerformanceScore | null;
+  performance_insights?: ClientPerformanceInsight[];
+}
+
+export interface ClientPerformanceScore {
+  id: string; client_id: string; distribution_record_id: string; source_ref: string; content_format: string; platform: string;
+  latest_metric_snapshot_id: string | null; latest_business_signal_snapshot_id: string | null; score_version: string;
+  attention_score: number; engagement_score: number; trust_score: number; conversion_signal_score: number; overall_score: number;
+  sample_quality: "insufficient" | "early" | "usable" | "mature";
+  score_status: "pending_metrics" | "scored" | "insufficient_data" | "stale";
+  score_reasons: string[]; computed_at: string; created_at: string; updated_at: string;
+}
+
+export interface ClientPerformanceInsight {
+  id: string; client_id: string; distribution_record_id: string | null; source_ref: string | null;
+  insight_type: "winner" | "underperformer" | "format_signal" | "hook_signal" | "proof_signal" | "cta_signal" | "audience_signal" | "conversion_signal" | "risk" | "recommendation";
+  severity: "low" | "medium" | "high"; confidence: "low" | "medium" | "high";
+  title: string; summary: string; evidence: Record<string, unknown>; recommended_action: string | null;
+  status: "open" | "accepted" | "dismissed" | "converted_to_iteration"; created_by: string; created_at: string; updated_at: string;
+}
+
+export interface ClientPerformanceAnalysisRun {
+  id: string; client_id: string; run_mode: "manual" | "scheduled_later"; started_at: string; finished_at: string | null;
+  status: "running" | "completed" | "completed_with_errors" | "failed"; records_scored: number; insights_created: number;
+  skipped_count: number; error_message: string | null; created_at: string;
 }
 
 export interface ManualMetricFormState {
