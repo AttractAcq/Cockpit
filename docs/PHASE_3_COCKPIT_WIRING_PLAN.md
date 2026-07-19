@@ -1,7 +1,7 @@
 # Phase 3 Cockpit Wiring Plan
 
 Date: 2026-06-13  
-Supabase project: `iwkhdqqgfjtpdhcbpftu`  
+Supabase project: `xivewedajschthjlblfb`
 Source checkpoint: `PREFLIGHT_READINESS.md` says Phase 1 is GREEN and overall preflight is GREEN-with-external-blocks.
 
 ## Current Cockpit Inventory
@@ -95,7 +95,7 @@ Source checkpoint: `PREFLIGHT_READINESS.md` says Phase 1 is GREEN and overall pr
 | Empty live tables are mistaken for broken wiring | Use explicit empty states with live wording; avoid demo fallback. |
 | Edge functions can spend money | Keep action buttons explicit, show running state, and avoid automatic scrape/generation on render. |
 | External blockers look like app failures | Surface Meta, PayFast, 360dialog, and n8n as BLOCKED-external. |
-| ~~Existing README references old project ref `ayfidvycgqorxmlczyxl`~~ | **Resolved** — README updated to canonical ref `iwkhdqqgfjtpdhcbpftu`. |
+| ~~Existing README references old project ref `ayfidvycgqorxmlczyxl`~~ | **Resolved** — README updated to canonical ref `xivewedajschthjlblfb`. |
 | Some pages still import `mockApi` | `mockApi` currently aliases live `api`; migrate operator-critical components to `api` directly over time for clarity. |
 
 ## First Slice Implemented

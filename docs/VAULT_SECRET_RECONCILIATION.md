@@ -1,7 +1,7 @@
 # Vault Secret Reconciliation
 
 Audit date: 2026-06-13  
-Project ref: `iwkhdqqgfjtpdhcbpftu`  
+Project ref: `xivewedajschthjlblfb`
 Scope: repo files, n8n workflow files, deployed Supabase Edge Function source downloaded read-only to `/private/tmp/aa-os-functions-audit`, live Supabase Vault/function env metadata, and live database functions/credential registry. Names only; no secret values were printed.
 
 ## Supabase Inventory

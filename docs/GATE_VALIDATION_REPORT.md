@@ -1,6 +1,6 @@
 # AA-OS Gate Validation Report
 **Date**: 2026-06-11  
-**Project ref confirmed**: `iwkhdqqgfjtpdhcbpftu` ("Attract") — ACTIVE_HEALTHY  
+**Project ref confirmed**: `xivewedajschthjlblfb` ("Cockpit") — approved production project
 **Phases covered**: Phase 1 (Backend & Data) + Phase 2 (AI & Automation)  
 **Validator**: Claude Code automated gate pass (read-only + TEST_GATE_ synthetic data only)
 
@@ -12,7 +12,7 @@
 
 | Ref | Name | Status |
 |-----|------|--------|
-| `iwkhdqqgfjtpdhcbpftu` | Attract | **ACTIVE_HEALTHY** ← canonical |
+| `xivewedajschthjlblfb` | Cockpit | **ACTIVE_HEALTHY** ← canonical |
 | `ayfidvycgqorxmlczyxl` | Attract Acquisition | INACTIVE (legacy) |
 | `ytixityazjuurkloeqli` | AA Ops | INACTIVE (legacy) |
 
@@ -522,7 +522,7 @@ All 10 tables checked — zero TEST_GATE_ artifacts remain post-cleanup.
 
 # FIX PASS — 2026-06-12
 
-Executed against project `iwkhdqqgfjtpdhcbpftu`. Three migrations applied; two n8n workflow files written. Fix 1 (vault secrets) remains human-only.
+Executed against the then-current project during the historical validation. Current production is `xivewedajschthjlblfb`. Three migrations applied; two n8n workflow files written. Fix 1 (vault secrets) remains human-only.
 
 ## Fix pass summary
 
@@ -689,7 +689,7 @@ trg_lead_score_before    | {search_path=public}   | no anon entry   ✓
 
 ### FIX 5c — HaveIBeenPwned toggle (human-only)
 
-**Location**: Supabase Dashboard → project `iwkhdqqgfjtpdhcbpftu` → **Authentication** → **Providers** → **Email** → scroll to **"Password Security"** section → enable **"Check for leaked passwords (HaveIBeenPwned)"** toggle → Save.
+**Location**: Supabase Dashboard → project `xivewedajschthjlblfb` → **Authentication** → **Providers** → **Email** → scroll to **"Password Security"** section → enable **"Check for leaked passwords (HaveIBeenPwned)"** toggle → Save.
 
 This cannot be applied via SQL or MCP and requires a dashboard action.
 

@@ -44,7 +44,7 @@ Stages 1–5 = acquisition; 6–8 = delivery. The split is the deposit (`booked 
 
 ## Data layer
 
-- **Supabase project ref:** `iwkhdqqgfjtpdhcbpftu` — CONFIRMED ACTIVE_HEALTHY eu-west-1. Still read from env vars; do not hardcode the string in code.
+- **Supabase project ref:** `xivewedajschthjlblfb` — approved production project. Still read from env vars; do not hardcode credentials in code.
 - **19 tables:** entities, conversations, messages, campaigns, ad_metrics, payments, contracts, triage_items, agent_events, automations, assets, briefs, proof_uploads, pulse_metrics, mrr_snapshots, users, team_members, audit_log, credential_registry.
 - **Storage buckets (per-client, signed URLs):** MJRs (`mjrs`), Reels (`reels`), Proof Uploads (`proof-uploads`).
 - **Vault:** platform keys `_GLOBAL_{SERVICE}_{CREDENTIAL_TYPE}` (leading underscore); per-client `{CLIENT_SLUG}_{SERVICE}_{CREDENTIAL_TYPE}`. Service-role only. **The frontend never reads the Vault.** Helpers: `vaultName()`, `readCredential()` in `_shared/aa.ts`.
@@ -68,7 +68,7 @@ Stages 1–5 = acquisition; 6–8 = delivery. The split is the deposit (`booked 
 
 ## Open items — DO NOT silently resolve; flag to Alex
 
-1. **Supabase project ref — RESOLVED.** Confirmed `iwkhdqqgfjtpdhcbpftu`. Env var rule still applies; ambiguity closed.
+1. **Supabase project ref — RESOLVED.** Confirmed `xivewedajschthjlblfb`. Env var rule still applies; ambiguity closed.
 2. **PayFast ITN (P0 — blocks revenue)** — `_GLOBAL_PAYFAST_MERCHANT_KEY` registered in `credential_registry` but NOT in `vault.secrets`. No ITN handler function exists. `onboarding` is verify_jwt=true so unsuitable for raw webhooks. Needs a new `payfast-webhook` function (verify_jwt=false, HMAC-SHA1) + vault key populated. Deposit gate does not work until resolved.
 3. **Recurring billing** — only the deposit gate exists; there is no mechanism to charge the monthly retainer that `mrr-calc` reports. Don't invent one without sign-off.
 4. **Backup / DR** — single Supabase project, no documented backup/PITR. Check Supabase dashboard (Settings → Backups) — cannot confirm via SQL. Note if any work increases this risk.

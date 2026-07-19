@@ -1,8 +1,8 @@
 # Supabase Edge Functions Reference
 
 Project: Attract Acquisition / Attract  
-Supabase project ref: `iwkhdqqgfjtpdhcbpftu`  
-Base URL: `https://iwkhdqqgfjtpdhcbpftu.supabase.co/functions/v1`  
+Supabase project ref: `xivewedajschthjlblfb`
+Base URL: `https://xivewedajschthjlblfb.supabase.co/functions/v1`
 Source reviewed: deployed Edge Function source downloaded from Supabase on 2026-06-19
 
 This document explains the 16 deployed Supabase Edge Functions used by the AA cockpit, automation layer, public lead capture, WhatsApp/Instagram ingest, Meta ads operations, content generation, onboarding, and reporting workflows.
@@ -1230,4 +1230,3 @@ Vault credentials:
 10. `onboarding` is not transactional.
     - Payment insert and stage update happen before n8n call.
     - A webhook failure returns `207` but does not roll back the stage.
-

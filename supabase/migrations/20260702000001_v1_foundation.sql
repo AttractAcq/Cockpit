@@ -1,7 +1,7 @@
 -- V1 Foundation — Attract Acquisition Cockpit — 2026-07-02
 -- Applied via Supabase MCP to project xivewedajschthjlblfb
 -- This file is the source-of-truth local copy of that migration.
--- Do not run against the old project (iwkhdqqgfjtpdhcbpftu) — it is superseded.
+-- Do not run against the obsolete Supabase project — it is superseded.
 --
 -- Schema: 18 enums, 28 tables, 2 auth helpers, 1 ref-gen fn,
 --         1 health view, full RLS (34 tables), 30 indexes, seed data.
