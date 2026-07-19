@@ -37,7 +37,7 @@ export interface PublishOutcome {
   retryable?: boolean;
 }
 
-interface DistributionRecord {
+export interface DistributionRecord {
   id: string; client_id: string; execution_month: string; source_ref: string;
   asset_group_ref: string; production_brief_id: string | null; asset_format: string;
   title: string | null; publish_status: string; platform: string | null; destination: string | null;
@@ -131,7 +131,7 @@ export function hasPublicationEvidence(record: Pick<DistributionRecord, "externa
 }
 
 /** Resolve the Meta credentials for a client, returning what's missing. */
-async function resolveMetaConfig(sb: SupabaseClient, clientSlug: string, record: DistributionRecord): Promise<{ token: string | null; igUserId: string | null; missing: string[] }> {
+export async function resolveMetaConfig(sb: SupabaseClient, clientSlug: string, record: DistributionRecord): Promise<{ token: string | null; igUserId: string | null; missing: string[] }> {
   // Priority: the deployed edge-function secret first (this is the live source),
   // then a legacy env name, then per-client Vault, then global Vault.
   const token =

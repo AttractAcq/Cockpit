@@ -1,0 +1,4 @@
+project_id = "cockpit"
+
+[functions.collect-instagram-insights]
+verify_jwt = false
