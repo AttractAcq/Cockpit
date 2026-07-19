@@ -8,8 +8,11 @@ const intake = await import(`data:text/javascript;base64,${Buffer.from(js).toStr
 const migration = fs.readFileSync(new URL("../supabase/migrations/20260719000024_gate_e_iteration_intake.sql", import.meta.url), "utf8");
 const api = fs.readFileSync(new URL("../src/lib/api.ts", import.meta.url), "utf8");
 const analytics = fs.readFileSync(new URL("../src/components/client/AnalyticsPanel.tsx", import.meta.url), "utf8");
+const performanceIteration = fs.readFileSync(new URL("../src/components/client/PerformanceIterationPanel.tsx", import.meta.url), "utf8");
+const clientDetail = fs.readFileSync(new URL("../src/pages/ClientDetailPage.tsx", import.meta.url), "utf8");
 const archive = fs.readFileSync(new URL("../src/components/client/ArchivePanel.tsx", import.meta.url), "utf8");
-const scope = helperSource + migration + api + analytics + archive;
+const scope = helperSource + migration + api + analytics + performanceIteration + clientDetail + archive;
+const workflowScope = helperSource + migration + analytics + performanceIteration + archive;
 
 assert.equal(intake.validIterationTransition("needs_review","approved"),true);
 assert.equal(intake.validIterationTransition("needs_review","dismissed"),true);
@@ -25,10 +28,22 @@ assert.equal(evidence.overall_score,42);
 assert.deepEqual(evidence.latest_metrics,{reach:100});
 
 // Score-backed creation works even when no performance insight exists; insight-backed intake is also supported.
-assert.match(analytics,/performanceScoreId:summary\.performance_score\.id/);
-assert.match(analytics,/createdFrom:insightId\?"performance_insight":"performance_score"/);
-assert.match(analytics,/Performance scorecard/);
-assert.match(analytics,/Performance insight:/);
+assert.match(performanceIteration,/performanceScoreId:sourceMode==="performance_score"/);
+assert.match(performanceIteration,/performanceInsightId:sourceMode==="performance_insight"/);
+assert.match(performanceIteration,/Manual observation/);
+assert.match(performanceIteration,/createdFrom:sourceMode/);
+
+// Performance & Iteration is a dedicated client route; Analytics remains the raw measurement surface.
+assert.match(clientDetail,/label: "Performance & Iteration", section: "performance-iteration"/);
+assert.match(clientDetail,/case "performance-iteration"/);
+assert.match(performanceIteration,/This tab converts performance evidence into reviewed iteration candidates/);
+assert.match(performanceIteration,/No performance insights have crossed the threshold yet/);
+assert.match(performanceIteration,/No iteration candidates yet/);
+assert.match(analytics,/Record manual platform metrics/);
+assert.match(analytics,/Record manual business signals/);
+assert.match(analytics,/Platform metric snapshots/);
+assert.match(analytics,/Automatic collection status/);
+assert.doesNotMatch(analytics,/Create iteration candidate|Approve|Mark converted|Run performance analysis/);
 
 // Every supplied reference is resolved and checked against client, distribution, and source ownership.
 assert.match(migration,/from public\.client_performance_scores where id=p_performance_score_id and client_id=p_client_id/);
@@ -52,11 +67,15 @@ assert.match(migration,/iteration_candidate_dismissed/);
 assert.match(migration,/iteration_candidate_converted/);
 assert.match(api,/rpc\("create_iteration_candidate"/);
 assert.match(api,/rpc\("update_iteration_candidate_status"/);
+assert.match(performanceIteration,/createIterationCandidate/);
+assert.match(performanceIteration,/updateIterationCandidateStatus/);
 assert.doesNotMatch(api,/from\("client_iteration_(?:candidates|reviews)"\)\.(?:insert|update|delete)/);
 
 assert.doesNotMatch(scope,/update public\.client_distribution_records|update public\.client_metric_snapshots|update public\.client_business_signal_snapshots|update public\.client_performance_scores/);
-assert.doesNotMatch(scope,/openai|anthropic|launch[_ ]ads|media_publish|generate[_ ](?:content|asset)|update (?:strategy|context)|calendar.*insert/i);
+assert.doesNotMatch(workflowScope,/openai|anthropic|launch[_ ]ads|media_publish|generate[_ ](?:content|asset)|update (?:strategy|context)|calendar.*insert/i);
 assert.match(archive,/Approved candidates do not automatically change strategy/);
 assert.match(archive,/Converted means reviewed for future workflow; no files are changed in this gate/);
+assert.match(archive,/Ready for future iteration review/);
+assert.doesNotMatch(workflowScope,/patchStrategy|patchContext|updateContextFile|updateMasterFile|launchAds|generateContent|generateAsset/i);
 
 console.log("iteration-intake tests passed");

@@ -18,6 +18,7 @@ import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
 import { AssetsPanel } from "@/components/client/AssetsPanel";
 import { DistributionPanel } from "@/components/client/DistributionPanel";
 import { AnalyticsPanel } from "@/components/client/AnalyticsPanel";
+import { PerformanceIterationPanel } from "@/components/client/PerformanceIterationPanel";
 import { ArchivePanel } from "@/components/client/ArchivePanel";
 import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
@@ -37,6 +38,7 @@ type Section =
   | "assets"
   | "distribution"
   | "analytics"
+  | "performance-iteration"
   | "archive"
   | "activity";
 
@@ -56,6 +58,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Assets",           section: "assets" },
   { label: "Distribution",     section: "distribution" },
   { label: "Analytics",        section: "analytics" },
+  { label: "Performance & Iteration", section: "performance-iteration" },
   { label: "Archive",          section: "archive" },
   { label: "Activity Log",     section: "activity" },
 ];
@@ -634,6 +637,8 @@ export function ClientDetailPage() {
         return <DistributionPanel clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "analytics":
         return <AnalyticsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
+      case "performance-iteration":
+        return <PerformanceIterationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "archive":
         return <ArchivePanel clientId={id} executionMonth={currentMonth()} />;
       case "pipeline":
