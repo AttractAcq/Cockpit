@@ -543,6 +543,10 @@ export interface PublishAttemptRow {
   meta_error_code: number | null;
   meta_error_subcode: number | null;
   external_post_id: string | null;
+  /** Forward-compatible: shown when a provider records a permalink per attempt. */
+  published_url?: string | null;
+  /** Forward-compatible; current rows derive permanence from result when absent. */
+  permanent_failure?: boolean;
   container_ids: unknown[];
   message: string | null;
   created_at: string;
