@@ -278,7 +278,7 @@ export interface ProductionBriefRow {
 
 // ── Persisted asset-generation job model (multi-image carousel/story) ─────────
 export type AssetGenerationJobStatus = "queued" | "processing" | "partial" | "complete" | "failed" | "cancelled";
-export type AssetGenerationItemStatus = "queued" | "processing" | "complete" | "failed";
+export type AssetGenerationItemStatus = "queued" | "processing" | "complete" | "failed" | "cancelled";
 
 export interface AssetGenerationJobRow {
   id: string;
@@ -293,6 +293,13 @@ export interface AssetGenerationJobRow {
   visual_mode: AiVisualMode | null;
   generation_config: Record<string, unknown>;
   last_error: string | null;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  closure_reason?: string | null;
+  closure_type?: "completed" | "cancelled" | "partial_accepted" | null;
+  accepted_partial?: boolean;
+  accepted_output_count?: number | null;
+  accepted_sequence_indexes?: number[] | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

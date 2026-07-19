@@ -467,6 +467,7 @@ import { deriveStage3Status, EMPTY_STAGE3_SNAPSHOT, expectedCalendarCellCount, t
 import type { LifecycleDateContext } from "@/lib/lifecycle-date";
 import { isMissingPhase3StatusViewError } from "@/lib/phase3-status-view";
 import { buildActivityTargetMetadata } from "@/lib/operation-destination";
+import type { AssetGroupCompletenessOverrideRow, AssetWarningAcknowledgementRow } from "@/lib/asset-completeness";
 
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
@@ -1438,6 +1439,58 @@ export async function fetchLatestAssetJobsByBrief(clientId: string): Promise<Map
   return map;
 }
 
+export async function fetchAssetCompletenessOverrides(clientId: string): Promise<Map<string, AssetGroupCompletenessOverrideRow>> {
+  const { data, error } = await supabase.from("client_asset_group_completeness_overrides")
+    .select("*").eq("client_id", clientId).eq("is_active", true).is("revoked_at", null).order("created_at", { ascending: false });
+  if (error) throw error;
+  const map = new Map<string, AssetGroupCompletenessOverrideRow>();
+  for (const row of (data ?? []) as AssetGroupCompletenessOverrideRow[]) {
+    if (!map.has(row.asset_group_ref)) map.set(row.asset_group_ref, row);
+  }
+  return map;
+}
+
+export async function fetchAssetWarningAcknowledgements(clientId: string): Promise<Map<string, AssetWarningAcknowledgementRow[]>> {
+  const { data, error } = await supabase.from("client_asset_group_warning_acknowledgements")
+    .select("*").eq("client_id", clientId).order("dismissed_at", { ascending: false });
+  if (error) throw error;
+  const map = new Map<string, AssetWarningAcknowledgementRow[]>();
+  for (const row of (data ?? []) as AssetWarningAcknowledgementRow[]) {
+    map.set(row.asset_group_ref, [...(map.get(row.asset_group_ref) ?? []), row]);
+  }
+  return map;
+}
+
+export async function acknowledgeAssetGroupWarning(input: {
+  assetGroupRef: string;
+  warningCode: string;
+  warningFingerprint: string;
+}): Promise<AssetWarningAcknowledgementRow> {
+  const { data, error } = await supabase.rpc("acknowledge_asset_group_warning", {
+    p_asset_group_ref: input.assetGroupRef,
+    p_warning_code: input.warningCode,
+    p_warning_fingerprint: input.warningFingerprint,
+  });
+  if (error) throw error;
+  return data as AssetWarningAcknowledgementRow;
+}
+
+export async function acceptPartialAssetGroup(input: {
+  assetGroupRef: string;
+  generationJobId: string;
+  reason: string;
+  acceptedSequenceIndexes?: number[];
+}): Promise<AssetGroupCompletenessOverrideRow> {
+  const { data, error } = await supabase.rpc("accept_partial_asset_group", {
+    p_asset_group_ref: input.assetGroupRef,
+    p_generation_job_id: input.generationJobId,
+    p_reason: input.reason,
+    p_accepted_sequence_indexes: input.acceptedSequenceIndexes ?? null,
+  });
+  if (error) throw error;
+  return data as AssetGroupCompletenessOverrideRow;
+}
+
 export async function fetchAssetJobItems(jobId: string): Promise<AssetGenerationItemRow[]> {
   const { data, error } = await supabase.from("client_asset_generation_items")
     .select("*").eq("generation_job_id", jobId).order("sequence_index");
@@ -1506,15 +1559,19 @@ export async function updateClientAssetGroupStatus(
   assetGroupRef: string,
   status: ReviewState,
 ): Promise<ClientAssetRow[]> {
-  // Review/approval applies to the CURRENT version of each frame only — historical
-  // versions keep their own status and remain for history.
-  const { data, error } = await supabase.from("client_assets")
-    .update({ status, updated_at: new Date().toISOString() })
+  const { error } = await supabase.rpc("review_asset_group", {
+    p_client_id: clientId,
+    p_asset_group_ref: assetGroupRef,
+    p_status: status,
+  });
+  if (error) throw error;
+  const { data, error: readError } = await supabase.from("client_assets")
+    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)")
     .eq("client_id", clientId)
     .eq("asset_group_ref", assetGroupRef)
     .eq("is_current", true)
-    .select("*, production_brief:client_production_briefs(production_mode,source_table,source_row_id)");
-  if (error) throw error;
+    .order("sequence_index");
+  if (readError) throw readError;
   if (!data?.length) throw new Error(`Asset group ${assetGroupRef} was not found or could not be updated.`);
   return addSignedAssetUrls(data as ClientAssetRow[]);
 }

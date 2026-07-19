@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
-import { activateAssetVersion, fetchClientAssets, fetchEffectiveStageMap, fetchLatestAssetJobsByBrief, fetchLifecycleDateContext, fetchProductionBrief, generateAiAssets, isAssetJobActive, promoteAssetGroupToDistribution, regenerateAssetFrame, startAssetGeneration, driveAssetJob, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
+import { acceptPartialAssetGroup, acknowledgeAssetGroupWarning, activateAssetVersion, fetchAssetCompletenessOverrides, fetchAssetWarningAcknowledgements, fetchClientAssets, fetchEffectiveStageMap, fetchLatestAssetJobsByBrief, fetchLifecycleDateContext, fetchProductionBrief, generateAiAssets, isAssetJobActive, promoteAssetGroupToDistribution, regenerateAssetFrame, startAssetGeneration, driveAssetJob, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
 import { assetPngFilename, assetVersion, downloadAssetPng, downloadAssetsZip } from "@/lib/assetExport";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import { useFocusedRecord } from "@/lib/use-focused-record";
+import { resolveAssetCompleteness, type AssetCompletenessState, type AssetGroupCompletenessOverrideRow, type AssetWarningAcknowledgementRow } from "@/lib/asset-completeness";
 import type { ReviewState } from "@/types/client";
 import type { AssetFormat, AssetGenerationJobRow, ClientAssetRow, ProductionMode } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
@@ -15,6 +16,7 @@ import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/sha
 
 type GroupStatus = ReviewState | "mixed";
 type PendingAction = { kind: ReviewState | "regenerate"; groupRef: string } | null;
+type PartialAcceptTarget = AssetGroup | null;
 
 interface AssetGroup {
   ref: string;
@@ -32,6 +34,8 @@ interface AssetGroup {
   generating: boolean;
   /** Non-terminal/failed job status backing this group, if any. */
   jobStatus: AssetGenerationJobRow["status"] | null;
+  job: AssetGenerationJobRow | null;
+  completeness: AssetCompletenessState;
   /** All versions per sequence_index (current + history), newest version first. */
   versions: Map<number, ClientAssetRow[]>;
   visual: VisualMeta;
@@ -74,12 +78,6 @@ function visualModeLabel(mode: string | null): string {
   }
 }
 
-function expectedGroupCount(rows: ClientAssetRow[]): number | null {
-  // Each generated row carries the count the brief resolved to (metadata.sequence_count).
-  const counts = rows.map((row) => (typeof row.metadata?.sequence_count === "number" ? row.metadata.sequence_count : null)).filter((value): value is number => value !== null && value >= 1);
-  return counts.length ? Math.max(...counts) : null;
-}
-
 const STATUS_STYLE: Record<GroupStatus, string> = {
   needs_review: "border-warn/20 bg-warn/10 text-warn",
   approved: "border-teal/20 bg-teal/10 text-teal",
@@ -100,7 +98,7 @@ function modeFor(row: ClientAssetRow): ProductionMode | "unknown" {
   return row.production_brief?.production_mode ?? (row.generation_provider === "openai" ? "ai" : "unknown");
 }
 
-function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJobRow | null): AssetGroup {
+function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJobRow | null, override?: AssetGroupCompletenessOverrideRow | null, acknowledgements: AssetWarningAcknowledgementRow[] = []): AssetGroup {
   // Display/review/export operate on the CURRENT version of each frame; every
   // version (current + history) is kept per sequence_index for the switcher.
   const versions = new Map<number, ClientAssetRow[]>();
@@ -113,17 +111,19 @@ function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJo
   const indexes = rows.map((row) => row.sequence_index);
   const warnings: string[] = [];
   const format = rows[0].asset_format;
-  const isMulti = MULTI_IMAGE_FORMATS.has(format);
-  const expectedCount = expectedGroupCount(rows);
+  const groupJob = job && job.asset_group_ref === ref ? job : null;
+  const completeness = resolveAssetCompleteness({ rows, job: groupJob, override, acknowledgements });
+  const expectedCount = completeness.originalExpectedCount;
   // A group is treated as still generating while its brief has a queued/processing
   // job for THIS group — it must not be reviewable/approvable until the job completes.
-  const generating = !!job && job.asset_group_ref === ref && isAssetJobActive(job);
-  const jobStatus = job && job.asset_group_ref === ref ? job.status : null;
-  // Incomplete if fewer files than expected, OR the backing job is not complete.
-  const jobIncomplete = !!job && job.asset_group_ref === ref && job.status !== "complete";
-  const incomplete = (isMulti && expectedCount !== null && rows.length < expectedCount) || jobIncomplete;
-  if (generating) warnings.push(`Generation in progress — ${job!.completed_output_count} of ${job!.expected_output_count} ${format === "carousel" ? "slides" : "frames"} so far.`);
-  else if (incomplete) warnings.push(`Expected ${expectedCount ?? job?.expected_output_count ?? "?"} ${format === "carousel" ? "slides" : "frames"}; found ${rows.length}.`);
+  const generating = !!groupJob && isAssetJobActive(groupJob) && !completeness.isAcceptedPartial;
+  const jobStatus = groupJob ? groupJob.status : null;
+  const incomplete = completeness.isIncomplete;
+  if (completeness.isAcceptedPartial && completeness.activeOverride) {
+    warnings.push(`Accepted ${completeness.acceptedOutputCount} of ${completeness.originalExpectedCount} ${format === "carousel" ? "slides" : "frames"} as the final group.`);
+  } else {
+    warnings.push(...completeness.visibleWarnings.map((warning) => warning.message));
+  }
   const visual = readVisualMeta(rows[0]);
   // Severe mismatch: an uploaded visual mode was requested but no image actually
   // reached the model. (image_input_used === null means legacy asset — no claim.)
@@ -145,6 +145,8 @@ function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJo
     incomplete,
     generating,
     jobStatus,
+    job: groupJob,
+    completeness,
     versions,
     visual,
     visualMismatch,
@@ -179,12 +181,43 @@ function Confirmation({ action, group, busy, onCancel, onConfirm }: {
   </div>;
 }
 
-function AssetPreviewModal({ group, busy, notice, onClose, onAction, onViewProductionBrief }: {
+function PartialAcceptModal({ group, busy, onCancel, onConfirm }: {
+  group: AssetGroup;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const noun = group.first.asset_format === "carousel" ? "slides" : "frames";
+  const accepted = group.completeness.acceptedSequenceIndexes.length ? group.completeness.acceptedSequenceIndexes : group.rows.map((row) => row.sequence_index);
+  const missing = group.completeness.missingIndexes;
+  const valid = reason.trim().length >= 8;
+  return <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/75 p-4" onClick={busy ? undefined : onCancel}>
+    <div role="dialog" aria-modal="true" aria-label="Accept partial asset group" className="w-full max-w-lg rounded-[12px] border border-line bg-ink-200 p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <h3 className="text-sm font-medium text-paper">Accept partial group?</h3>
+      <div className="mt-3 grid gap-2 rounded border border-line bg-ink p-3 text-xs text-paper-3">
+        <div>Original expected count: <span className="text-paper">{group.completeness.originalExpectedCount ?? "unknown"} {noun}</span></div>
+        <div>Current valid frames: <span className="text-paper">{group.completeness.actualCurrentCount}</span></div>
+        <div>Accepted indexes: <span className="font-mono text-paper">{accepted.join(", ")}</span></div>
+        <div>Missing indexes: <span className="font-mono text-paper">{missing.length ? missing.join(", ") : "none"}</span></div>
+        <div>Generation job: <span className="font-mono text-paper">{group.job?.status ?? "not found"}</span></div>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-paper-3">Remaining generation work will be cancelled. Late workers will not be permitted to add frames. The original expected count stays preserved for audit.</p>
+      <label className="mt-4 block text-2xs uppercase text-paper-3">Reason</label>
+      <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} className="mt-1 w-full rounded border border-line bg-ink p-2 text-xs text-paper outline-none focus:border-teal" placeholder="Explain why this partial group is intentional." />
+      <div className="mt-5 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button><Button variant="danger" disabled={busy || !valid || !group.job} onClick={() => onConfirm(reason.trim())}>{busy ? "Accepting…" : `Stop generation and accept ${group.rows.length} ${noun}`}</Button></div>
+    </div>
+  </div>;
+}
+
+function AssetPreviewModal({ group, busy, notice, onClose, onAction, onDismissWarning, onAcceptPartial, onViewProductionBrief }: {
   group: AssetGroup;
   busy: boolean;
   notice: { error: boolean; message: string } | null;
   onClose: () => void;
   onAction: (kind: NonNullable<PendingAction>["kind"]) => void;
+  onDismissWarning: (warningCode: string, warningFingerprint: string) => void;
+  onAcceptPartial: () => void;
   onViewProductionBrief?: (sourceRef: string) => void;
 }) {
   const multi = group.first.asset_format === "carousel" || group.first.asset_format === "story_sequence";
@@ -203,6 +236,13 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onViewProdu
   const noun = group.first.asset_format === "carousel" ? "slide" : "frame";
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const [frameBusy, setFrameBusy] = useState<string | null>(null);
+  const canAcceptPartial = !!group.job
+    && group.rows.length > 0
+    && !group.completeness.isAcceptedPartial
+    && group.status !== "approved"
+    && group.completeness.originalExpectedCount !== null
+    && group.completeness.actualCurrentCount < group.completeness.originalExpectedCount
+    && (group.completeness.isIncomplete || group.generating);
   async function regenerateFrame(asset: ClientAssetRow) {
     if (!window.confirm(`Regenerate ${noun} ${asset.sequence_index} as a new version? It reuses the stored prompt; prior versions are kept for history.`)) return;
     setFrameBusy(asset.id); setExportNotice(null);
@@ -219,7 +259,7 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onViewProdu
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 sm:items-center" onClick={onClose}>
     <div role="dialog" aria-modal="true" aria-label={`${group.first.source_ref} asset preview`} className="flex h-[95vh] w-full max-w-7xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:h-[92vh] sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
       <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{formatLabel(group.first.asset_format)}</span></div><h2 className="mt-2 break-words text-sm font-medium text-paper">{group.first.title ?? group.first.source_ref}</h2><div className="mt-1 flex flex-wrap gap-3 font-mono text-2xs text-paper-3"><span>{group.rows.length} {multi ? group.first.asset_format === "carousel" ? "slides" : "frames" : "image"}</span><span>{group.dimensions.join(", ")}</span><span>{group.first.generation_provider} / {group.first.generation_model}</span><span>{new Date(group.first.created_at).toLocaleString()}</span></div></div><button aria-label="Close asset preview" onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
-      <div className="flex shrink-0 flex-wrap gap-2 border-b border-line px-4 py-2.5 sm:px-5"><Button size="sm" variant="secondary" disabled={busy || group.status === "approved" || group.generating || group.incomplete || group.visualMismatch} title={group.generating ? "Generation is still in progress. Wait for it to finish before reviewing." : group.incomplete ? `Incomplete group — expected ${group.expectedCount}, found ${group.rows.length}. Regenerate a complete group before approving.` : group.visualMismatch ? "Requested visual mode used an uploaded image, but the model did not use it. Regenerate before approving." : undefined} onClick={() => onAction("approved")}>Approve Asset</Button><Button size="sm" variant="danger" disabled={busy || group.status === "rejected"} onClick={() => onAction("rejected")}>Reject Asset</Button>{(group.status === "approved" || group.status === "rejected" || group.status === "mixed") && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("needs_review")}>Reset to Needs Review</Button>}{group.status === "rejected" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archived")}>Archive</Button>}<Button size="sm" variant="danger" disabled={busy || group.generating} title="Reject this asset group, delete its current files, and return the brief to Content Briefs" onClick={() => setRollbackOpen(true)}>Reject → Briefs</Button><Button size="sm" variant="ghost" className="ml-auto" disabled={busy || group.generating || group.first.asset_format === "reel_video"} title={group.generating ? "A generation job is already in progress for this brief." : undefined} onClick={() => onAction("regenerate")}>Regenerate Asset</Button></div>{rollbackOpen && <DestructiveDialog target={{ operation_type: "reject_asset", asset_group_ref: group.first.asset_group_ref }} title={`Reject ${group.first.source_ref} → Content Briefs`} confirmWord={group.first.source_ref} onClose={() => setRollbackOpen(false)} onDone={() => { window.dispatchEvent(new Event("aa:reload")); }} />}
+      <div className="flex shrink-0 flex-wrap gap-2 border-b border-line px-4 py-2.5 sm:px-5"><Button size="sm" variant="secondary" disabled={busy || group.status === "approved" || !group.completeness.canApproveCompleteness || group.visualMismatch} title={group.generating ? "Generation is still in progress. Wait for it to finish or accept a partial group before reviewing." : group.incomplete ? `Incomplete group — expected ${group.expectedCount}, found ${group.rows.length}. Accept the partial group before approving.` : group.visualMismatch ? "Requested visual mode used an uploaded image, but the model did not use it. Regenerate before approving." : undefined} onClick={() => onAction("approved")}>Approve Asset</Button><Button size="sm" variant="danger" disabled={busy || group.status === "rejected"} onClick={() => onAction("rejected")}>Reject Asset</Button>{(group.status === "approved" || group.status === "rejected" || group.status === "mixed") && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("needs_review")}>Reset to Needs Review</Button>}{group.status === "rejected" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archived")}>Archive</Button>}<Button size="sm" variant="danger" disabled={busy || group.generating} title="Reject this asset group, delete its current files, and return the brief to Content Briefs" onClick={() => setRollbackOpen(true)}>Reject → Briefs</Button>{group.completeness.isAcceptedPartial ? <span className="self-center rounded border border-teal/20 bg-teal/10 px-2 py-1 text-2xs text-teal">Accepted {group.completeness.acceptedOutputCount} of {group.completeness.originalExpectedCount}</span> : canAcceptPartial ? <Button size="sm" variant="ghost" disabled={busy} onClick={onAcceptPartial}>Accept {group.rows.length}-frame group</Button> : null}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || group.generating || group.completeness.isAcceptedPartial || group.first.asset_format === "reel_video"} title={group.generating ? "Generation is still in progress." : group.completeness.isAcceptedPartial ? "Accepted partial groups require an explicit future retry/revoke flow before regeneration." : undefined} onClick={() => onAction("regenerate")}>Regenerate Asset</Button></div>{rollbackOpen && <DestructiveDialog target={{ operation_type: "reject_asset", asset_group_ref: group.first.asset_group_ref }} title={`Reject ${group.first.source_ref} → Content Briefs`} confirmWord={group.first.source_ref} onClose={() => setRollbackOpen(false)} onDone={() => { window.dispatchEvent(new Event("aa:reload")); }} />}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 sm:px-5">
         <span className="text-2xs uppercase text-paper-3">Export</span>
         <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void runExport(group.rows.length > 1 ? "Group ZIP" : "PNG", () => downloadAssetsZip(group.rows, groupZipName))}>{exporting ? "Exporting…" : group.rows.length > 1 ? `Download group ZIP (${group.rows.length})` : "Download PNG"}</Button>
@@ -229,7 +269,7 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onViewProdu
       </div>
       {exportNotice && <div role={exportNotice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${exportNotice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{exportNotice.message}</div>}
       {notice && <div role={notice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
-      {!!group.warnings.length && <div className="shrink-0 border-b border-warn/20 bg-warn/5 px-5 py-2 text-xs text-warn">{group.warnings.join(" ")}</div>}
+      {!!group.warnings.length && <div className="shrink-0 border-b border-warn/20 bg-warn/5 px-5 py-2 text-xs text-warn"><div>{group.warnings.join(" ")}</div>{!group.completeness.isAcceptedPartial && !!group.completeness.allWarnings.length && <div className="mt-2 flex flex-wrap gap-2">{group.completeness.allWarnings.map((warning) => <Button key={warning.fingerprint} size="sm" variant="ghost" disabled={busy || warning.dismissed} onClick={() => onDismissWarning(warning.code, warning.fingerprint)}>{warning.dismissed ? "Warning dismissed" : "Dismiss warning"}</Button>)}{group.generating && <span className="self-center text-2xs text-paper-3">Continue generation / no action required</span>}<span className="self-center text-2xs text-paper-3">Retrying missing frames will be added in a later workflow.</span></div>}</div>}
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         <div className={multi ? "flex snap-x gap-4 overflow-x-auto pb-4" : "mx-auto max-w-3xl"}>{group.rows.map((asset) => <figure key={asset.id} className={`${multi ? "w-[min(72vw,360px)] shrink-0 snap-start" : "w-full"}`} title={assetPngFilename(asset)}>
           <div className={`relative flex ${aspectClass(asset.asset_format)} items-center justify-center overflow-hidden rounded-lg border border-line bg-black/30`}>{group.rows.length > 1 && <label className="absolute left-2 top-2 z-10 flex items-center rounded bg-black/60 p-1"><input type="checkbox" aria-label={`Select ${asset.source_ref} ${asset.sequence_index}`} checked={selected.has(asset.id)} onChange={() => toggleSelect(asset.id)} className="accent-teal" /></label>}{asset.signed_url ? <img src={asset.signed_url} alt={`${asset.source_ref} ${asset.sequence_index}`} className="h-full w-full object-contain" /> : <div className="px-5 text-center text-xs text-neg">Private preview unavailable. The object may be missing or its signed URL could not be created.</div>}</div>
@@ -239,7 +279,7 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onViewProdu
             <button type="button" disabled={frameBusy !== null || group.generating || group.first.asset_format === "reel_video"} title={group.generating ? "Generation is still in progress." : "Regenerate this frame as a new version"} onClick={() => void regenerateFrame(asset)} className="ml-auto rounded border border-line px-1.5 py-0.5 text-2xs text-teal hover:border-teal/30 disabled:opacity-50">{frameBusy === asset.id ? "Regenerating…" : `Regenerate ${noun}`}</button>
           </div>
         </figure>)}</div>
-        <section className="mt-5 grid gap-3 rounded-lg border border-line bg-ink p-4 text-xs sm:grid-cols-2">{group.visual.mode && <div className="sm:col-span-2 rounded border border-line bg-ink-200 p-3"><div className="text-2xs uppercase text-paper-3">Visual Direction</div><div className="mt-1.5 grid gap-1.5 sm:grid-cols-2"><div className="text-paper-3">Visual mode: <span className="text-paper">{visualModeLabel(group.visual.mode)}</span></div>{group.visual.backgroundStrength && <div className="text-paper-3">Background strength: <span className="text-paper capitalize">{group.visual.backgroundStrength}</span></div>}{(group.visual.inputImageFilename || group.visual.inputImagePath) && <div className="sm:col-span-2 break-all text-paper-3">Input image: <span className="font-mono text-paper">{group.visual.inputImageFilename ?? group.visual.inputImagePath}</span></div>}{UPLOADED_VISUAL_MODES.has(group.visual.mode) && <div className="text-paper-3">Image input used by model: <span className={group.visual.imageInputUsed === false ? "text-neg" : "text-paper"}>{group.visual.imageInputUsed === null ? "unknown" : group.visual.imageInputUsed ? "Yes" : "No"}</span></div>}{group.visual.visualInstructions && <div className="sm:col-span-2 text-paper-3">Instructions: <span className="text-paper">{group.visual.visualInstructions}</span></div>}</div></div>}<div><div className="text-2xs uppercase text-paper-3">Production</div><div className="mt-1 text-paper">{group.mode} · {group.first.generation_provider} / {group.first.generation_model}</div></div><div><div className="text-2xs uppercase text-paper-3">Dimensions</div><div className="mt-1 text-paper">{group.dimensions.join(", ")} · {group.first.mime_type}</div></div><div><div className="text-2xs uppercase text-paper-3">Production brief</div><div className="mt-1 break-all font-mono text-paper">{group.first.production_brief_id}</div>{onViewProductionBrief && <button className="mt-2 text-teal hover:underline" onClick={() => onViewProductionBrief(group.first.source_ref)}>Open in Content Briefs →</button>}</div><div><div className="text-2xs uppercase text-paper-3">Source master</div><div className="mt-1 text-paper">{group.first.production_brief?.source_table ?? "Master source"} · {group.first.source_ref}</div>{group.first.production_brief?.source_row_id && <div className="mt-1 break-all font-mono text-2xs text-paper-3">{group.first.production_brief.source_row_id}</div>}</div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Storage path</div><div className="mt-1 break-all font-mono text-2xs text-paper">{group.first.storage_bucket}/{group.first.storage_path}</div></div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Generation prompt · {group.first.prompt_md.length.toLocaleString()} characters</div><pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-ink-200 p-3 font-mono text-2xs leading-5 text-paper-2">{group.first.prompt_md.slice(0, 2400)}{group.first.prompt_md.length > 2400 ? "\n…" : ""}</pre></div></section>
+        <section className="mt-5 grid gap-3 rounded-lg border border-line bg-ink p-4 text-xs sm:grid-cols-2">{group.visual.mode && <div className="sm:col-span-2 rounded border border-line bg-ink-200 p-3"><div className="text-2xs uppercase text-paper-3">Visual Direction</div><div className="mt-1.5 grid gap-1.5 sm:grid-cols-2"><div className="text-paper-3">Visual mode: <span className="text-paper">{visualModeLabel(group.visual.mode)}</span></div>{group.visual.backgroundStrength && <div className="text-paper-3">Background strength: <span className="text-paper capitalize">{group.visual.backgroundStrength}</span></div>}{(group.visual.inputImageFilename || group.visual.inputImagePath) && <div className="sm:col-span-2 break-all text-paper-3">Input image: <span className="font-mono text-paper">{group.visual.inputImageFilename ?? group.visual.inputImagePath}</span></div>}{UPLOADED_VISUAL_MODES.has(group.visual.mode) && <div className="text-paper-3">Image input used by model: <span className={group.visual.imageInputUsed === false ? "text-neg" : "text-paper"}>{group.visual.imageInputUsed === null ? "unknown" : group.visual.imageInputUsed ? "Yes" : "No"}</span></div>}{group.visual.visualInstructions && <div className="sm:col-span-2 text-paper-3">Instructions: <span className="text-paper">{group.visual.visualInstructions}</span></div>}</div></div>}<div><div className="text-2xs uppercase text-paper-3">Production</div><div className="mt-1 text-paper">{group.mode} · {group.first.generation_provider} / {group.first.generation_model}</div></div><div><div className="text-2xs uppercase text-paper-3">Completeness</div><div className="mt-1 text-paper">{group.completeness.isAcceptedPartial ? `Accepted ${group.completeness.acceptedOutputCount} of ${group.completeness.originalExpectedCount}` : `${group.completeness.actualCurrentCount} of ${group.completeness.originalExpectedCount ?? "?"}`}</div>{group.completeness.missingIndexes.length > 0 && <div className="mt-1 text-paper-3">Missing: <span className="font-mono">{group.completeness.missingIndexes.join(", ")}</span></div>}{group.job && <div className="mt-1 text-paper-3">Job: <span className="font-mono">{group.job.status}</span></div>}{group.completeness.activeOverride && <div className="mt-1 text-paper-3">Reason: <span className="text-paper">{group.completeness.activeOverride.override_reason}</span></div>}</div><div><div className="text-2xs uppercase text-paper-3">Dimensions</div><div className="mt-1 text-paper">{group.dimensions.join(", ")} · {group.first.mime_type}</div></div><div><div className="text-2xs uppercase text-paper-3">Production brief</div><div className="mt-1 break-all font-mono text-paper">{group.first.production_brief_id}</div>{onViewProductionBrief && <button className="mt-2 text-teal hover:underline" onClick={() => onViewProductionBrief(group.first.source_ref)}>Open in Content Briefs →</button>}</div><div><div className="text-2xs uppercase text-paper-3">Source master</div><div className="mt-1 text-paper">{group.first.production_brief?.source_table ?? "Master source"} · {group.first.source_ref}</div>{group.first.production_brief?.source_row_id && <div className="mt-1 break-all font-mono text-2xs text-paper-3">{group.first.production_brief.source_row_id}</div>}</div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Storage path</div><div className="mt-1 break-all font-mono text-2xs text-paper">{group.first.storage_bucket}/{group.first.storage_path}</div></div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Generation prompt · {group.first.prompt_md.length.toLocaleString()} characters</div><pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-ink-200 p-3 font-mono text-2xs leading-5 text-paper-2">{group.first.prompt_md.slice(0, 2400)}{group.first.prompt_md.length > 2400 ? "\n…" : ""}</pre></div></section>
       </main>
     </div>
   </div>;
@@ -249,10 +289,13 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
   const navigate = useNavigate();
   const [assets, setAssets] = useState<ClientAssetRow[]>([]);
   const [jobMap, setJobMap] = useState<Map<string, AssetGenerationJobRow>>(new Map());
+  const [overrideMap, setOverrideMap] = useState<Map<string, AssetGroupCompletenessOverrideRow>>(new Map());
+  const [ackMap, setAckMap] = useState<Map<string, AssetWarningAcknowledgementRow[]>>(new Map());
   const [stageMap, setStageMap] = useState<Map<string, EffectiveStageEntry>>(new Map());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openRef, setOpenRef] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
+  const [partialAccept, setPartialAccept] = useState<PartialAcceptTarget>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -269,8 +312,9 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [nextAssets, stages, jobs, dateContext] = await Promise.all([fetchClientAssets(clientId), executionMonth ? fetchEffectiveStageMap(clientId, executionMonth) : Promise.resolve(new Map<string, EffectiveStageEntry>()), fetchLatestAssetJobsByBrief(clientId), executionMonth ? fetchLifecycleDateContext(clientId, executionMonth) : Promise.resolve({} as LifecycleDateContext)]);
+      const [nextAssets, stages, jobs, overrides, acknowledgements, dateContext] = await Promise.all([fetchClientAssets(clientId), executionMonth ? fetchEffectiveStageMap(clientId, executionMonth) : Promise.resolve(new Map<string, EffectiveStageEntry>()), fetchLatestAssetJobsByBrief(clientId), fetchAssetCompletenessOverrides(clientId), fetchAssetWarningAcknowledgements(clientId), executionMonth ? fetchLifecycleDateContext(clientId, executionMonth) : Promise.resolve({} as LifecycleDateContext)]);
       setAssets(nextAssets); setStageMap(stages); setJobMap(jobs);
+      setOverrideMap(overrides); setAckMap(acknowledgements);
       setLifecycleContext(dateContext);
     }
     catch (value) { setError(errorText(value)); }
@@ -282,8 +326,8 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
   const groups = useMemo(() => {
     const map = new Map<string, ClientAssetRow[]>();
     for (const asset of assets) map.set(asset.asset_group_ref, [...(map.get(asset.asset_group_ref) ?? []), asset]);
-    return [...map.entries()].map(([ref, rows]) => makeGroup(ref, rows, jobMap.get(rows[0].production_brief_id))).sort((a, b) => b.first.created_at.localeCompare(a.first.created_at));
-  }, [assets, jobMap]);
+    return [...map.entries()].map(([ref, rows]) => makeGroup(ref, rows, jobMap.get(rows[0].production_brief_id), overrideMap.get(ref), ackMap.get(ref) ?? [])).sort((a, b) => b.first.created_at.localeCompare(a.first.created_at));
+  }, [ackMap, assets, jobMap, overrideMap]);
   // Active = groups whose ref is still in the assets stage. Once approved (stage
   // distribution or later) the group leaves the active list for the drawer.
   const activeGroups = useMemo(() => groups.filter((group) => { const entry = stageMap.get(group.first.source_ref); return !entry || !isPassedThrough(entry.stage, "assets"); }), [groups, stageMap]);
@@ -311,14 +355,8 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
   async function confirmAction() {
     if (!pending || !pendingGroup) return;
     // A group whose generation job is still running is not reviewable.
-    if (pending.kind === "approved" && pendingGroup.generating) {
-      setNotice({ error: true, message: "Generation is still in progress for this group. Wait for it to complete before approving." });
-      setPending(null);
-      return;
-    }
-    // Incomplete carousel/story groups cannot be approved — reject/regenerate only.
-    if (pending.kind === "approved" && pendingGroup.incomplete) {
-      setNotice({ error: true, message: `Cannot approve an incomplete group — expected ${pendingGroup.expectedCount}, found ${pendingGroup.rows.length}. Regenerate a complete group first.` });
+    if (pending.kind === "approved" && !pendingGroup.completeness.canApproveCompleteness) {
+      setNotice({ error: true, message: pendingGroup.completeness.isAcceptedPartial ? "Cannot approve — the partial acceptance no longer matches the current frames." : "Cannot approve — generation is still in progress or the group is incomplete. Accept the partial group before approving." });
       setPending(null);
       return;
     }
@@ -379,6 +417,48 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
     finally { setBusy(false); }
   }
 
+  async function dismissWarning(group: AssetGroup, warningCode: string, warningFingerprint: string) {
+    setBusy(true); setNotice(null);
+    try {
+      await acknowledgeAssetGroupWarning({ assetGroupRef: group.ref, warningCode, warningFingerprint });
+      await load();
+      setOpenRef(group.ref);
+      setNotice({ error: false, message: "Warning dismissed for the current condition. It will return if the underlying count or job state changes." });
+    } catch (value) {
+      const message = errorText(value);
+      if (message.includes("STALE_ASSET_GROUP")) {
+        setPartialAccept(null);
+        await load();
+        setOpenRef(group.ref);
+        setNotice({ error: true, message: "The asset group changed while you were reviewing it. Review the latest frames before accepting a partial group." });
+      } else {
+        setNotice({ error: true, message });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptPartial(group: AssetGroup, reason: string) {
+    if (!group.job) {
+      setNotice({ error: true, message: "Cannot accept a partial group without a related generation job." });
+      return;
+    }
+    setBusy(true); setNotice(null);
+    try {
+      const acceptedSequenceIndexes = group.rows.map((row) => row.sequence_index);
+      await acceptPartialAssetGroup({ assetGroupRef: group.ref, generationJobId: group.job.id, reason, acceptedSequenceIndexes });
+      setPartialAccept(null);
+      await load();
+      setOpenRef(group.ref);
+      setNotice({ error: false, message: `Accepted ${acceptedSequenceIndexes.length} of ${group.completeness.originalExpectedCount ?? group.job.expected_output_count} frames as the final group.` });
+    } catch (value) {
+      setNotice({ error: true, message: errorText(value) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading && !assets.length) return <div className="p-6 text-xs text-paper-3">Loading generated assets…</div>;
   return <div className="min-h-0 flex-1 overflow-y-auto p-4">
     <div className="mb-3 rounded-[10px] border border-line bg-ink-200 p-4"><div className="flex flex-wrap items-center gap-3"><div><div className="text-sm text-paper">Produced Assets</div><div className="mt-1 text-2xs text-paper-3">One review card per asset group. Private previews use one-hour signed links.</div></div><span className="ml-auto font-mono text-2xs text-paper-3">{filtered.length} of {activeGroups.length} active · {assets.length} files</span><Button size="sm" variant="ghost" disabled={!passedThroughEntries.length} onClick={() => setDrawerOpen(true)}>Archived / Passed Through{passedThroughEntries.length ? ` (${passedThroughEntries.length})` : ""}</Button><Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>{loading ? "Reloading…" : "Reload"}</Button></div>
@@ -389,8 +469,9 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
     {!groups.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No generated assets yet.</div><div className="mt-2 text-xs text-paper-3">Open an approved production brief in Content Briefs and choose Produce → AI.</div></div> : !activeGroups.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No asset groups are active in review.</div><div className="mt-2 text-xs text-paper-3">Approved groups have moved to Distribution — see Archived / Passed Through.</div></div> : !filtered.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No asset groups match these filters.</div><button className="mt-2 text-xs text-teal hover:underline" onClick={() => { setSearch(""); setFormat("all"); setStatus("all"); setSource("all"); setDateFrom(""); setDateTo(""); }}>Clear filters</button></div> : <div className="flex flex-col gap-4">{groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.filter((group) => group.generating).length} generating · ${section.records.filter((group) => group.incomplete).length} incomplete`}>
       <div className="grid gap-3 lg:grid-cols-2">{section.records.map((group) => { const plannedDate = resolveCanonicalPublishDate(group.first, "asset", lifecycleContext).date; const contentType = resolveLifecycleContentType(group.first); return <article key={group.ref} className="flex min-w-0 flex-col rounded-[10px] border border-line bg-ink-200 p-4"><div className="flex items-start gap-3"><div className={`w-20 shrink-0 overflow-hidden rounded border border-line ${aspectClass(group.first.asset_format)} bg-black/20`}>{group.first.signed_url ? <img src={group.first.signed_url} alt={group.first.title ?? group.first.source_ref} className="h-full w-full object-cover"/> : <div className="flex h-full items-center justify-center p-2 text-center text-2xs text-neg">Preview unavailable</div>}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span></div><h3 className="mt-2 break-words text-xs text-paper">{group.first.title ?? formatLabel(group.first.asset_format)}</h3><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3"><span>{contentType.label}</span><span>{group.mode}</span><span>{group.rows.length} {group.rows.length === 1 ? "file" : "files"}</span><span>group {group.ref}</span><span>planned {plannedDate ?? "date unavailable"}</span></div></div></div>{!!group.warnings.length && <div className="mt-3 rounded border border-warn/20 bg-warn/5 px-2 py-1.5 text-2xs text-warn">{group.warnings.join(" ")}</div>}<div className="mt-3 flex justify-end"><Button size="sm" variant="secondary" onClick={() => { setOpenRef(group.ref); setNotice(null); }}>View</Button></div></article>; })}</div>
     </LifecycleDateSection>)}</div>}
-    {openGroup && <AssetPreviewModal group={openGroup} busy={busy} notice={notice} onClose={() => { if (!busy) { setOpenRef(null); setNotice(null); } }} onAction={(kind) => setPending({ kind, groupRef: openGroup.ref })} onViewProductionBrief={onViewProductionBrief} />}
+    {openGroup && <AssetPreviewModal group={openGroup} busy={busy} notice={notice} onClose={() => { if (!busy) { setOpenRef(null); setNotice(null); } }} onAction={(kind) => setPending({ kind, groupRef: openGroup.ref })} onDismissWarning={(warningCode, warningFingerprint) => void dismissWarning(openGroup, warningCode, warningFingerprint)} onAcceptPartial={() => setPartialAccept(openGroup)} onViewProductionBrief={onViewProductionBrief} />}
     {pending && pendingGroup && <Confirmation action={pending} group={pendingGroup} busy={busy} onCancel={() => setPending(null)} onConfirm={() => void confirmAction()} />}
+    {partialAccept && <PartialAcceptModal group={partialAccept} busy={busy} onCancel={() => setPartialAccept(null)} onConfirm={(reason) => void acceptPartial(partialAccept, reason)} />}
     {drawerOpen && <PassedThroughDrawer tabStage="assets" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}
   </div>;
 }

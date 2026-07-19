@@ -35,6 +35,8 @@ Deno.serve(async (req: Request) => {
     const { data: jobs, error } = await sb.from("client_asset_generation_jobs")
       .select("id")
       .in("status", ["queued", "processing"])
+      .is("closed_at", null)
+      .eq("accepted_partial", false)
       .order("updated_at", { ascending: true })
       .limit(JOB_SCAN_LIMIT);
     if (error) return json({ ok: false, function: FUNCTION_NAME, error: error.message }, 500);

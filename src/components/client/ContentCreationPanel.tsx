@@ -56,6 +56,7 @@ const ITEM_DOT: Record<AssetGenerationItemRow["status"], string> = {
   complete: "bg-teal",
   processing: "bg-warn animate-pulse",
   failed: "bg-neg",
+  cancelled: "bg-paper-3",
   queued: "bg-line",
 };
 

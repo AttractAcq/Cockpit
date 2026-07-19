@@ -158,39 +158,58 @@ async function handleIgMessage(
 //
 // Entity threading:
 //   campaigns.external_id = leadgen value.ad_id → get entity_id
-// Writes to: agent_events, ad_metrics (atomic increment via RPC), triage_items.
+// Writes to: agent_events and triage_items. Direct lead counter mutation is
+// disabled because there is no supported increment RPC in the current schema.
 
 async function handleLeadgen(
   sb: ReturnType<typeof svc>,
   value: MetaLeadValue,
 ) {
   // Find campaign by the Meta ad ID stored in campaigns.external_id
-  const { data: campaign } = await sb
+  const { data: campaign, error: campaignErr } = await sb
     .from("campaigns")
     .select("id, entity_id")
     .eq("external_id", value.ad_id)
     .maybeSingle();
+  if (campaignErr) {
+    console.error("[meta-webhook] leadgen campaign lookup failed:", {
+      ad_id: value.ad_id,
+      message: campaignErr.message,
+    });
+    throw new Error(`leadgen campaign lookup failed: ${campaignErr.message}`);
+  }
 
   const entityId   = campaign?.entity_id ?? null;
   const campaignId = campaign?.id ?? null;
 
-  // Atomic lead increment in ad_metrics (campaign must be known)
-  if (campaignId) {
-    const today = new Date().toISOString().slice(0, 10);
-    await sb.rpc("increment_ad_lead", { p_campaign_id: campaignId, p_metric_date: today });
-  }
+  const leadCounterStatus = "disabled_no_supported_rpc";
 
   // Log the event
-  await agentEvent(sb, entityId, "meta-webhook", "leadgen_received", {
-    leadgen_id: value.leadgen_id,
-    ad_id:      value.ad_id,
-    form_id:    value.form_id,
-    page_id:    value.page_id,
-    campaign_id: campaignId,
+  const { error: eventErr } = await sb.from("agent_events").insert({
+    entity_id: entityId,
+    agent: "meta-webhook",
+    event_type: "leadgen_received",
+    status: "processed",
+    payload: {
+      leadgen_id: value.leadgen_id,
+      ad_id: value.ad_id,
+      form_id: value.form_id,
+      page_id: value.page_id,
+      campaign_id: campaignId,
+      lead_counter_status: leadCounterStatus,
+    },
   });
+  if (eventErr) {
+    console.error("[meta-webhook] leadgen event insert failed:", {
+      ad_id: value.ad_id,
+      campaign_id: campaignId,
+      message: eventErr.message,
+    });
+    throw new Error(`leadgen event insert failed: ${eventErr.message}`);
+  }
 
   // Triage item so the team knows to follow up with the lead
-  await sb.from("triage_items").insert({
+  const { error: triageErr } = await sb.from("triage_items").insert({
     entity_id: entityId,
     source: "meta-webhook",
     priority: entityId ? "normal" : "high",
@@ -198,6 +217,14 @@ async function handleLeadgen(
     title: entityId
       ? `New Meta lead via campaign`
       : `New Meta lead — no campaign match for ad ${value.ad_id}`,
-    detail: `Leadgen ID: ${value.leadgen_id}. Ad: ${value.ad_id}. Form: ${value.form_id}. ${campaignId ? "" : "Set campaigns.external_id = " + value.ad_id + " to enable auto-threading."}`,
+    detail: `Leadgen ID: ${value.leadgen_id}. Ad: ${value.ad_id}. Form: ${value.form_id}. Lead counter: disabled_no_supported_rpc. ${campaignId ? "" : "Set campaigns.external_id = " + value.ad_id + " to enable auto-threading."}`,
   });
+  if (triageErr) {
+    console.error("[meta-webhook] leadgen triage insert failed:", {
+      ad_id: value.ad_id,
+      campaign_id: campaignId,
+      message: triageErr.message,
+    });
+    throw new Error(`leadgen triage insert failed: ${triageErr.message}`);
+  }
 }

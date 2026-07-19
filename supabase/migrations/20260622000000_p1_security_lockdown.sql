@@ -11,9 +11,35 @@
 -- meta-webhook under the service role, which bypasses these grants.
 
 -- increment_ad_lead: close anon/public/authenticated RPC + pin search_path
-REVOKE EXECUTE ON FUNCTION public.increment_ad_lead(uuid, date) FROM PUBLIC, anon, authenticated;
-ALTER  FUNCTION public.increment_ad_lead(uuid, date) SET search_path = public;
+-- The production object was absent by July 2026, but older environments may still
+-- have it. Keep the hardening when the exact legacy function exists.
+DO $$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.increment_ad_lead(uuid,date)') IS NOT NULL THEN
+    EXECUTE
+      'REVOKE EXECUTE ON FUNCTION public.increment_ad_lead(uuid, date)
+       FROM PUBLIC, anon, authenticated';
+
+    EXECUTE
+      'ALTER FUNCTION public.increment_ad_lead(uuid, date)
+       SET search_path = public';
+  END IF;
+END
+$$;
 
 -- lead-score trigger functions: revoke RPC exposure (search_path already pinned)
-REVOKE EXECUTE ON FUNCTION public.trg_lead_score_before() FROM PUBLIC, authenticated;
-REVOKE EXECUTE ON FUNCTION public.trg_lead_score_after()  FROM PUBLIC, authenticated;
+DO $$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.trg_lead_score_before()') IS NOT NULL THEN
+    EXECUTE
+      'REVOKE EXECUTE ON FUNCTION public.trg_lead_score_before()
+       FROM PUBLIC, authenticated';
+  END IF;
+
+  IF pg_catalog.to_regprocedure('public.trg_lead_score_after()') IS NOT NULL THEN
+    EXECUTE
+      'REVOKE EXECUTE ON FUNCTION public.trg_lead_score_after()
+       FROM PUBLIC, authenticated';
+  END IF;
+END
+$$;
