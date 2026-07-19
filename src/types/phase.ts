@@ -702,6 +702,31 @@ export interface ClientIterationReview {
   new_status: IterationCandidateStatus; review_note: string | null; reviewed_by: string; created_at: string;
 }
 
+export type ContextUpdateProposalStatus = "needs_review" | "approved" | "dismissed" | "converted_to_patch";
+export type ContextUpdateProposalType = "context_file_update" | "master_context_update" | "positioning_update" | "offer_update" | "proof_angle_update" | "cta_update" | "distribution_update" | "content_rule_update" | "calendar_rule_update" | "other";
+export type ContextUpdateTargetType = "context_file" | "master_context" | "playbook" | "content_rule" | "distribution_rule" | "approval_rule" | "offer" | "positioning" | "other";
+export type ContextUpdateChangeIntent = "add" | "revise" | "remove" | "clarify" | "emphasize" | "de_emphasize";
+
+export interface ClientContextUpdateProposal {
+  id: string; client_id: string; iteration_candidate_id: string | null; source_ref: string | null; distribution_record_id: string | null;
+  proposal_type: ContextUpdateProposalType; title: string; summary: string; rationale: string; evidence: Record<string, unknown>;
+  confidence: "low" | "medium" | "high"; priority: "low" | "medium" | "high"; status: ContextUpdateProposalStatus;
+  created_from: "iteration_candidate" | "manual"; created_by: "operator" | "system"; reviewer_notes: string | null;
+  reviewed_at: string | null; converted_at: string | null; created_at: string; updated_at: string;
+  items?: ClientContextUpdateProposalItem[];
+}
+
+export interface ClientContextUpdateProposalItem {
+  id: string; client_id: string; proposal_id: string; target_type: ContextUpdateTargetType; target_file_id: string | null;
+  target_file_name: string | null; target_file_path: string | null; target_section: string | null; current_state_summary: string | null;
+  proposed_change_summary: string; change_intent: ContextUpdateChangeIntent; evidence: Record<string, unknown>; created_at: string; updated_at: string;
+}
+
+export interface ClientContextUpdateReview {
+  id: string; client_id: string; proposal_id: string; previous_status: ContextUpdateProposalStatus | null;
+  new_status: ContextUpdateProposalStatus; review_note: string | null; reviewed_by: string; created_at: string;
+}
+
 export interface ManualMetricFormState {
   snapshot_at: string; snapshot_label: MetricSnapshotLabel; metrics: Partial<Record<SupportedMetricKey, string>>;
   notes: string; evidence_url: string;

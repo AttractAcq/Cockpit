@@ -5,13 +5,14 @@ import { Button, Panel } from "@/components/primitives";
 import {
   fetchClientContextFile,
   fetchClientContextFiles,
+  fetchContextUpdateProposals,
   generatePhase1File,
   logActivity,
   updateContextFileContent,
   updateContextFileStatus,
 } from "@/lib/api";
 import { CONTEXT_FILE_DEFS } from "@/types/phase";
-import type { ClientContextFile, ContextFileStatus } from "@/types/phase";
+import type { ClientContextFile, ClientContextUpdateProposal, ContextFileStatus } from "@/types/phase";
 
 type ViewMode = "preview" | "edit" | "split";
 type Filter = "all" | "approved" | "needs_review" | "needs_client_input";
@@ -313,6 +314,7 @@ export function ContextFilesPanel({
   onFilesLoaded?: (files: ClientContextFile[]) => void;
 }) {
   const [files, setFiles] = useState<ClientContextFile[]>([]);
+  const [proposals, setProposals] = useState<ClientContextUpdateProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -322,8 +324,9 @@ export function ContextFilesPanel({
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await fetchClientContextFiles(clientId);
+      const [data,nextProposals] = await Promise.all([fetchClientContextFiles(clientId),fetchContextUpdateProposals(clientId)]);
       setFiles(data);
+      setProposals(nextProposals);
       onFilesLoaded?.(data);
       return data;
     } catch (error) {
@@ -345,6 +348,7 @@ export function ContextFilesPanel({
     missing: CONTEXT_FILE_DEFS.length - new Set(files.map((file) => file.file_number)).size,
   }), [files]);
   const latest = files.reduce<string | null>((value, file) => !value || file.updated_at > value ? file.updated_at : value, null);
+  const fileProposalItems = proposals.flatMap((proposal) => (proposal.items ?? []).map((item) => ({ proposal, item }))).filter(({ item }) => item.target_file_id);
   const fileMap = new Map(files.map((file) => [file.file_number, file]));
   const visibleDefinitions = CONTEXT_FILE_DEFS.filter((definition) => {
     if (filter === "all") return true;
@@ -375,6 +379,7 @@ export function ContextFilesPanel({
         {files.length === CONTEXT_FILE_DEFS.length && counts.approved !== CONTEXT_FILE_DEFS.length && (
           <p className="mt-2 text-2xs text-warn">Phase 2 blocked: approve or resolve all context files first.</p>
         )}
+        {proposals.length > 0 && <p className="mt-2 text-2xs text-paper-3">Proposal only — {proposals.filter((proposal)=>proposal.status==="needs_review"||proposal.status==="approved").length} open context update proposal{proposals.filter((proposal)=>proposal.status==="needs_review"||proposal.status==="approved").length===1?"":"s"}; no context file is edited from this indicator.</p>}
       </div>
 
       {loadError && <div className="rounded-md border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg" role="alert">Could not load context files: {loadError}</div>}
@@ -394,6 +399,7 @@ export function ContextFilesPanel({
         {visibleDefinitions.map((definition, index) => {
           const file = fileMap.get(definition.number);
           const status: ContextFileStatus = file?.status ?? "not_started";
+          const affecting = file ? fileProposalItems.filter(({item})=>item.target_file_id===file.id) : [];
           return (
             <div key={definition.number} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 ${index < visibleDefinitions.length - 1 ? "border-b border-line" : ""}`}>
               <span className="w-5 shrink-0 text-right font-mono text-2xs text-paper-3">{String(definition.number).padStart(2, "0")}</span>
@@ -405,6 +411,7 @@ export function ContextFilesPanel({
               {file && <span className="hidden text-2xs text-paper-3 md:inline">{new Date(file.updated_at).toLocaleString()}</span>}
               {file && <span className="hidden max-w-36 truncate text-2xs text-paper-3 lg:inline">{file.generated_by_function ?? "manual"}</span>}
               <span className={`shrink-0 text-2xs font-mono ${STATUS_COLOUR[status]}`}>{STATUS_LABEL[status]}</span>
+              {affecting.length>0&&<span className="shrink-0 rounded border border-warn/20 bg-warn/5 px-1.5 py-0.5 text-2xs text-warn">proposals {affecting.length} · open {affecting.filter(({proposal})=>proposal.status==="needs_review").length} · approved {affecting.filter(({proposal})=>proposal.status==="approved").length} · converted {affecting.filter(({proposal})=>proposal.status==="converted_to_patch").length}</span>}
               {file && (
                 <div className="flex items-center gap-2">
                   <button className="text-2xs text-teal hover:underline" onClick={() => setOpen({ file, mode: "preview" })}>View</button>
