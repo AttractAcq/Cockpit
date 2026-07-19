@@ -673,7 +673,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
-  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus, ClientContextUpdateProposal, ClientContextUpdateProposalItem, ContextUpdateProposalStatus, ContextUpdateProposalType, ContextUpdateTargetType, ContextUpdateChangeIntent,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus, ClientContextUpdateProposal, ClientContextUpdateProposalItem, ContextUpdateProposalStatus, ContextUpdateProposalType, ContextUpdateTargetType, ContextUpdateChangeIntent, ClientContextPatchDraft, ClientContextPatchReview, ClientContextPatchApplication, ContextPatchStatus, ContextPatchType,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2519,6 +2519,52 @@ export async function updateContextUpdateProposalStatus(proposalId:string,newSta
   if (error) throw error;
 }
 
+export async function fetchContextPatchDrafts(clientId:string):Promise<ClientContextPatchDraft[]> {
+  const [draftsResult,reviewsResult,applicationsResult]=await Promise.all([
+    supabase.from("client_context_patch_drafts").select("*").eq("client_id",clientId).order("created_at",{ascending:false}),
+    supabase.from("client_context_patch_reviews").select("*").eq("client_id",clientId).order("created_at",{ascending:true}),
+    supabase.from("client_context_patch_applications").select("*").eq("client_id",clientId).order("applied_at",{ascending:false}),
+  ]);
+  if(draftsResult.error)throw draftsResult.error;
+  if(reviewsResult.error)throw reviewsResult.error;
+  if(applicationsResult.error)throw applicationsResult.error;
+  const reviews=(reviewsResult.data??[]) as ClientContextPatchReview[];
+  const applications=(applicationsResult.data??[]) as ClientContextPatchApplication[];
+  return ((draftsResult.data??[]) as ClientContextPatchDraft[]).map((draft)=>({
+    ...draft,
+    reviews:reviews.filter((review)=>review.patch_draft_id===draft.id),
+    applications:applications.filter((application)=>application.patch_draft_id===draft.id),
+  }));
+}
+
+export async function createContextPatchDraft(input:{
+  clientId:string; contextUpdateProposalId:string; proposalItemId?:string|null; targetFileId:string; targetSection?:string|null;
+  patchType:ContextPatchType; title:string; summary:string; rationale:string; currentStateSummary?:string|null;
+  proposedChangeSummary:string; proposedContent?:string|null; proposedDiff?:string|null; evidence:Record<string,unknown>;
+  confidence:"low"|"medium"|"high"; priority:"low"|"medium"|"high"; createdFrom:"context_update_proposal"|"manual";
+}):Promise<string>{
+  const {data,error}=await supabase.rpc("create_context_patch_draft",{
+    p_client_id:input.clientId,p_context_update_proposal_id:input.contextUpdateProposalId,p_proposal_item_id:input.proposalItemId??null,
+    p_target_file_id:input.targetFileId,p_target_section:input.targetSection??null,p_patch_type:input.patchType,p_title:input.title,
+    p_summary:input.summary,p_rationale:input.rationale,p_current_state_summary:input.currentStateSummary??null,
+    p_proposed_change_summary:input.proposedChangeSummary,p_proposed_content:input.proposedContent??null,p_proposed_diff:input.proposedDiff??null,
+    p_evidence:input.evidence,p_confidence:input.confidence,p_priority:input.priority,p_created_from:input.createdFrom,
+  });
+  if(error)throw error;
+  return data as string;
+}
+
+export async function updateContextPatchDraftStatus(patchDraftId:string,newStatus:ContextPatchStatus,reviewerNotes?:string|null):Promise<void>{
+  const {error}=await supabase.rpc("update_context_patch_draft_status",{p_patch_draft_id:patchDraftId,p_new_status:newStatus,p_reviewer_notes:reviewerNotes??null});
+  if(error)throw error;
+}
+
+export async function applyContextPatchDraft(patchDraftId:string,finalContent?:string|null):Promise<string>{
+  const {data,error}=await supabase.rpc("apply_context_patch_draft",{p_patch_draft_id:patchDraftId,p_final_content:finalContent??null});
+  if(error)throw error;
+  return data as string;
+}
+
 export async function fetchPerformanceAnalysisRuns(clientId: string, limit = 10): Promise<ClientPerformanceAnalysisRun[]> {
   const { data, error } = await supabase.from("client_performance_analysis_runs").select("*").eq("client_id", clientId).order("started_at", { ascending: false }).limit(limit);
   if (error) throw error;
@@ -2663,6 +2709,7 @@ export interface ArchiveDetail {
   performanceInsights: ClientPerformanceInsight[];
   iterationCandidates: ClientIterationCandidate[];
   contextUpdateProposals: ClientContextUpdateProposal[];
+  contextPatchDrafts: ClientContextPatchDraft[];
 }
 
 /**
@@ -2696,7 +2743,9 @@ export async function fetchArchiveDetail(clientId: string, executionMonth: strin
   const contextUpdateProposals = await fetchContextUpdateProposals(clientId).then((proposals)=>proposals.filter((proposal)=>
     proposal.source_ref===sourceRef || (distribution?.id && proposal.distribution_record_id===distribution.id)
   )).catch(()=>[] as ClientContextUpdateProposal[]);
-  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights, iterationCandidates:performance.candidates, contextUpdateProposals };
+  const proposalIds=new Set(contextUpdateProposals.map((proposal)=>proposal.id));
+  const contextPatchDrafts=await fetchContextPatchDrafts(clientId).then((patches)=>patches.filter((patch)=>proposalIds.has(patch.context_update_proposal_id))).catch(()=>[] as ClientContextPatchDraft[]);
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights, iterationCandidates:performance.candidates, contextUpdateProposals, contextPatchDrafts };
 }
 
 export interface ArchiveIndexEntry {

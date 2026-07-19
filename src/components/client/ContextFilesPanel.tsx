@@ -6,13 +6,16 @@ import {
   fetchClientContextFile,
   fetchClientContextFiles,
   fetchContextUpdateProposals,
+  fetchContextPatchDrafts,
   generatePhase1File,
   logActivity,
   updateContextFileContent,
   updateContextFileStatus,
 } from "@/lib/api";
 import { CONTEXT_FILE_DEFS } from "@/types/phase";
-import type { ClientContextFile, ClientContextUpdateProposal, ContextFileStatus } from "@/types/phase";
+import type { ClientContextFile, ClientContextPatchDraft, ClientContextUpdateProposal, ContextFileStatus } from "@/types/phase";
+import { isContextPatchStale } from "@/lib/context-patch-application";
+import { ROUTES } from "@/lib/constants";
 
 type ViewMode = "preview" | "edit" | "split";
 type Filter = "all" | "approved" | "needs_review" | "needs_client_input";
@@ -315,6 +318,7 @@ export function ContextFilesPanel({
 }) {
   const [files, setFiles] = useState<ClientContextFile[]>([]);
   const [proposals, setProposals] = useState<ClientContextUpdateProposal[]>([]);
+  const [patches, setPatches] = useState<ClientContextPatchDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -324,9 +328,10 @@ export function ContextFilesPanel({
     setLoading(true);
     setLoadError(null);
     try {
-      const [data,nextProposals] = await Promise.all([fetchClientContextFiles(clientId),fetchContextUpdateProposals(clientId)]);
+      const [data,nextProposals,nextPatches] = await Promise.all([fetchClientContextFiles(clientId),fetchContextUpdateProposals(clientId),fetchContextPatchDrafts(clientId)]);
       setFiles(data);
       setProposals(nextProposals);
+      setPatches(nextPatches);
       onFilesLoaded?.(data);
       return data;
     } catch (error) {
@@ -380,6 +385,7 @@ export function ContextFilesPanel({
           <p className="mt-2 text-2xs text-warn">Phase 2 blocked: approve or resolve all context files first.</p>
         )}
         {proposals.length > 0 && <p className="mt-2 text-2xs text-paper-3">Proposal only — {proposals.filter((proposal)=>proposal.status==="needs_review"||proposal.status==="approved").length} open context update proposal{proposals.filter((proposal)=>proposal.status==="needs_review"||proposal.status==="approved").length===1?"":"s"}; no context file is edited from this indicator.</p>}
+        {patches.length > 0 && <p className="mt-1 text-2xs text-paper-3">Context patches — {patches.filter((patch)=>patch.status==="draft"||patch.status==="needs_review").length} draft/review · {patches.filter((patch)=>patch.status==="approved").length} approved · {patches.filter((patch)=>patch.status==="applied").length} applied. Patch actions remain in Performance &amp; Iteration.</p>}
       </div>
 
       {loadError && <div className="rounded-md border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg" role="alert">Could not load context files: {loadError}</div>}
@@ -400,6 +406,8 @@ export function ContextFilesPanel({
           const file = fileMap.get(definition.number);
           const status: ContextFileStatus = file?.status ?? "not_started";
           const affecting = file ? fileProposalItems.filter(({item})=>item.target_file_id===file.id) : [];
+          const filePatches = file ? patches.filter((patch)=>patch.target_file_id===file.id) : [];
+          const stalePatches = file ? filePatches.filter((patch)=>isContextPatchStale(patch,file)) : [];
           return (
             <div key={definition.number} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 ${index < visibleDefinitions.length - 1 ? "border-b border-line" : ""}`}>
               <span className="w-5 shrink-0 text-right font-mono text-2xs text-paper-3">{String(definition.number).padStart(2, "0")}</span>
@@ -412,6 +420,7 @@ export function ContextFilesPanel({
               {file && <span className="hidden max-w-36 truncate text-2xs text-paper-3 lg:inline">{file.generated_by_function ?? "manual"}</span>}
               <span className={`shrink-0 text-2xs font-mono ${STATUS_COLOUR[status]}`}>{STATUS_LABEL[status]}</span>
               {affecting.length>0&&<span className="shrink-0 rounded border border-warn/20 bg-warn/5 px-1.5 py-0.5 text-2xs text-warn">proposals {affecting.length} · open {affecting.filter(({proposal})=>proposal.status==="needs_review").length} · approved {affecting.filter(({proposal})=>proposal.status==="approved").length} · converted {affecting.filter(({proposal})=>proposal.status==="converted_to_patch").length}</span>}
+              {filePatches.length>0&&<a href={ROUTES.clientSection(clientId,"performance-iteration")} className="shrink-0 rounded border border-teal/20 bg-teal/5 px-1.5 py-0.5 text-2xs text-teal">patches {filePatches.length} · approved {filePatches.filter((patch)=>patch.status==="approved").length} · applied {filePatches.filter((patch)=>patch.status==="applied").length}{stalePatches.length?" · stale "+stalePatches.length:""}</a>}
               {file && (
                 <div className="flex items-center gap-2">
                   <button className="text-2xs text-teal hover:underline" onClick={() => setOpen({ file, mode: "preview" })}>View</button>
