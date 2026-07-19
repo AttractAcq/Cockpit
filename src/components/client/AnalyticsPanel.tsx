@@ -1,175 +1,115 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/primitives";
-import { fetchAnalyticsRecords, fetchLifecycleDateContext, saveAnalyticsRecord } from "@/lib/api";
-import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
+import { fetchAnalyticsForClient, upsertBusinessSignalSnapshot, upsertManualMetricSnapshot } from "@/lib/api";
+import { metricFieldsForFormat, sanitizeBusinessSignals, sanitizeMetricPayload } from "@/lib/analytics-manual";
 import { useFocusedRecord } from "@/lib/use-focused-record";
-import type { AnalyticsRecordRow, AnalyticsStatus } from "@/types/phase";
-import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
+import { ROUTES } from "@/lib/constants";
+import type { AnalyticsRecordRow, AnalyticsSummary, MetricSnapshotLabel } from "@/types/phase";
 
-const STATUS_STYLE: Record<AnalyticsStatus, string> = {
-  awaiting_metrics: "border-warn/20 bg-warn/10 text-warn",
-  metrics_partial: "border-warn/20 bg-warn/10 text-warn",
-  complete: "border-teal/20 bg-teal/10 text-teal",
-  failed: "border-neg/20 bg-neg/10 text-neg",
+const LABELS: Record<string, string> = {
+  impressions: "Impressions", reach: "Reach", likes: "Likes", comments: "Comments", shares: "Shares", saves: "Saves",
+  profile_visits: "Profile visits", follows: "Follows", website_clicks: "Website clicks", replies: "Replies",
+  taps_forward: "Taps forward", taps_back: "Taps back", exits: "Exits", completion_rate: "Completion rate (%)",
+  inbound_dms: "Inbound DMs", qualified_dms: "Qualified DMs", conversations: "Conversations",
+  qualified_conversations: "Qualified conversations", appointments: "Appointments", qualified_appointments: "Qualified appointments",
+  show_ups: "Show-ups", cash_collected: "Cash collected",
 };
-
-const METRIC_FIELDS: Array<{ key: string; label: string }> = [
-  { key: "reach", label: "Reach" },
-  { key: "impressions", label: "Impressions" },
-  { key: "likes", label: "Likes" },
-  { key: "comments", label: "Comments" },
-  { key: "saves", label: "Saves" },
-  { key: "shares", label: "Shares" },
-  { key: "profile_visits", label: "Profile visits" },
-  { key: "leads", label: "Enquiries / leads" },
-];
+const SIGNAL_KEYS = ["profile_visits", "follows", "inbound_dms", "qualified_dms", "conversations", "qualified_conversations", "appointments", "qualified_appointments", "show_ups", "cash_collected"] as const;
+const STATUS_STYLE: Record<string, string> = {
+  no_metrics: "border-warn/20 bg-warn/10 text-warn", partial_metrics: "border-warn/20 bg-warn/10 text-warn",
+  metrics_entered: "border-teal/20 bg-teal/10 text-teal", business_signals_entered: "border-teal/20 bg-teal/10 text-teal",
+};
+const inputClass = "rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50";
 
 function errorText(error: unknown): string {
   if (error && typeof error === "object") {
-    const value = error as { message?: string; code?: string; details?: string; hint?: string };
-    return [value.message, value.code && `Code: ${value.code}`, value.details, value.hint].filter(Boolean).join(" · ");
+    const value = error as { message?: string; code?: string; details?: string };
+    return [value.message, value.code && `Code: ${value.code}`, value.details].filter(Boolean).join(" · ");
   }
-  return error instanceof Error ? error.message : String(error);
+  return String(error);
+}
+function localInputValue(date = new Date()): string { return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); }
+function headline(summary: AnalyticsSummary): string {
+  const metrics = summary.metric_snapshots[0]?.metrics ?? {};
+  const parts = ["reach", "impressions", "likes", "replies", "shares", "saves"].filter((key) => metrics[key as keyof typeof metrics] != null).slice(0, 4).map((key) => `${LABELS[key]} ${metrics[key as keyof typeof metrics]}`);
+  return parts.join(" · ") || "Published, awaiting metrics.";
 }
 
-function metricsSummary(metrics: Record<string, unknown>): string {
-  const parts = METRIC_FIELDS.map(({ key, label }) => (typeof metrics[key] === "number" ? `${label} ${metrics[key]}` : null)).filter(Boolean);
-  return parts.length ? parts.join(" · ") : "No metrics entered";
-}
-
-function AnalyticsEditModal({ record, onClose, onSaved }: {
-  record: AnalyticsRecordRow;
-  onClose: () => void;
-  onSaved: (next: AnalyticsRecordRow) => void;
-}) {
-  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(METRIC_FIELDS.map(({ key }) => [key, typeof record.metrics[key] === "number" ? String(record.metrics[key]) : ""])));
-  const [notes, setNotes] = useState(record.notes ?? "");
-  const [status, setStatus] = useState<AnalyticsStatus>(record.analytics_status);
+function AnalyticsDetail({ summary, onClose, onSaved }: { summary: AnalyticsSummary; onClose: () => void; onSaved: () => void }) {
+  const record = summary.record;
+  const metricKeys = metricFieldsForFormat(record.asset_format);
+  const [metricValues, setMetricValues] = useState<Record<string, string>>({});
+  const [signalValues, setSignalValues] = useState<Record<string, string>>({});
+  const [snapshotAt, setSnapshotAt] = useState(localInputValue());
+  const [signalAt, setSignalAt] = useState(localInputValue());
+  const [snapshotLabel, setSnapshotLabel] = useState<MetricSnapshotLabel>("manual");
+  const [notes, setNotes] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [operatorNotes, setOperatorNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ error: boolean; message: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  async function save() {
-    // Metrics are only what the operator typed — nothing is inferred or invented.
-    const metrics: Record<string, unknown> = { ...record.metrics };
-    for (const { key } of METRIC_FIELDS) {
-      const raw = values[key].trim();
-      if (raw === "") { delete metrics[key]; continue; }
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed)) { setNotice({ error: true, message: `${key} must be a number.` }); return; }
-      metrics[key] = parsed;
-    }
-    if (status === "complete" && !window.confirm("Mark analytics complete? This advances the ref to the analysis/iteration stage. No iteration output is generated.")) return;
-    setBusy(true); setNotice(null);
+  async function saveMetrics() {
+    if (!record.distribution_record_id) return setNotice("A published distribution record is required.");
     try {
-      const next = await saveAnalyticsRecord(record, { metrics, notes: notes.trim() || null, analyticsStatus: status });
-      onSaved(next);
-      window.dispatchEvent(new Event("aa:reload"));
-      onClose();
-    } catch (error) { setNotice({ error: true, message: errorText(error) }); }
-    finally { setBusy(false); }
+      const metrics = sanitizeMetricPayload(metricValues, metricKeys);
+      setBusy(true); setNotice(null);
+      await upsertManualMetricSnapshot({ distributionRecordId: record.distribution_record_id, snapshotAt: new Date(snapshotAt).toISOString(), snapshotLabel, metrics, notes: notes.trim() || null, evidenceUrl: evidenceUrl.trim() || null });
+      window.dispatchEvent(new Event("aa:reload")); onSaved(); setMetricValues({}); setNotes(""); setEvidenceUrl("");
+    } catch (error) { setNotice(errorText(error)); } finally { setBusy(false); }
+  }
+  async function saveSignals() {
+    if (!record.distribution_record_id) return setNotice("A published distribution record is required.");
+    try {
+      const values = sanitizeBusinessSignals(signalValues);
+      setBusy(true); setNotice(null);
+      await upsertBusinessSignalSnapshot({
+        distributionRecordId: record.distribution_record_id, signalAt: new Date(signalAt).toISOString(),
+        profileVisits: values.profile_visits, follows: values.follows, inboundDms: values.inbound_dms, qualifiedDms: values.qualified_dms,
+        conversations: values.conversations, qualifiedConversations: values.qualified_conversations, appointments: values.appointments,
+        qualifiedAppointments: values.qualified_appointments, showUps: values.show_ups, cashCollected: values.cash_collected,
+        operatorNotes: operatorNotes.trim() || null,
+      });
+      window.dispatchEvent(new Event("aa:reload")); onSaved(); setSignalValues({}); setOperatorNotes("");
+    } catch (error) { setNotice(errorText(error)); } finally { setBusy(false); }
   }
 
-  const field = "rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50";
   return <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 sm:items-center" onClick={onClose}>
-    <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
-      <header className="shrink-0 border-b border-line px-5 py-4"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{record.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[record.analytics_status]}`}>{record.analytics_status.replaceAll("_", " ")}</span></div><h2 className="mt-1 text-base font-medium text-paper">{record.title ?? "Analytics"}</h2><div className="mt-1 text-2xs text-paper-3">Published {new Date(record.published_at).toLocaleString()}{record.published_url ? " · " : ""}{record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}</div></div><button onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
-      {notice && <div role={notice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
+    <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
+      <header className="flex items-start gap-3 border-b border-line px-5 py-4"><div className="min-w-0 flex-1"><div className="font-mono text-2xs text-teal">{record.source_ref}</div><h2 className="mt-1 text-base font-medium text-paper">{record.title ?? "Published item analytics"}</h2><div className="mt-1 text-2xs text-paper-3">{record.asset_format ?? "content"} · {record.platform ?? "instagram"} · published {new Date(record.published_at).toLocaleString()}</div><div className="mt-1 flex gap-3 text-2xs">{record.published_url && <a className="text-teal hover:underline" href={record.published_url} target="_blank" rel="noreferrer">Published evidence ↗</a>}<a className="text-teal hover:underline" href={`${ROUTES.clientSection(record.client_id, "archive")}?source_ref=${encodeURIComponent(record.source_ref)}`}>Lifecycle Archive</a></div></div><button onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></header>
+      {notice && <div role="alert" className="border-b border-neg/20 bg-neg/5 px-5 py-2 text-xs text-neg">{notice}</div>}
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="text-2xs uppercase text-paper-3">Metrics — manual entry only (blank = not recorded)</div>
-        <div className="mt-2 grid gap-3 sm:grid-cols-2">{METRIC_FIELDS.map(({ key, label }) => <label key={key} className="flex flex-col gap-1"><span className="text-2xs text-paper-3">{label}</span><input inputMode="numeric" className={field} value={values[key]} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div>
-        <label className="mt-4 flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Notes</span><textarea className={`${field} min-h-20`} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-        <label className="mt-4 flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Analytics status</span><select className={field} value={status} onChange={(event) => setStatus(event.target.value as AnalyticsStatus)}><option value="awaiting_metrics">awaiting metrics</option><option value="metrics_partial">metrics partial</option><option value="complete">complete</option><option value="failed">failed</option></select></label>
-        <p className="mt-2 text-2xs text-paper-3">Editing metrics never changes publish status. Only setting status to complete advances the ref to analysis / iteration.</p>
+        <section><h3 className="text-xs font-medium text-paper">Platform metric snapshots</h3>
+          {!summary.metric_snapshots.length ? <p className="mt-2 text-xs text-paper-3">Published, awaiting metrics.</p> : <div className="mt-2 space-y-2">{summary.metric_snapshots.map((row) => <div key={row.id} className="rounded border border-line bg-ink p-3 text-2xs"><div className="text-paper">{new Date(row.snapshot_at).toLocaleString()} · {row.snapshot_label.replaceAll("_", " ")} · Metrics entered manually.</div><div className="mt-1 text-paper-3">{Object.entries(row.metrics).map(([key, value]) => `${LABELS[key] ?? key}: ${value}`).join(" · ") || "No populated metrics"}</div>{row.notes && <div className="mt-1 text-paper-2">{row.notes}</div>}{row.evidence_url && <a className="mt-1 block text-teal hover:underline" href={row.evidence_url} target="_blank" rel="noreferrer">Metric evidence ↗</a>}</div>)}</div>}
+        </section>
+        <section className="mt-5 rounded border border-line p-4"><h3 className="text-xs font-medium text-paper">Record manual platform metrics</h3><p className="mt-1 text-2xs text-paper-3">Blank values are omitted. Saving cannot change publication evidence.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">{metricKeys.map((key) => <label key={key} className="flex flex-col gap-1"><span className="text-2xs text-paper-3">{LABELS[key] ?? key}</span><input type="number" min="0" max={key === "completion_rate" ? 100 : undefined} step="any" className={inputClass} value={metricValues[key] ?? ""} onChange={(event) => setMetricValues((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Snapshot time</span><input type="datetime-local" className={inputClass} value={snapshotAt} onChange={(event) => setSnapshotAt(event.target.value)} /></label><label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Snapshot label</span><select className={inputClass} value={snapshotLabel} onChange={(event) => setSnapshotLabel(event.target.value as MetricSnapshotLabel)}>{["manual","t_plus_1h","t_plus_6h","t_plus_24h","t_plus_48h","t_plus_7d"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label></div>
+          <label className="mt-3 flex flex-col gap-1"><span className="text-2xs text-paper-3">Notes</span><textarea className={inputClass} value={notes} onChange={(event) => setNotes(event.target.value)} /></label><label className="mt-3 flex flex-col gap-1"><span className="text-2xs text-paper-3">Evidence URL</span><input type="url" className={inputClass} value={evidenceUrl} onChange={(event) => setEvidenceUrl(event.target.value)} /></label><Button size="sm" variant="primary" className="mt-3" disabled={busy} onClick={() => void saveMetrics()}>Save metric snapshot</Button>
+        </section>
+        <section className="mt-5"><h3 className="text-xs font-medium text-paper">Business signal snapshots</h3>{!summary.business_signals.length ? <p className="mt-2 text-xs text-paper-3">No manual business signals recorded.</p> : <div className="mt-2 space-y-2">{summary.business_signals.map((row) => <div key={row.id} className="rounded border border-line bg-ink p-3 text-2xs"><div className="text-paper">{new Date(row.signal_at).toLocaleString()}</div><div className="mt-1 text-paper-3">{SIGNAL_KEYS.filter((key) => row[key] != null).map((key) => `${LABELS[key]}: ${row[key]}`).join(" · ")}</div>{row.operator_notes && <div className="mt-1 text-paper-2">{row.operator_notes}</div>}</div>)}</div>}</section>
+        <section className="mt-5 rounded border border-line p-4"><h3 className="text-xs font-medium text-paper">Record manual business signals</h3><div className="mt-3 grid gap-3 sm:grid-cols-2">{SIGNAL_KEYS.map((key) => <label key={key} className="flex flex-col gap-1"><span className="text-2xs text-paper-3">{LABELS[key]}</span><input type="number" min="0" step={key === "cash_collected" ? "0.01" : "1"} className={inputClass} value={signalValues[key] ?? ""} onChange={(event) => setSignalValues((current) => ({ ...current, [key]: event.target.value }))} /></label>)}</div><label className="mt-3 flex flex-col gap-1"><span className="text-2xs text-paper-3">Signal time</span><input type="datetime-local" className={inputClass} value={signalAt} onChange={(event) => setSignalAt(event.target.value)} /></label><label className="mt-3 flex flex-col gap-1"><span className="text-2xs text-paper-3">Operator notes</span><textarea className={inputClass} value={operatorNotes} onChange={(event) => setOperatorNotes(event.target.value)} /></label><Button size="sm" variant="primary" className="mt-3" disabled={busy} onClick={() => void saveSignals()}>Save business signals</Button></section>
       </main>
-      <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className="text-2xs text-paper-3">Real, operator-entered metrics only.</span><Button size="sm" variant="primary" className="ml-auto" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save Analytics"}</Button></footer>
     </div>
   </div>;
 }
 
-/**
- * H4 Analytics: only genuinely published assets appear (an analytics row exists
- * only after a real publish success). Metrics are operator-entered; nothing is
- * invented, and no publish state is changed here.
- */
 export function AnalyticsPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
-  const [records, setRecords] = useState<AnalyticsRecordRow[]>([]);
-  const [open, setOpen] = useState<AnalyticsRecordRow | null>(null);
+  const [summaries, setSummaries] = useState<AnalyticsSummary[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateDirection, setDateDirection] = useState<DateDirection>("desc");
-  const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try { const [nextRecords, dateContext] = await Promise.all([fetchAnalyticsRecords(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]); setRecords(nextRecords); setLifecycleContext(dateContext); }
-    catch (value) { setError(errorText(value)); }
-    finally { setLoading(false); }
-  }, [clientId, executionMonth]);
+  const load = useCallback(async () => { setLoading(true); setError(null); try { setSummaries(await fetchAnalyticsForClient(clientId, executionMonth)); } catch (value) { setError(errorText(value)); } finally { setLoading(false); } }, [clientId, executionMonth]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
-
-  const completeCount = useMemo(() => records.filter((record) => record.analytics_status === "complete").length, [records]);
-  const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(records, { lifecycleStage: "analytics", context: lifecycleContext, direction: dateDirection }), [dateDirection, lifecycleContext, records]);
-  useFocusedRecord({
-    queryKeys: ["analytics_id", "distribution_id", "source_ref"],
-    records,
-    getMatchValue: useCallback((record: AnalyticsRecordRow, queryKey: string) => {
-      if (queryKey === "analytics_id") return record.id;
-      if (queryKey === "distribution_id") return record.distribution_record_id;
-      return record.source_ref;
-    }, []),
-    onFound: useCallback((record: AnalyticsRecordRow) => setOpen(record), []),
-  });
-  function accept(next: AnalyticsRecordRow) { setRecords((current) => current.map((record) => record.id === next.id ? next : record)); setOpen((current) => current && current.id === next.id ? next : current); }
-
-  if (loading && !records.length) return <div className="p-6 text-xs text-paper-3">Loading analytics…</div>;
+  useEffect(() => { const reload = () => void load(); window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
+  const records = useMemo(() => summaries.map((summary) => summary.record), [summaries]);
+  useFocusedRecord<AnalyticsRecordRow>({ queryKeys: ["analytics_id", "distribution_id", "source_ref"], records, getMatchValue: useCallback((record, key) => key === "analytics_id" ? record.id : key === "distribution_id" ? record.distribution_record_id : record.source_ref, []), onFound: useCallback((record) => setOpenId(record.id), []) });
+  const open = summaries.find((summary) => summary.record.id === openId) ?? null;
+  if (loading && !summaries.length) return <div className="p-6 text-xs text-paper-3">Loading analytics…</div>;
   return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-    <div className="rounded-[10px] border border-line bg-ink-200 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-4 text-xs">
-        <span className="text-paper">{records.length} published asset{records.length === 1 ? "" : "s"}</span>
-        <span className="text-teal">{completeCount} complete</span>
-        <Button size="sm" variant="ghost" className="ml-auto" disabled={loading} onClick={() => void load()}>{loading ? "Reloading…" : "Reload"}</Button>
-      </div>
-      <p className="mt-2 text-2xs text-paper-3">Only assets with a successful publish appear here. Metrics are entered manually — nothing is auto-collected or invented in this build.</p>
-      <div className="mt-3"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /></div>
-    </div>
+    <div className="rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex items-center gap-3 text-xs"><span className="text-paper">{summaries.length} published item{summaries.length === 1 ? "" : "s"}</span><Button size="sm" variant="ghost" className="ml-auto" disabled={loading} onClick={() => void load()}>{loading ? "Reloading…" : "Reload"}</Button></div><p className="mt-2 text-2xs text-paper-3">Manual platform metrics and business outcomes. Automatic Meta Insights collection is not enabled.</p></div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
-    {!records.length ? (
-      <div className="rounded-[10px] border border-dashed border-line p-10 text-center">
-        <div className="text-sm text-paper">No published assets yet. Assets appear here only after successful publishing.</div>
-      </div>
-    ) : (
-      <div className="flex flex-col gap-4">
-        {groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.filter((record) => record.analytics_status === "complete").length} complete`}>
-        <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
-        {section.records.map((record) => {
-          const lifecycleDate = resolveCanonicalPublishDate(record, "analytics", lifecycleContext).date;
-          const contentType = resolveLifecycleContentType(record);
-          return (
-          <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
-            <span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span>
-            <div className="min-w-[240px] flex-1">
-              <div className="break-words text-xs text-paper">{record.title ?? record.source_ref}</div>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">
-                <span>{contentType.label}</span>
-                <span>{record.platform ?? "instagram"}</span>
-                <span>content date {lifecycleDate ?? "date unavailable"}</span>
-                <span>published {new Date(record.published_at).toLocaleString()}</span>
-                <span>measured {new Date(record.updated_at).toLocaleString()}</span>
-                {record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}
-              </div>
-              <div className="mt-1 text-2xs text-paper-3">{metricsSummary(record.metrics)}</div>
-              {record.notes && <div className="mt-1 text-2xs text-paper-2">{record.notes}</div>}
-            </div>
-            <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[record.analytics_status]}`}>{record.analytics_status.replaceAll("_", " ")}</span>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(record)}>View / Edit</Button>
-          </article>
-          );
-        })}
-        </div>
-        </LifecycleDateSection>)}
-      </div>
-    )}
-    {open && <AnalyticsEditModal record={open} onClose={() => setOpen(null)} onSaved={accept} />}
+    {!summaries.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center text-sm text-paper">No published content yet.</div> : <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">{summaries.map((summary) => { const record = summary.record; const signals = summary.business_signals[0]; return <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0"><span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span><div className="min-w-[240px] flex-1"><div className="text-xs text-paper">{record.title ?? record.source_ref}</div><div className="mt-1 flex flex-wrap gap-x-3 text-2xs text-paper-3"><span>{record.asset_format ?? "content"}</span><span>{record.platform ?? "instagram"}</span><span>published {new Date(record.published_at).toLocaleString()}</span>{record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}</div><div className="mt-1 text-2xs text-paper-3">{headline(summary)}</div>{signals && <div className="mt-1 text-2xs text-paper-2">Business: {signals.inbound_dms ?? 0} DMs · {signals.appointments ?? 0} appointments · {signals.show_ups ?? 0} show-ups · {signals.cash_collected ?? 0} cash</div>}<div className="mt-1 text-2xs text-paper-3">Latest snapshot: {summary.latest_snapshot_at ? new Date(summary.latest_snapshot_at).toLocaleString() : "none"}</div></div><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[summary.manual_status]}`}>{summary.manual_status.replaceAll("_", " ")}</span><Button size="sm" variant="ghost" onClick={() => setOpenId(record.id)}>View / record</Button></article>; })}</div>}
+    {open && <AnalyticsDetail summary={open} onClose={() => setOpenId(null)} onSaved={() => void load()} />}
   </div>;
 }

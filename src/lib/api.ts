@@ -12,6 +12,7 @@
 //   automations  : status/last_run_at → Automation shape
 import { supabase, invokeFn } from "./supabase";
 import { stageRank } from "./pipeline";
+import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import type { PulseMetric } from "@/types";
 
 // Helper: normalise entity_name from Supabase FK join
@@ -671,6 +672,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2392,6 +2394,79 @@ export async function fetchAnalyticsRecordBySourceRef(clientId: string, executio
   return (data as AnalyticsRecordRow | null) ?? null;
 }
 
+export async function fetchAnalyticsForDistributionRecord(distributionRecordId: string): Promise<{
+  metric_snapshots: ClientMetricSnapshot[];
+  business_signals: ClientBusinessSignalSnapshot[];
+}> {
+  const [metricsResult, signalsResult] = await Promise.all([
+    supabase.from("client_metric_snapshots").select("*").eq("distribution_record_id", distributionRecordId).order("snapshot_at", { ascending: false }),
+    supabase.from("client_business_signal_snapshots").select("*").eq("distribution_record_id", distributionRecordId).order("signal_at", { ascending: false }),
+  ]);
+  if (metricsResult.error) throw metricsResult.error;
+  if (signalsResult.error) throw signalsResult.error;
+  return {
+    metric_snapshots: (metricsResult.data ?? []) as ClientMetricSnapshot[],
+    business_signals: (signalsResult.data ?? []) as ClientBusinessSignalSnapshot[],
+  };
+}
+
+export async function fetchAnalyticsForClient(clientId: string, executionMonth: string): Promise<AnalyticsSummary[]> {
+  const records = await fetchAnalyticsRecords(clientId, executionMonth);
+  const ids = records.map((record) => record.distribution_record_id).filter((id): id is string => Boolean(id));
+  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null }));
+  const [metricsResult, signalsResult] = await Promise.all([
+    supabase.from("client_metric_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("snapshot_at", { ascending: false }),
+    supabase.from("client_business_signal_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("signal_at", { ascending: false }),
+  ]);
+  if (metricsResult.error) throw metricsResult.error;
+  if (signalsResult.error) throw signalsResult.error;
+  const metrics = (metricsResult.data ?? []) as ClientMetricSnapshot[];
+  const signals = (signalsResult.data ?? []) as ClientBusinessSignalSnapshot[];
+  return records.map((record) => {
+    const metricSnapshots = metrics.filter((row) => row.distribution_record_id === record.distribution_record_id);
+    const businessSignals = signals.filter((row) => row.distribution_record_id === record.distribution_record_id);
+    const populated = metricSnapshots.reduce((count, row) => count + Object.keys(row.metrics ?? {}).length, 0);
+    return {
+      record,
+      metric_snapshots: metricSnapshots,
+      business_signals: businessSignals,
+      manual_status: deriveManualAnalyticsStatus(metricSnapshots.length, businessSignals.length, populated) as ManualAnalyticsStatus,
+      latest_snapshot_at: metricSnapshots[0]?.snapshot_at ?? businessSignals[0]?.signal_at ?? null,
+    };
+  });
+}
+
+export async function upsertManualMetricSnapshot(input: {
+  distributionRecordId: string; snapshotId?: string | null; snapshotAt: string; snapshotLabel: MetricSnapshotLabel;
+  metrics: Record<string, number>; notes?: string | null; evidenceUrl?: string | null;
+}): Promise<ClientMetricSnapshot> {
+  const { data, error } = await supabase.rpc("upsert_manual_metric_snapshot", {
+    p_distribution_record_id: input.distributionRecordId, p_snapshot_id: input.snapshotId ?? null,
+    p_snapshot_at: input.snapshotAt, p_snapshot_label: input.snapshotLabel, p_metrics: input.metrics,
+    p_notes: input.notes ?? null, p_evidence_url: input.evidenceUrl ?? null,
+  });
+  if (error) throw error;
+  return (Array.isArray(data) ? data[0] : data) as ClientMetricSnapshot;
+}
+
+export async function upsertBusinessSignalSnapshot(input: {
+  distributionRecordId: string; snapshotId?: string | null; signalAt: string;
+  profileVisits?: number | null; follows?: number | null; inboundDms?: number | null; qualifiedDms?: number | null;
+  conversations?: number | null; qualifiedConversations?: number | null; appointments?: number | null;
+  qualifiedAppointments?: number | null; showUps?: number | null; cashCollected?: number | null; operatorNotes?: string | null;
+}): Promise<ClientBusinessSignalSnapshot> {
+  const { data, error } = await supabase.rpc("upsert_business_signal_snapshot", {
+    p_distribution_record_id: input.distributionRecordId, p_snapshot_id: input.snapshotId ?? null, p_signal_at: input.signalAt,
+    p_profile_visits: input.profileVisits ?? null, p_follows: input.follows ?? null, p_inbound_dms: input.inboundDms ?? null,
+    p_qualified_dms: input.qualifiedDms ?? null, p_conversations: input.conversations ?? null,
+    p_qualified_conversations: input.qualifiedConversations ?? null, p_appointments: input.appointments ?? null,
+    p_qualified_appointments: input.qualifiedAppointments ?? null, p_show_ups: input.showUps ?? null,
+    p_cash_collected: input.cashCollected ?? null, p_operator_notes: input.operatorNotes ?? null,
+  });
+  if (error) throw error;
+  return (Array.isArray(data) ? data[0] : data) as ClientBusinessSignalSnapshot;
+}
+
 /**
  * Save operator-entered metrics/notes/status on a published asset's analytics
  * row. Editing metrics never touches publish status and never auto-completes.
@@ -2455,6 +2530,8 @@ export interface ArchiveDetail {
   assets: ClientAssetRow[];
   distribution: DistributionRecordRow | null;
   analytics: AnalyticsRecordRow | null;
+  metricSnapshots: ClientMetricSnapshot[];
+  businessSignals: ClientBusinessSignalSnapshot[];
 }
 
 /**
@@ -2471,7 +2548,10 @@ export async function fetchArchiveDetail(clientId: string, executionMonth: strin
     fetchDistributionRecordBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
     fetchAnalyticsRecordBySourceRef(clientId, executionMonth, sourceRef).catch(() => null),
   ]);
-  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics };
+  const manualAnalytics = analytics?.distribution_record_id
+    ? await fetchAnalyticsForDistributionRecord(analytics.distribution_record_id).catch(() => ({ metric_snapshots: [], business_signals: [] }))
+    : { metric_snapshots: [], business_signals: [] };
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals };
 }
 
 export interface ArchiveIndexEntry {
