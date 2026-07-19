@@ -1,7 +1,7 @@
 # AA-OS Supabase Reconciliation Report
 
 **Generated:** 2026-06-21  
-**Introspected project:** `iwkhdqqgfjtpdhcbpftu` ("Attract") — eu-west-1  
+**Current approved production project:** `xivewedajschthjlblfb` ("Cockpit") — West EU (Paris)
 **Method:** Read-only SQL via Supabase MCP. No schema changes made.  
 **Scope:** Reconcile live Supabase state against `attract-acquisition-backend.md` v1.1, `attract-acquisition-system-map_1.md` v1.1, and `attract-acquisition-frontend_1.md`.
 
@@ -13,13 +13,13 @@
 
 | Project ref | Name | Status | Region |
 |---|---|---|---|
-| `iwkhdqqgfjtpdhcbpftu` | Attract | **ACTIVE_HEALTHY** | eu-west-1 (Ireland) |
+| `xivewedajschthjlblfb` | Cockpit | **ACTIVE_HEALTHY** | West EU (Paris) |
 | `ayfidvycgqorxmlczyxl` | Attract Acquisition | **INACTIVE** | eu-west-1 (Ireland) |
 | `fgyvcyksgbivhrqoxkmj` | AICOS | ACTIVE_HEALTHY | eu-west-3 (Paris) |
 | `ytixityazjuurkloeqli` | AA Ops | INACTIVE | eu-west-1 |
 
-**Canonical live project:** `iwkhdqqgfjtpdhcbpftu`.  
-The `ayfid…` ref that appears throughout early docs was a stale/abandoned project. All frontend `.env` files and the Cockpit `api.ts` already reference `iwkhdqqgfjtpdhcbpftu` — this is correct.  
+**Canonical live project:** `xivewedajschthjlblfb`.
+Earlier project references are obsolete. All frontend configuration and production operations must target `xivewedajschthjlblfb`.
 The Cockpit CLAUDE.md open item #1 is now **RESOLVED** — remove the "⚠️ UNCONFIRMED" caveat and hardcode the ref in docs (keep env vars in code).
 
 ---
@@ -384,7 +384,7 @@ The three pg_cron jobs are active and will log failures to `audit_log`, but no e
 
 | Sub-item | Status |
 |---|---|
-| Project ref | **RESOLVED** → `iwkhdqqgfjtpdhcbpftu` |
+| Project ref | **RESOLVED** → `xivewedajschthjlblfb` |
 | RLS helper names | **RESOLVED** → `auth_role()`, `auth_entity_ids()`, `auth_team_id()` |
 | 360dialog function naming | **RESOLVED with divergence** → live is `dialog360-*`, spec says `360dialog-*`. Code is correct; docs need fixing. |
 | Model strings (frontend_1.md §5) | **UNVERIFIABLE from DB** — confirmed IDs are in README.md (`claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, `gpt-5.4-mini`); no DB record to check against |

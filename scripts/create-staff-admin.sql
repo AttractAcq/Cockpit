@@ -3,7 +3,7 @@
 -- (so their auth.users row already exists). Substitute YOUR_EMAIL below.
 --
 -- Steps:
---   1. Go to https://iwkhdqqgfjtpdhcbpftu.supabase.co and sign in as the user
+--   1. Go to https://xivewedajschthjlblfb.supabase.co and sign in as the user
 --      via magic link (this creates the auth.users row).
 --   2. Open the Supabase dashboard → SQL editor.
 --   3. Paste this script, replace YOUR_EMAIL@example.com, and run it.

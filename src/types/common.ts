@@ -1,6 +1,6 @@
 /**
  * Shared primitive types used across the domain.
- * Mirrors the real AA-OS Supabase schema in project iwkhdqqgfjtpdhcbpftu.
+ * Mirrors the real AA-OS Supabase schema in project xivewedajschthjlblfb.
  */
 
 export type UUID = string;

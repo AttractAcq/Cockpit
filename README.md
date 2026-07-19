@@ -12,13 +12,13 @@ Single command surface for running the full distribution loop — outreach → c
 - **Tailwind CSS** with custom AA design tokens (ink + teal + DM type stack)
 - **React Router v6** with URL-routed pages
 - **Recharts** for charts (Pulse, Money)
-- **Live API layer** (`src/lib/api.ts`) — all reads go to Supabase project `iwkhdqqgfjtpdhcbpftu`; `src/lib/mock/` is kept as a re-export alias and for test/story use only
+- **Live API layer** (`src/lib/api.ts`) — all reads go to Supabase project `xivewedajschthjlblfb`; `src/lib/mock/` is kept as a re-export alias and for test/story use only
 
 ---
 
 ## Status
 
-**Live — production wiring complete.** All routes read from Supabase project `iwkhdqqgfjtpdhcbpftu`. 16 edge functions deployed and active.
+**Live — production wiring complete.** All routes read from Supabase project `xivewedajschthjlblfb`. 16 edge functions deployed and active.
 
 - **Auth**: email + password (`@supabase/supabase-js` email/password flow)
 - **Hosting**: GitHub Pages — `aa-cockpit`, `aa-site`, `aa-portal`, and `aa-upload` all deploy via the `deploy.yml` workflow; the public site uses a custom domain on GitHub Pages
@@ -133,7 +133,7 @@ Typography: `font-sans` (DM Sans), `font-serif` (DM Serif Display, for numbers/h
 
 ## Data layer
 
-All reads go through `api` in `src/lib/api.ts`, backed by Supabase project `iwkhdqqgfjtpdhcbpftu`. The `mockApi` alias in `src/lib/mock/index.ts` re-exports the live `api` and is kept for test/story use only.
+All reads go through `api` in `src/lib/api.ts`, backed by Supabase project `xivewedajschthjlblfb`. The `mockApi` alias in `src/lib/mock/index.ts` re-exports the live `api` and is kept for test/story use only.
 
 ```ts
 import { api } from "@/lib/api";

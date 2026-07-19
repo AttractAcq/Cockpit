@@ -1,7 +1,7 @@
 # Lead Score Fix Report
 
 Date: 2026-06-13  
-Project ref: `iwkhdqqgfjtpdhcbpftu`
+Project ref: `xivewedajschthjlblfb`
 
 ## Files Changed
 
@@ -77,7 +77,7 @@ audit_log
 Redeploy only `lead-score`:
 
 ```bash
-supabase functions deploy lead-score --project-ref iwkhdqqgfjtpdhcbpftu --use-api
+supabase functions deploy lead-score --project-ref xivewedajschthjlblfb --use-api
 ```
 
 Rerun the focused live check with two synthetic entities:

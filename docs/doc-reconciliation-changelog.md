@@ -13,7 +13,7 @@
 | Section | Change |
 |---|---|
 | Header | Version bump |
-| §1.1 | Removed `⚠️ UNCONFIRMED` project-ref caveat. Confirmed: `iwkhdqqgfjtpdhcbpftu` ACTIVE, `ayfid…` INACTIVE |
+| §1.1 | Historical reconciliation superseded; current approved production ref is `xivewedajschthjlblfb`. |
 | §1.2 header | 18 tables → 19 tables |
 | §1.2 monetary note | Added: all money stored in cents (`amount_cents`, `mrr_cents`, `spend_cents`, `daily_budget_cents`) |
 | §1.2 `entities` | `name`→`business_name`; `phone`→`contact_phone`; `client_slug`→`slug` (citext); `metadata`→`notes_signals`; added `contact_name`, `contact_email`, `city`; removed `ig_handle`, `source`, `channel`, `owner_id` (NOT in live) |
@@ -97,7 +97,7 @@
 
 | Section | Change |
 |---|---|
-| Data layer — project ref | Removed `⚠️ UNCONFIRMED`; confirmed `iwkhdqqgfjtpdhcbpftu` |
+| Data layer — project ref | Current approved production ref: `xivewedajschthjlblfb` |
 | Data layer — table count | 18 → 19; added `credential_registry` |
 | Data layer — storage | Added bucket slugs: `mjrs`, `reels`, `proof-uploads` |
 | Data layer — vault | Updated convention to `_GLOBAL_` prefix; added `vaultName()`/`readCredential()` helpers |

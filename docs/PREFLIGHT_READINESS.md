@@ -1,7 +1,7 @@
 # Preflight Readiness
 
 Audit date: 2026-06-13  
-Supabase project ref: `iwkhdqqgfjtpdhcbpftu`  
+Supabase project ref: `xivewedajschthjlblfb`
 Old verdict: **NOT-READY**  
 New verdict: **GREEN-with-external-blocks**
 
@@ -19,7 +19,7 @@ No secret values were printed or written. Only names, digests already emitted by
 
 | CHECK | RESULT | Evidence |
 |---|---|---|
-| Project ref | ✅ ready | Connected project ref is `iwkhdqqgfjtpdhcbpftu`, matching canonical production. |
+| Project ref | ✅ ready | Connected project ref is `xivewedajschthjlblfb`, matching canonical production. |
 | `AA_USE_STUBS=false` | ✅ ready | Supabase digest for `AA_USE_STUBS` matches SHA-256 of the literal string `false`. |
 | `AA_CLAUDE_MODEL` | ✅ ready | Digest matches `claude-sonnet-4-6`. |
 | `AA_ICP_MODEL` | ✅ ready | Digest matches `claude-haiku-4-5-20251001`. |
@@ -67,4 +67,3 @@ These are expected-not-ready until external approvals or deployments complete; t
 | PayFast merchant approval | 🔵 BLOCKED-external | `_GLOBAL_PAYFAST_MERCHANT_KEY` may remain absent/placeholder until approval. |
 | 360dialog BSP approval / per-client keys | 🔵 BLOCKED-external | Per-client `*_DIALOG360_BSP_KEY` keys remain approval-gated. |
 | n8n onboarding webhook deployment/registration | 🔵 BLOCKED-external | `AA_N8N_ONBOARDING_WEBHOOK` is present in env, but full n8n readiness depends on deployment/registration if not already completed. |
-
