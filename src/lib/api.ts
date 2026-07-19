@@ -673,7 +673,7 @@ import type {
   ClientAssetRow, AiAssetGenerationResult, AssetFormat,
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
-  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun,
+  ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2414,24 +2414,27 @@ export async function fetchAnalyticsForDistributionRecord(distributionRecordId: 
 export async function fetchAnalyticsForClient(clientId: string, executionMonth: string): Promise<AnalyticsSummary[]> {
   const records = await fetchAnalyticsRecords(clientId, executionMonth);
   const ids = records.map((record) => record.distribution_record_id).filter((id): id is string => Boolean(id));
-  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null, insights_attempts: [], automatic_status: "no_automatic_metrics", latest_automatic_snapshot_at: null, performance_score: null, performance_insights: [] }));
-  const [metricsResult, signalsResult, attemptsResult, scoresResult, performanceInsightsResult] = await Promise.all([
+  if (!ids.length) return records.map((record) => ({ record, metric_snapshots: [], business_signals: [], manual_status: "no_metrics", latest_snapshot_at: null, insights_attempts: [], automatic_status: "no_automatic_metrics", latest_automatic_snapshot_at: null, performance_score: null, performance_insights: [], iteration_candidates: [] }));
+  const [metricsResult, signalsResult, attemptsResult, scoresResult, performanceInsightsResult, candidatesResult] = await Promise.all([
     supabase.from("client_metric_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("snapshot_at", { ascending: false }),
     supabase.from("client_business_signal_snapshots").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("signal_at", { ascending: false }),
     supabase.from("client_insights_collection_attempts").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("created_at", { ascending: false }),
     supabase.from("client_performance_scores").select("*").eq("client_id", clientId).in("distribution_record_id", ids),
     supabase.from("client_performance_insights").select("*").eq("client_id", clientId).in("distribution_record_id", ids).order("created_at", { ascending: false }),
+    supabase.from("client_iteration_candidates").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
   ]);
   if (metricsResult.error) throw metricsResult.error;
   if (signalsResult.error) throw signalsResult.error;
   if (attemptsResult.error) throw attemptsResult.error;
   if (scoresResult.error) throw scoresResult.error;
   if (performanceInsightsResult.error) throw performanceInsightsResult.error;
+  if (candidatesResult.error) throw candidatesResult.error;
   const metrics = (metricsResult.data ?? []) as ClientMetricSnapshot[];
   const signals = (signalsResult.data ?? []) as ClientBusinessSignalSnapshot[];
   const attempts = (attemptsResult.data ?? []) as InsightsCollectionAttempt[];
   const performanceScores = (scoresResult.data ?? []) as ClientPerformanceScore[];
   const performanceInsights = (performanceInsightsResult.data ?? []) as ClientPerformanceInsight[];
+  const iterationCandidates = (candidatesResult.data ?? []) as ClientIterationCandidate[];
   return records.map((record) => {
     const metricSnapshots = metrics.filter((row) => row.distribution_record_id === record.distribution_record_id);
     const businessSignals = signals.filter((row) => row.distribution_record_id === record.distribution_record_id);
@@ -2455,8 +2458,30 @@ export async function fetchAnalyticsForClient(clientId: string, executionMonth: 
       latest_automatic_snapshot_at: automaticSnapshots[0]?.snapshot_at ?? null,
       performance_score: performanceScores.find((row) => row.distribution_record_id === record.distribution_record_id) ?? null,
       performance_insights: performanceInsights.filter((row) => row.distribution_record_id === record.distribution_record_id),
+      iteration_candidates: iterationCandidates.filter((row) => row.distribution_record_id === record.distribution_record_id || (!row.distribution_record_id && row.source_ref === record.source_ref)),
     };
   });
+}
+
+export async function fetchIterationCandidates(clientId: string): Promise<ClientIterationCandidate[]> {
+  const { data, error } = await supabase.from("client_iteration_candidates").select("*").eq("client_id",clientId).order("created_at",{ascending:false});
+  if (error) throw error;
+  return (data ?? []) as ClientIterationCandidate[];
+}
+
+export async function createIterationCandidate(input: {
+  clientId:string; sourceRef?:string|null; distributionRecordId?:string|null; performanceScoreId?:string|null; performanceInsightId?:string|null;
+  candidateType:ClientIterationCandidate["candidate_type"]; recommendation:string; rationale:string; evidence:Record<string,unknown>;
+  confidence:ClientIterationCandidate["confidence"]; priority:ClientIterationCandidate["priority"]; createdFrom:ClientIterationCandidate["created_from"];
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("create_iteration_candidate",{p_client_id:input.clientId,p_source_ref:input.sourceRef??null,p_distribution_record_id:input.distributionRecordId??null,p_performance_score_id:input.performanceScoreId??null,p_performance_insight_id:input.performanceInsightId??null,p_candidate_type:input.candidateType,p_recommendation:input.recommendation,p_rationale:input.rationale,p_evidence:input.evidence,p_confidence:input.confidence,p_priority:input.priority,p_created_from:input.createdFrom});
+  if (error) throw error;
+  return data as string;
+}
+
+export async function updateIterationCandidateStatus(candidateId:string,newStatus:IterationCandidateStatus,reviewerNotes?:string|null):Promise<void> {
+  const { error } = await supabase.rpc("update_iteration_candidate_status",{p_candidate_id:candidateId,p_new_status:newStatus,p_reviewer_notes:reviewerNotes??null});
+  if (error) throw error;
 }
 
 export async function fetchPerformanceAnalysisRuns(clientId: string, limit = 10): Promise<ClientPerformanceAnalysisRun[]> {
@@ -2601,6 +2626,7 @@ export interface ArchiveDetail {
   businessSignals: ClientBusinessSignalSnapshot[];
   performanceScore: ClientPerformanceScore | null;
   performanceInsights: ClientPerformanceInsight[];
+  iterationCandidates: ClientIterationCandidate[];
 }
 
 /**
@@ -2623,8 +2649,15 @@ export async function fetchArchiveDetail(clientId: string, executionMonth: strin
   const performance = analytics?.distribution_record_id ? await Promise.all([
     supabase.from("client_performance_scores").select("*").eq("distribution_record_id",analytics.distribution_record_id).maybeSingle(),
     supabase.from("client_performance_insights").select("*").eq("distribution_record_id",analytics.distribution_record_id).order("created_at",{ascending:false}),
-  ]).then(([score,insights]) => ({ score:(score.data as ClientPerformanceScore|null)??null, insights:(insights.data??[]) as ClientPerformanceInsight[] })).catch(() => ({ score:null, insights:[] as ClientPerformanceInsight[] })) : { score:null, insights:[] as ClientPerformanceInsight[] };
-  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights };
+    supabase.from("client_iteration_candidates").select("*").eq("client_id",clientId).order("created_at",{ascending:false}),
+  ]).then(([score,insights,candidates]) => ({
+    score:(score.data as ClientPerformanceScore|null)??null,
+    insights:(insights.data??[]) as ClientPerformanceInsight[],
+    candidates:((candidates.data??[]) as ClientIterationCandidate[]).filter((candidate) =>
+      candidate.distribution_record_id === analytics.distribution_record_id || candidate.source_ref === sourceRef
+    ),
+  })).catch(() => ({ score:null, insights:[] as ClientPerformanceInsight[], candidates:[] as ClientIterationCandidate[] })) : { score:null, insights:[] as ClientPerformanceInsight[], candidates:[] as ClientIterationCandidate[] };
+  return { sourceRef, pipelineState, snapshots, master, brief, assets, distribution, analytics, metricSnapshots: manualAnalytics.metric_snapshots, businessSignals: manualAnalytics.business_signals, performanceScore:performance.score, performanceInsights:performance.insights, iterationCandidates:performance.candidates };
 }
 
 export interface ArchiveIndexEntry {
