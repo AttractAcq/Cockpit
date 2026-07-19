@@ -614,6 +614,45 @@ export interface AnalyticsRecordRow {
   updated_at: string;
 }
 
+export type MetricSnapshotLabel = "manual" | "t_plus_1h" | "t_plus_6h" | "t_plus_24h" | "t_plus_48h" | "t_plus_7d";
+export type MetricCollectionMethod = "manual" | "api_later";
+export type SupportedMetricKey = "impressions" | "reach" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "follows" | "website_clicks" | "replies" | "taps_forward" | "taps_back" | "exits" | "completion_rate";
+export type ManualAnalyticsStatus = "no_metrics" | "partial_metrics" | "metrics_entered" | "business_signals_entered";
+
+export interface ClientMetricSnapshot {
+  id: string; client_id: string; distribution_record_id: string; source_ref: string;
+  platform: string; content_format: string; snapshot_at: string; snapshot_label: MetricSnapshotLabel;
+  collection_method: MetricCollectionMethod; metrics: Partial<Record<SupportedMetricKey, number>>;
+  notes: string | null; evidence_url: string | null; created_by: string | null; created_at: string; updated_at: string;
+}
+
+export interface ClientBusinessSignalSnapshot {
+  id: string; client_id: string; distribution_record_id: string; source_ref: string; signal_at: string;
+  profile_visits: number | null; follows: number | null; inbound_dms: number | null; qualified_dms: number | null;
+  conversations: number | null; qualified_conversations: number | null; appointments: number | null;
+  qualified_appointments: number | null; show_ups: number | null; cash_collected: number | null;
+  operator_notes: string | null; created_by: string | null; created_at: string; updated_at: string;
+}
+
+export interface AnalyticsSummary {
+  record: AnalyticsRecordRow;
+  metric_snapshots: ClientMetricSnapshot[];
+  business_signals: ClientBusinessSignalSnapshot[];
+  manual_status: ManualAnalyticsStatus;
+  latest_snapshot_at: string | null;
+}
+
+export interface ManualMetricFormState {
+  snapshot_at: string; snapshot_label: MetricSnapshotLabel; metrics: Partial<Record<SupportedMetricKey, string>>;
+  notes: string; evidence_url: string;
+}
+
+export interface BusinessSignalFormState {
+  signal_at: string; profile_visits: string; follows: string; inbound_dms: string; qualified_dms: string;
+  conversations: string; qualified_conversations: string; appointments: string; qualified_appointments: string;
+  show_ups: string; cash_collected: string; operator_notes: string;
+}
+
 /** Shape the Publish Record modal edits and the publisher validates. */
 export interface DistributionPublishPayload {
   caption: string;
