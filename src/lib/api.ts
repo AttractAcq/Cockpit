@@ -1230,8 +1230,8 @@ export async function updateAiBackgroundPrompt(input: { generationId: string; pr
   if (error) throw error;
 }
 
-export async function generateAiBackgroundImage(generationId: string, imageSize?: string, imageQuality?: string): Promise<AiBackgroundGenerationRow> {
-  const result = await invokeFn<{ ok: boolean; generation?: AiBackgroundGenerationRow; message?: string }>("generate-ai-background-image", { generation_id: generationId, image_size: imageSize, image_quality: imageQuality });
+export async function generateAiBackgroundImage(generationId: string, clientId: string, imageSize?: string, imageQuality?: string): Promise<AiBackgroundGenerationRow> {
+  const result = await invokeFn<{ ok: boolean; generation?: AiBackgroundGenerationRow; message?: string }>("generate-ai-background-image", { generation_id: generationId, client_id: clientId, image_size: imageSize, image_quality: imageQuality });
   if (!result.ok || !result.generation) throw new Error(result.message ?? "AI background generation returned no image.");
   return result.generation;
 }
