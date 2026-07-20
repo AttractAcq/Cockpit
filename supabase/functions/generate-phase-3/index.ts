@@ -12,6 +12,7 @@ import { svc, json, cors } from "../_shared/aa.ts";
 import { callAnthropic, hasAnthropicKey, isAiEnabled } from "../_shared/anthropic.ts";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../_shared/execution-manifest.ts";
 import { canonicalAdRanges, expectedCalendarCellCount, PHASE3_EXPECTED_COUNTS } from "../_shared/phase3-contract.ts";
+import { buildPhase3ContextFileExcerpt, type Phase3AuthorityFormat } from "../_shared/phase3-authority.ts";
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const EXPECTED_CONTEXT_FILES = 21;
@@ -276,9 +277,19 @@ async function loadAuthority(sb: ReturnType<typeof svc>, clientId: string, execu
 function contextFor(files: ContextFile[], section: Section): string {
   const wanted = new Set(CONTEXT_BY_SECTION[section]);
   const maxChars = CONTEXT_CHARS_PER_FILE[section];
+  const format: Phase3AuthorityFormat | null = section.startsWith("organic_feed_posts") ? "feed_post"
+    : section.startsWith("organic_carousels") ? "carousel"
+    : section.startsWith("organic_reels") ? "reel_video"
+    : section.startsWith("stories_") ? "story_sequence"
+    : section === "ads" ? "ad_static"
+    : null;
   return files
     .filter((file) => wanted.has(file.file_number))
-    .map((file) => `\n===== APPROVED ${file.file_name} =====\n${cleanAuthorityText(file.content_md ?? "[EMPTY APPROVED FILE]").slice(0, maxChars)}`)
+    .map((file) => `\n===== APPROVED ${file.file_name} =====\n${buildPhase3ContextFileExcerpt(
+      { ...file, content_md: cleanAuthorityText(file.content_md ?? "[EMPTY APPROVED FILE]") },
+      format,
+      maxChars,
+    )}`)
     .join("\n");
 }
 

@@ -10,6 +10,7 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { callAnthropic } from "./anthropic.ts";
 import { EXECUTION_FILE_COUNT } from "./execution-manifest.ts";
+import { buildPhase3ContextFileExcerpt } from "./phase3-authority.ts";
 
 const REQUIRED_CONTEXT_FILES = 21;
 
@@ -260,8 +261,8 @@ export async function loadAuthorityForMonth(sb: SupabaseClient, clientId: string
 
 const SYSTEM = `You generate ONE Attract Acquisition Phase 3 master row from APPROVED context and execution authority. Pre-launch unless approved context says otherwise. External client proof is absent. Never invent testimonials, case studies, client logos, results, revenue, leads, ROI, or metrics; never guarantee outcomes; never name deprecated offers or legacy South African Rand pricing. Return exactly one valid JSON object, no prose or fences. Every row is a needs_review draft.`;
 
-function authorityText(context: AuthorityFile[], execution: AuthorityFile[]): string {
-  const ctx = context.slice(0, 21).map((f) => `\n== ${f.file_name} ==\n${(f.content_md ?? "").slice(0, 500)}`).join("");
+function authorityText(context: AuthorityFile[], execution: AuthorityFile[], format: ScopedFormat): string {
+  const ctx = context.slice(0, 21).map((f) => `\n== ${f.file_name} ==\n${buildPhase3ContextFileExcerpt(f, format, 500)}`).join("");
   const exe = execution.map((f) => `\n== PHASE2 ${f.file_name} ==\n${(f.content_md ?? "").slice(0, 500)}`).join("");
   return `${ctx}\n${exe}`;
 }
@@ -310,7 +311,7 @@ export async function generateOnePhase3Item(
     if (safe !== true) throw new Error(`CONFLICT: ${slot.existing_ref} is no longer safe to replace (approved or has downstream records).`);
   }
 
-  const row = await generateRow(slot.asset_format, authorityText(context, execution));
+  const row = await generateRow(slot.asset_format, authorityText(context, execution, slot.asset_format));
 
   // Allocate a ref + insert the master row, retrying on the rare UNIQUE(client_id,ref) race.
   let ref = "";
