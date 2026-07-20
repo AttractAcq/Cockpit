@@ -15,6 +15,7 @@ import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
 import type { PulseMetric } from "@/types";
+import type { AiBackgroundGenerationRow } from "@/types/phase";
 
 // Helper: normalise entity_name from Supabase FK join
 function entityName(row: Record<string, unknown>): string | null {
@@ -1207,6 +1208,39 @@ export async function fetchProductionBrief(briefId: string): Promise<ProductionB
   const { data, error } = await supabase.from("client_production_briefs").select("*").eq("id", briefId).single();
   if (error) throw error;
   return data as ProductionBriefRow;
+}
+
+export async function fetchAiBackgroundGenerations(productionBriefId: string): Promise<AiBackgroundGenerationRow[]> {
+  const { data, error } = await supabase.from("client_ai_background_image_generations").select("*").eq("production_brief_id", productionBriefId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AiBackgroundGenerationRow[];
+}
+
+export async function createAiBackgroundPrompt(input: { clientId: string; productionBriefId: string; sourceRef: string; format: string; frameIndex?: number | null; operatorNotes?: string; promptText?: string }): Promise<AiBackgroundGenerationRow> {
+  const { data: id, error } = await supabase.rpc("create_ai_background_prompt", { p_client_id: input.clientId, p_production_brief_id: input.productionBriefId, p_source_ref: input.sourceRef, p_format: input.format, p_frame_index: input.frameIndex ?? null, p_operator_notes: input.operatorNotes?.trim() || null, p_prompt_text: input.promptText?.trim() || null });
+  if (error) throw error;
+  const rows = await fetchAiBackgroundGenerations(input.productionBriefId);
+  const row = rows.find((candidate) => candidate.id === id);
+  if (!row) throw new Error("Prompt draft was created but could not be reloaded.");
+  return row;
+}
+
+export async function updateAiBackgroundPrompt(input: { generationId: string; promptText?: string; newStatus?: string; reviewNote?: string }): Promise<void> {
+  const { error } = await supabase.rpc("update_ai_background_prompt", { p_generation_id: input.generationId, p_prompt_text: input.promptText ?? null, p_new_status: input.newStatus ?? null, p_review_note: input.reviewNote?.trim() || null });
+  if (error) throw error;
+}
+
+export async function generateAiBackgroundImage(generationId: string, imageSize?: string, imageQuality?: string): Promise<AiBackgroundGenerationRow> {
+  const result = await invokeFn<{ ok: boolean; generation?: AiBackgroundGenerationRow; message?: string }>("generate-ai-background-image", { generation_id: generationId, image_size: imageSize, image_quality: imageQuality });
+  if (!result.ok || !result.generation) throw new Error(result.message ?? "AI background generation returned no image.");
+  return result.generation;
+}
+
+export async function getAiBackgroundSignedUrl(row: AiBackgroundGenerationRow): Promise<string> {
+  if (!row.storage_path) throw new Error("Generated background has no storage path.");
+  const { data, error } = await supabase.storage.from(row.storage_bucket ?? "client-assets").createSignedUrl(row.storage_path, 300);
+  if (error || !data?.signedUrl) throw new Error(error?.message ?? "Could not create background preview URL.");
+  return data.signedUrl;
 }
 
 export async function fetchProductionBriefBySourceRef(clientId: string, executionMonth: string, sourceRef: string): Promise<ProductionBriefRow | null> {
