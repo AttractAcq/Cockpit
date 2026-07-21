@@ -14,6 +14,7 @@ import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
 import { MastersPanel } from "@/components/client/MastersPanel";
 import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
 import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
+import { ClientSettingsPanel } from "@/components/client/ClientSettingsPanel";
 import { ContentCreationPanel } from "@/components/client/ContentCreationPanel";
 import { AssetsPanel } from "@/components/client/AssetsPanel";
 import { DistributionPanel } from "@/components/client/DistributionPanel";
@@ -31,6 +32,7 @@ type Section =
   | "context_files"
   | "execution_files"
   | "overview"
+  | "client_settings"
   | "pipeline"
   | "masters"
   | "content_creation"
@@ -47,6 +49,7 @@ type Section =
 // user-facing labels and ordering change.
 const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Overview",         section: "overview" },
+  { label: "Client Settings",  section: "client_settings" },
   { label: "Automations",      section: "automations" },
   { label: "Pipeline",         section: "pipeline" },
   { label: "Context Inputs",   section: "context_inputs" },
@@ -623,6 +626,8 @@ export function ClientDetailPage() {
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
       case "overview":
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} /></div>;
+      case "client_settings":
+        return <ClientSettingsPanel clientId={id} />;
       case "masters":
         return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "activity":

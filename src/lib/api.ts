@@ -15,7 +15,7 @@ import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
 import type { PulseMetric } from "@/types";
-import type { AiBackgroundGenerationRow } from "@/types/phase";
+import type { AiBackgroundGenerationRow, ClientDistributionAccount } from "@/types/phase";
 
 // Helper: normalise entity_name from Supabase FK join
 function entityName(row: Record<string, unknown>): string | null {
@@ -2302,6 +2302,61 @@ export async function fetchDistributionRecords(clientId: string, executionMonth:
     .eq("client_id", clientId).eq("execution_month", executionMonth).order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as DistributionRecordRow[];
+}
+
+const DISTRIBUTION_ACCOUNTS_TABLE = "client_distribution_accounts";
+
+export async function fetchClientDistributionAccounts(clientId: string, activeOnly = false): Promise<ClientDistributionAccount[]> {
+  let query = supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).select("*").eq("client_id", clientId)
+    .order("is_default", { ascending: false }).order("label", { ascending: true });
+  if (activeOnly) query = query.eq("is_active", true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ClientDistributionAccount[];
+}
+
+export async function saveClientDistributionAccount(input: {
+  id?: string; clientId: string; platform: string; label: string; handle: string;
+  externalAccountId: string; accountType?: string | null; isDefault: boolean;
+  isActive: boolean; notes?: string | null;
+}): Promise<ClientDistributionAccount> {
+  const normalized = {
+    client_id: input.clientId,
+    platform: input.platform.trim().toLowerCase(),
+    label: input.label.trim(),
+    handle: input.handle.trim().replace(/^@+/, "").replace(/\s+/g, "").toLowerCase(),
+    external_account_id: input.externalAccountId.trim(),
+    account_type: input.accountType?.trim() || null,
+    is_default: input.isDefault && input.isActive,
+    is_active: input.isActive,
+    notes: input.notes?.trim() || null,
+    updated_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+  };
+  if (normalized.is_default) {
+    const { error } = await supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).update({ is_default: false })
+      .eq("client_id", input.clientId).eq("platform", normalized.platform).eq("is_active", true);
+    if (error) throw error;
+  }
+  const query = input.id
+    ? supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).update(normalized).eq("id", input.id)
+    : supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).insert({ ...normalized, created_by: normalized.updated_by });
+  const { data, error } = await query.select("*").single();
+  if (error) throw error;
+  return data as ClientDistributionAccount;
+}
+
+export async function setDefaultClientDistributionAccount(account: ClientDistributionAccount): Promise<void> {
+  const { error: clearError } = await supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).update({ is_default: false })
+    .eq("client_id", account.client_id).eq("platform", account.platform).eq("is_active", true);
+  if (clearError) throw clearError;
+  const { error } = await supabase.from(DISTRIBUTION_ACCOUNTS_TABLE).update({ is_default: true, is_active: true }).eq("id", account.id);
+  if (error) throw error;
+}
+
+export async function setClientDistributionAccountActive(accountId: string, active: boolean): Promise<void> {
+  const { error } = await supabase.from(DISTRIBUTION_ACCOUNTS_TABLE)
+    .update({ is_active: active, ...(active ? {} : { is_default: false }) }).eq("id", accountId);
+  if (error) throw error;
 }
 
 export async function fetchDistributionRecordByGroup(clientId: string, assetGroupRef: string): Promise<DistributionRecordRow | null> {

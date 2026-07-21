@@ -4,6 +4,7 @@ import { Button } from "@/components/primitives";
 import {
   cancelDistributionRecord,
   fetchDistributionRecords,
+  fetchClientDistributionAccounts,
   fetchEffectiveStageMap,
   fetchLifecycleDateContext,
   fetchPublishAttempts,
@@ -22,7 +23,7 @@ import { zonedWallClockToUtcIso } from "@/lib/schedule-time";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import { useFocusedRecord } from "@/lib/use-focused-record";
 import { errorCategory, hasExternalEvidence, normalizeDestinationDisplay, STATUS_GUIDANCE, validateStoryRecord } from "@/lib/distribution-operator";
-import type { DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishAttemptRow, PublishStatus } from "@/types/phase";
+import type { ClientDistributionAccount, DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishAttemptRow, PublishStatus } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
 
@@ -91,24 +92,21 @@ function mediaIsVideo(media: Array<{ mime_type?: string }>): boolean {
 }
 
 interface EditorState {
-  caption: string; hashtags: string; destination: string; platform: string;
-  contentType: string; aspectRatio: string; proofRestrictions: string; igUserId: string;
+  caption: string; hashtags: string; platform: string;
+  contentType: string; aspectRatio: string; proofRestrictions: string;
   checklist: boolean[];
 }
 
 function seedEditor(record: DistributionRecordRow): EditorState {
   const payload = record.publish_payload as Partial<DistributionPublishPayload>;
   const settings = record.publish_settings as Partial<DistributionPublishSettings>;
-  const meta = (settings.meta ?? {}) as Record<string, unknown>;
   return {
     caption: payload.caption ?? "",
     hashtags: (payload.hashtags ?? []).join(", "),
-    destination: record.destination ?? settings.destination ?? "",
     platform: settings.platform ?? record.platform ?? "instagram",
     contentType: settings.content_type ?? "IMAGE",
     aspectRatio: settings.aspect_ratio ?? "4:5",
     proofRestrictions: settings.proof_restrictions ?? "",
-    igUserId: typeof meta.ig_user_id === "string" ? meta.ig_user_id : "",
     checklist: [],
   };
 }
@@ -118,6 +116,7 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   onClose: () => void;
   onUpdated: (next: DistributionRecordRow) => void;
 }) {
+  const navigate = useNavigate();
   const settings = record.publish_settings as Partial<DistributionPublishSettings>;
   const payload = record.publish_payload as Partial<DistributionPublishPayload>;
   const checklistItems = settings.safety_checklist?.length ? settings.safety_checklist : DEFAULT_CHECKLIST;
@@ -144,6 +143,32 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; message: string } | null>(null);
   const [missing, setMissing] = useState<string[] | null>(null);
+  const [accounts, setAccounts] = useState<ClientDistributionAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setAccountsLoading(true); setAccountsError(null);
+    fetchClientDistributionAccounts(record.client_id, true).then((rows) => {
+      if (!active) return;
+      const platformRows = rows.filter((account) => account.platform === editor.platform);
+      setAccounts(platformRows);
+      const legacyHandle = (record.destination ?? settings.destination ?? "").trim().replace(/^@+/, "").toLowerCase();
+      const meta = settings.meta && typeof settings.meta === "object" ? settings.meta as Record<string, unknown> : {};
+      const legacyId = typeof meta.ig_user_id === "string" ? meta.ig_user_id.trim() : "";
+      const exact = platformRows.find((account) => (!legacyHandle || account.handle === legacyHandle) && (!legacyId || account.external_account_id === legacyId));
+      const hasLegacy = Boolean(legacyHandle || legacyId);
+      setSelectedAccountId(exact?.id ?? (!hasLegacy ? platformRows.find((account) => account.is_default)?.id ?? "" : ""));
+    }).catch((value) => { if (active) setAccountsError(errorText(value)); }).finally(() => { if (active) setAccountsLoading(false); });
+    return () => { active = false; };
+  }, [record.client_id, record.destination, settings.destination, settings.meta, editor.platform]);
+
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? null;
+  const selectedDestination = selectedAccount ? `@${selectedAccount.handle}` : null;
+  const hasLegacyDestination = Boolean((record.destination ?? settings.destination ?? "").trim() || ((settings.meta as Record<string, unknown> | undefined)?.ig_user_id));
+  const legacyUnmatched = hasLegacyDestination && !accountsLoading && !selectedAccount;
 
   const checklistComplete = editor.checklist.every(Boolean);
   const isStory = storyValidation.isStory || editor.contentType.trim().toUpperCase() === "STORIES";
@@ -163,24 +188,24 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   function buildSettings(): Record<string, unknown> {
     const existingMeta = settings.meta && typeof settings.meta === "object" ? settings.meta as Record<string, unknown> : {};
     const next: DistributionPublishSettings = {
-      platform: editor.platform, destination: editor.destination.trim() || null,
+      platform: editor.platform, destination: selectedDestination,
       content_type: editor.contentType, aspect_ratio: editor.aspectRatio,
       proof_restrictions: editor.proofRestrictions.trim() || null,
       safety_checklist: checklistItems,
-      meta: { ...existingMeta, ...(editor.igUserId.trim() ? { ig_user_id: editor.igUserId.trim() } : {}) },
+      meta: { ...existingMeta, ig_user_id: selectedAccount?.external_account_id, distribution_account_id: selectedAccount?.id },
     };
     return next as unknown as Record<string, unknown>;
   }
 
   async function publishNow() {
-    if (!checklistComplete) return;
+    if (!checklistComplete || !selectedAccount) return;
     if (invalidStory) { setNotice({ error: true, message: storyGuardMessage! }); return; }
     if (videoStory) { setNotice({ error: true, message: "Video Story publishing is not yet supported." }); return; }
-    if (!window.confirm(`Publish ${record.source_ref}${frame ? ` (${frame})` : ""} to ${editor.platform} now? This attempts a real publish via Meta.`)) return;
+    if (!window.confirm(`Publish ${record.source_ref}${frame ? ` (${frame})` : ""} to ${selectedDestination} on ${editor.platform} now? This attempts a real publish via Meta.`)) return;
     setBusy("publish"); setNotice(null); setMissing(null);
     try {
       // Persist edits first so nothing is lost regardless of the publish outcome.
-      const saved = await saveDistributionRecord(record.id, { publishPayload: buildPayload(), publishSettings: buildSettings(), destination: editor.destination.trim() || null });
+      const saved = await saveDistributionRecord(record.id, { publishPayload: buildPayload(), publishSettings: buildSettings(), destination: selectedDestination });
       onUpdated(saved);
       const result = await publishDistributionRecordNow(record.id);
       if (result.ok && result.record) {
@@ -197,7 +222,7 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   }
 
   async function schedule() {
-    if (!checklistComplete) return;
+    if (!checklistComplete || !selectedAccount) return;
     if (invalidStory) { setNotice({ error: true, message: storyGuardMessage! }); return; }
     if (!date || !time) { setNotice({ error: true, message: "Choose a publish date and time." }); return; }
     let scheduledIso: string;
@@ -210,7 +235,7 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
       const settingsWithTz = { ...buildSettings(), meta: { ...(buildSettings().meta as Record<string, unknown>), timezone: tz } };
       const saved = await scheduleDistributionRecord(record.id, {
         scheduledPublishAt: scheduledIso, timezone: tz, plannedPublishDate: date || null,
-        publishPayload: buildPayload(), publishSettings: settingsWithTz, destination: editor.destination.trim() || null,
+        publishPayload: buildPayload(), publishSettings: settingsWithTz, destination: selectedDestination,
       });
       onUpdated(saved);
       setNotice({ error: false, message: `Scheduled for ${date} ${time} (${tz}) → ${new Date(scheduledIso).toLocaleString()} local. The worker publishes it when due — nothing is published now.` });
@@ -223,11 +248,14 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-2xs uppercase text-paper-3">Caption / copy</span><textarea className={`${field} min-h-28`} value={editor.caption} onChange={(event) => setEditor((current) => ({ ...current, caption: event.target.value }))} /></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Platform</span><select className={field} value={editor.platform} onChange={(event) => setEditor((current) => ({ ...current, platform: event.target.value }))}><option value="instagram">instagram</option></select></label>
-      <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Destination / IG account handle</span><input className={field} placeholder="@client_handle" value={editor.destination} onChange={(event) => setEditor((current) => ({ ...current, destination: event.target.value }))} /></label>
+      <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Distribution account</span><select className={field} value={selectedAccountId} disabled={accountsLoading || !accounts.length} onChange={(event) => setSelectedAccountId(event.target.value)}><option value="">Select a saved account…</option>{accounts.map((account) => <option key={account.id} value={account.id}>@{account.handle} — {account.external_account_id}</option>)}</select></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Content type</span><input className={field} value={editor.contentType} onChange={(event) => setEditor((current) => ({ ...current, contentType: event.target.value }))} /></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Aspect ratio</span><input className={field} value={editor.aspectRatio} onChange={(event) => setEditor((current) => ({ ...current, aspectRatio: event.target.value }))} /></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Hashtags (comma separated)</span><input className={field} value={editor.hashtags} onChange={(event) => setEditor((current) => ({ ...current, hashtags: event.target.value }))} /></label>
-      <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Meta IG business account id</span><input className={field} placeholder="numeric ig_user_id" value={editor.igUserId} onChange={(event) => setEditor((current) => ({ ...current, igUserId: event.target.value }))} /></label>
+      <div className="grid gap-2 rounded border border-line bg-ink p-2.5 text-2xs text-paper-3 sm:col-span-2 sm:grid-cols-2"><div>Destination / IG account handle<br/><span className="text-xs text-paper">{selectedDestination ?? "—"}</span></div><div>Meta IG business account ID<br/><span className="font-mono text-xs text-paper">{selectedAccount?.external_account_id ?? "—"}</span></div></div>
+      {!accountsLoading && !accounts.length && <div role="alert" className="sm:col-span-2 rounded border border-neg/30 bg-neg/5 p-3 text-xs text-neg">No saved distribution account exists for this client. Add one in Client Settings before publishing or scheduling. <button className="ml-1 underline" onClick={() => navigate(ROUTES.clientSection(record.client_id, "client_settings"))}>Open Client Settings</button></div>}
+      {legacyUnmatched && accounts.length > 0 && <div role="alert" className="sm:col-span-2 rounded border border-warn/30 bg-warn/5 p-3 text-xs text-warn">This record has an unsaved destination. Select a saved account before publishing or scheduling.</div>}
+      {accountsError && <div role="alert" className="sm:col-span-2 rounded border border-neg/30 bg-neg/5 p-3 text-xs text-neg">Could not load distribution accounts: {accountsError}</div>}
       <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-2xs uppercase text-paper-3">Proof / claim restrictions</span><textarea className={`${field} min-h-16`} value={editor.proofRestrictions} onChange={(event) => setEditor((current) => ({ ...current, proofRestrictions: event.target.value }))} /></label>
       <div className="sm:col-span-2">
         <div className="flex items-center gap-2 text-2xs uppercase text-paper-3">Media ({media.length} file{media.length === 1 ? "" : "s"}) · from client-assets (not editable){frame && <span className="rounded border border-teal/30 bg-teal/5 px-1.5 py-0.5 normal-case text-teal">{frame}</span>}{isStory && <span className="rounded border border-line px-1.5 py-0.5 normal-case text-paper-3">Story</span>}</div>
@@ -275,8 +303,8 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
           </div>
         )}
       </main>
-      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${videoStory || invalidStory ? "text-neg" : "text-paper-3"}`}>{invalidStory ? storyGuardMessage : videoStory ? "Video Story publishing is not yet supported" : checklistComplete ? (isStory ? "Publishes this one Story frame. Real publish — never faked." : "Real publish — never faked. Missing config fails safely.") : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!checklistComplete || busy !== null || videoStory || invalidStory} title={invalidStory ? storyGuardMessage ?? undefined : videoStory ? "Video Story publishing is not yet supported" : undefined} onClick={() => void publishNow()}>{busy === "publish" ? "Publishing…" : isStory ? "Publish Story" : "Publish"}</Button></footer>}
-      {step === "schedule" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${invalidStory ? "text-neg" : "text-paper-3"}`}>{invalidStory ? storyGuardMessage : checklistComplete ? "Saved as scheduled — not published now." : "Complete the safety checklist to enable scheduling."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!checklistComplete || busy !== null || invalidStory} onClick={() => void schedule()}>{busy === "schedule" ? "Scheduling…" : record.permanent_failure ? "Schedule Again" : "Schedule Post"}</Button></footer>}
+      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${videoStory || invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{!selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : videoStory ? "Video Story publishing is not yet supported" : checklistComplete ? (isStory ? "Publishes this one Story frame. Real publish — never faked." : "Real publish — never faked. Missing config fails safely.") : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!selectedAccount || !checklistComplete || busy !== null || videoStory || invalidStory} title={invalidStory ? storyGuardMessage ?? undefined : videoStory ? "Video Story publishing is not yet supported" : undefined} onClick={() => void publishNow()}>{busy === "publish" ? "Publishing…" : isStory ? "Publish Story" : "Publish"}</Button></footer>}
+      {step === "schedule" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{!selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : checklistComplete ? "Saved as scheduled — not published now." : "Complete the safety checklist to enable scheduling."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!selectedAccount || !checklistComplete || busy !== null || invalidStory} onClick={() => void schedule()}>{busy === "schedule" ? "Scheduling…" : record.permanent_failure ? "Schedule Again" : "Schedule Post"}</Button></footer>}
     </div>
   </div>;
 }
