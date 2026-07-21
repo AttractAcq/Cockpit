@@ -69,6 +69,14 @@ export interface AiBackgroundClaim {
   prompt_text: string;
 }
 
+export type AiBackgroundGenerationStage =
+  | "authorized" | "configured" | "claimed"
+  | "provider_started" | "provider_completed"
+  | "storage_started" | "storage_completed"
+  | "mark_generated_started" | "mark_generated_completed"
+  | "failure_caught" | "cleanup_started" | "cleanup_completed"
+  | "mark_failed_started" | "mark_failed_completed";
+
 export class AiBackgroundGenerationError extends Error {
   constructor(public readonly stage: "authorization" | "configuration" | "claim" | "generate", message: string) {
     super(message);
@@ -90,15 +98,18 @@ export async function runAiBackgroundGeneration<TGenerated>(input: {
   markGenerated: (claim: AiBackgroundClaim, path: string, metadata: Record<string, unknown>, config: { model: string; size: string; quality: string }) => Promise<TGenerated>;
   markFailed: (claim: AiBackgroundClaim, message: string) => Promise<void>;
   cleanupStorage: (path: string) => Promise<void>;
+  onStage?: (stage: AiBackgroundGenerationStage, claim?: AiBackgroundClaim) => void;
 }): Promise<{ generated: TGenerated; path: string; config: { model: string; size: string; quality: string } }> {
   try {
     await input.authorize();
+    input.onStage?.("authorized");
   } catch (error) {
     throw new AiBackgroundGenerationError("authorization", safeGenerationError(error));
   }
   let config: { model: string; size: string; quality: string };
   try {
     config = resolveImageConfiguration(input.configuration);
+    input.onStage?.("configured");
   } catch (error) {
     throw new AiBackgroundGenerationError("configuration", safeGenerationError(error));
   }
@@ -109,26 +120,38 @@ export async function runAiBackgroundGeneration<TGenerated>(input: {
     throw new AiBackgroundGenerationError("claim", safeGenerationError(error));
   }
   if (!claim) throw new AiBackgroundGenerationError("claim", "Generation claim was rejected.");
+  input.onStage?.("claimed", claim);
 
   const path = buildAiBackgroundStoragePath(claim.client_id, claim.source_ref, claim.id);
   let uploaded = false;
   try {
+    input.onStage?.("provider_started", claim);
     const provider = await input.callProvider(claim, config);
+    input.onStage?.("provider_completed", claim);
+    input.onStage?.("storage_started", claim);
     await input.uploadImage(path, provider.bytes, { contentType: "image/png", upsert: false });
     uploaded = true;
+    input.onStage?.("storage_completed", claim);
+    input.onStage?.("mark_generated_started", claim);
     const generated = await input.markGenerated(claim, path, provider.metadata, config);
+    input.onStage?.("mark_generated_completed", claim);
     return { generated, path, config };
   } catch (error) {
+    input.onStage?.("failure_caught", claim);
     let message = safeGenerationError(error);
     if (uploaded) {
       try {
+        input.onStage?.("cleanup_started", claim);
         await input.cleanupStorage(path);
+        input.onStage?.("cleanup_completed", claim);
       } catch {
         message = `${message} Generated file cleanup also failed; operator review required.`.slice(0, 1000);
       }
     }
     try {
+      input.onStage?.("mark_failed_started", claim);
       await input.markFailed(claim, message);
+      input.onStage?.("mark_failed_completed", claim);
     } catch {
       message = `${message} Failed-state persistence also failed; operator review required.`.slice(0, 1000);
     }
@@ -142,12 +165,13 @@ export async function requestAiBackgroundImage(input: {
   apiKey: string;
   prompt: string;
   config: { model: string; size: string; quality: string };
+  timeoutMs?: number;
 }): Promise<{ base64: string; metadata: Record<string, unknown> }> {
   const response = await input.fetchImpl(input.url, {
     method: "POST",
     headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ ...input.config, prompt: input.prompt, n: 1, background: "opaque", moderation: "auto" }),
-    signal: AbortSignal.timeout(180_000),
+    signal: AbortSignal.timeout(input.timeoutMs ?? 120_000),
   });
   const provider = await response.json().catch(() => ({})) as { data?: Array<{ b64_json?: string; revised_prompt?: string }>; error?: { message?: string } };
   const base64 = provider.data?.[0]?.b64_json;

@@ -6,6 +6,10 @@ const FUNCTION_NAME = "generate-ai-background-image";
 const BUCKET = "client-assets";
 const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations";
 
+function logStage(stage: string, generationId: string): void {
+  console.info(JSON.stringify({ function: FUNCTION_NAME, stage, generation_id: generationId || null }));
+}
+
 function fail(status: number, stage: string, message: string): Response {
   return json({ ok: false, function: FUNCTION_NAME, stage, message }, status);
 }
@@ -69,12 +73,14 @@ Deno.serve(async (req: Request) => {
         if (error) throw error;
       },
       cleanupStorage: async (path) => { const { error } = await sb.storage.from(BUCKET).remove([path]); if (error) throw error; },
+      onStage: (stage, claim) => logStage(stage, claim?.id ?? generationId),
     });
     await sb.from("activity_log").insert({ client_id: result.generated.client_id, event_type: "ai_background_image_generated", plain_english_message: `AI background image generated for ${result.generated.source_ref}.`, object_type: "client_ai_background_image_generation", object_id: generationId, metadata: { source_ref: result.generated.source_ref, model: result.config.model, size: result.config.size, quality: result.config.quality, storage_path: result.path } });
     return json({ ok: true, generation: result.generated });
   } catch (error) {
     const message = safeGenerationError(error);
     const stage = error instanceof AiBackgroundGenerationError ? error.stage : "generate";
+    logStage(`${stage}_terminal_error`, generationId);
     return fail(stage === "claim" ? 409 : stage === "configuration" ? 503 : 500, stage, message);
   }
 });

@@ -4,6 +4,7 @@ import ts from "typescript";
 
 const migration = readFileSync("supabase/migrations/20260720000027_ai_background_image_generation.sql", "utf8");
 const repairMigration = readFileSync("supabase/migrations/20260720000028_ai_background_prompt_validation_repair.sql", "utf8");
+const recoveryMigration = readFileSync("supabase/migrations/20260721000029_ai_background_stale_generation_recovery.sql", "utf8");
 const edge = readFileSync("supabase/functions/generate-ai-background-image/index.ts", "utf8");
 const helperSource = readFileSync("supabase/functions/_shared/ai-background-image.ts", "utf8");
 const api = readFileSync("src/lib/api.ts", "utf8");
@@ -35,6 +36,12 @@ assert.match(repairMigration, /else\s+v_prompt := btrim\(p_prompt_text\)/);
 assert.match(repairMigration, /security definer set search_path = ''/i);
 assert.doesNotMatch(repairMigration, /\b(drop|truncate|delete|alter table)\b/i);
 assert.doesNotMatch(repairMigration, /client_assets|client_asset_generation_jobs|client_distribution_records|client_metric_snapshots|client_business_signal_snapshots|client_performance_scores|generate-phase-3|openai|cron\./i);
+for (const predicate of ["recover_stale_ai_background_generation", "prompt_status='generating'", "storage_path is null", "generated_at is null", "provider_response='{}'::jsonb", "updated_at < now()-interval '5 minutes'", "prompt_status='failed'"]) assert.ok(recoveryMigration.includes(predicate), `missing recovery predicate: ${predicate}`);
+assert.match(recoveryMigration, /auth\.role\(\) <> 'service_role'[\s\S]*admin','account_manager','editor/);
+assert.match(recoveryMigration, /RECOVERY_REJECTED/);
+assert.match(recoveryMigration, /ai_background_generation_recovered/);
+assert.doesNotMatch(recoveryMigration, /client_assets|client_distribution_records|client_metric_snapshots|client_business_signal_snapshots|client_performance_scores|client_context_files|client_execution_files|generate-phase-3|openai|cron\./i);
+assert.doesNotMatch(recoveryMigration, /\b(delete|truncate|drop)\b/i);
 
 assert.match(edge, /Deno\.env\.get\("OPENAI_API_KEY"\)/);
 assert.match(edge, /runAiBackgroundGeneration/);
@@ -90,12 +97,13 @@ for (const input of [
 ]) assert.throws(() => helpers.resolveImageConfiguration(input));
 assert.equal(helpers.resolveImageConfiguration({ model: "gpt-image-1", defaultSize: "1024x1024", defaultQuality: "high" }).model, "gpt-image-1", "fallback profile is explicit only");
 
-let providerBody;
+let providerBody; let providerSignal;
 const providerResult = await helpers.requestAiBackgroundImage({
-  fetchImpl: async (_url, init) => { providerBody = JSON.parse(init.body); return new Response(JSON.stringify({ data: [{ b64_json: "aW1hZ2U=", revised_prompt: "safe" }] }), { status: 200 }); },
+  fetchImpl: async (_url, init) => { providerBody = JSON.parse(init.body); providerSignal = init.signal; return new Response(JSON.stringify({ data: [{ b64_json: "aW1hZ2U=", revised_prompt: "safe" }] }), { status: 200 }); },
   url: "https://example.invalid/images", apiKey: "mock-key", prompt: "approved prompt", config: defaults,
 });
 assert.deepEqual({ model: providerBody.model, quality: providerBody.quality, size: providerBody.size }, defaults);
+assert.ok(providerSignal instanceof AbortSignal && !providerSignal.aborted, "provider request must receive a defensive timeout signal");
 assert.equal(providerResult.base64, "aW1hZ2U=");
 await assert.rejects(() => helpers.requestAiBackgroundImage({ fetchImpl: async () => new Response(JSON.stringify({ error: { message: "mock provider failure" } }), { status: 500 }), url: "https://example.invalid", apiKey: "mock", prompt: "p", config: defaults }), /mock provider failure/);
 
@@ -113,7 +121,7 @@ assert.equal(helpers.safeGenerationError(new Error("provider sk-secret-value\nfa
 const validClaim = { id: "generation-1", client_id: "client-1", source_ref: "JUL28-FP-009", prompt_text: "approved prompt" };
 function runtimeHarness(overrides = {}) {
   const calls = { auth: 0, claim: 0, provider: 0, upload: 0, generated: 0, failed: 0, cleanup: 0, finalAsset: 0, publish: 0, phase3: 0 };
-  const state = { failedMessage: null, providerConfig: null, uploadPath: null, uploadOptions: null };
+  const state = { failedMessage: null, providerConfig: null, uploadPath: null, uploadOptions: null, stages: [] };
   const input = {
     configuration: { model: "gpt-image-2", defaultSize: "1024x1024", defaultQuality: "high" },
     authorize: async () => { calls.auth += 1; },
@@ -123,6 +131,7 @@ function runtimeHarness(overrides = {}) {
     markGenerated: async () => { calls.generated += 1; return { prompt_status: "generated" }; },
     markFailed: async (_claim, message) => { calls.failed += 1; state.failedMessage = message; },
     cleanupStorage: async () => { calls.cleanup += 1; },
+    onStage: (stage) => { state.stages.push(stage); },
     ...overrides,
   };
   return { input, calls, state };
@@ -152,6 +161,7 @@ for (const claimFailure of [
   assert.equal(harness.state.uploadOptions.upsert, false);
   assert.deepEqual({ auth: harness.calls.auth, claim: harness.calls.claim, provider: harness.calls.provider, upload: harness.calls.upload, generated: harness.calls.generated, failed: harness.calls.failed }, { auth: 1, claim: 1, provider: 1, upload: 1, generated: 1, failed: 0 });
   assert.equal(result.generated.prompt_status, "generated");
+  assert.deepEqual(harness.state.stages, ["authorized","configured","claimed","provider_started","provider_completed","storage_started","storage_completed","mark_generated_started","mark_generated_completed"]);
   assert.deepEqual({ finalAsset: harness.calls.finalAsset, publish: harness.calls.publish, phase3: harness.calls.phase3 }, { finalAsset: 0, publish: 0, phase3: 0 });
 }
 
@@ -164,6 +174,7 @@ for (const scenario of [
   await assert.rejects(() => helpers.runAiBackgroundGeneration(harness.input), (error) => error.stage === "generate" && !error.message.includes("sk-provider-secret"), scenario.name);
   assert.deepEqual({ provider: harness.calls.provider, upload: harness.calls.upload, generated: harness.calls.generated, failed: harness.calls.failed, cleanup: harness.calls.cleanup }, { provider: 1, upload: 0, generated: 0, failed: 1, cleanup: 0 }, scenario.name);
   assert.deepEqual({ finalAsset: harness.calls.finalAsset, publish: harness.calls.publish, phase3: harness.calls.phase3 }, { finalAsset: 0, publish: 0, phase3: 0 }, scenario.name);
+  assert.deepEqual(harness.state.stages.slice(-3), ["failure_caught","mark_failed_started","mark_failed_completed"], scenario.name);
 }
 {
   const harness = runtimeHarness();
