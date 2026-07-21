@@ -32,8 +32,10 @@ export function resolveImageConfiguration(input: {
   if (!model) throw new Error("OPENAI_IMAGE_MODEL is required.");
   const profile = SUPPORTED_IMAGE_MODELS[model];
   if (!profile) throw new Error("OPENAI_IMAGE_MODEL is unsupported by the configured image profile.");
-  const configuredSize = input.defaultSize?.trim() || profile.defaultSize;
-  const configuredQuality = input.defaultQuality?.trim() || profile.defaultQuality;
+  const configuredSize = input.defaultSize?.trim() ?? "";
+  const configuredQuality = input.defaultQuality?.trim() ?? "";
+  if (!configuredSize) throw new Error("OPENAI_IMAGE_SIZE_DEFAULT is required.");
+  if (!configuredQuality) throw new Error("OPENAI_IMAGE_QUALITY_DEFAULT is required.");
   if (!profile.sizes.includes(configuredSize)) throw new Error("OPENAI_IMAGE_SIZE_DEFAULT is invalid for the configured image model.");
   if (!profile.qualities.includes(configuredQuality)) throw new Error("OPENAI_IMAGE_QUALITY_DEFAULT is invalid for the configured image model.");
   const size = input.requestedSize?.trim() || configuredSize;
@@ -58,6 +60,80 @@ export function sanitizeProviderMetadata(value: { revised_prompt?: unknown }): R
 export function safeGenerationError(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value);
   return raw.replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]").replace(/[\r\n]+/g, " ").slice(0, 1000);
+}
+
+export interface AiBackgroundClaim {
+  id: string;
+  client_id: string;
+  source_ref: string;
+  prompt_text: string;
+}
+
+export class AiBackgroundGenerationError extends Error {
+  constructor(public readonly stage: "authorization" | "configuration" | "claim" | "generate", message: string) {
+    super(message);
+    this.name = "AiBackgroundGenerationError";
+  }
+}
+
+/**
+ * Testable production orchestration. Every external effect is injected so the
+ * claim/provider/storage ordering and failure state can be verified without
+ * credentials, network calls, storage writes, or final asset generation.
+ */
+export async function runAiBackgroundGeneration<TGenerated>(input: {
+  configuration: Parameters<typeof resolveImageConfiguration>[0];
+  authorize: () => Promise<void>;
+  claimGeneration: (config: { model: string; size: string; quality: string }) => Promise<AiBackgroundClaim | null>;
+  callProvider: (claim: AiBackgroundClaim, config: { model: string; size: string; quality: string }) => Promise<{ bytes: Uint8Array; metadata: Record<string, unknown> }>;
+  uploadImage: (path: string, bytes: Uint8Array, options: { contentType: string; upsert: false }) => Promise<void>;
+  markGenerated: (claim: AiBackgroundClaim, path: string, metadata: Record<string, unknown>, config: { model: string; size: string; quality: string }) => Promise<TGenerated>;
+  markFailed: (claim: AiBackgroundClaim, message: string) => Promise<void>;
+  cleanupStorage: (path: string) => Promise<void>;
+}): Promise<{ generated: TGenerated; path: string; config: { model: string; size: string; quality: string } }> {
+  try {
+    await input.authorize();
+  } catch (error) {
+    throw new AiBackgroundGenerationError("authorization", safeGenerationError(error));
+  }
+  let config: { model: string; size: string; quality: string };
+  try {
+    config = resolveImageConfiguration(input.configuration);
+  } catch (error) {
+    throw new AiBackgroundGenerationError("configuration", safeGenerationError(error));
+  }
+  let claim: AiBackgroundClaim | null;
+  try {
+    claim = await input.claimGeneration(config);
+  } catch (error) {
+    throw new AiBackgroundGenerationError("claim", safeGenerationError(error));
+  }
+  if (!claim) throw new AiBackgroundGenerationError("claim", "Generation claim was rejected.");
+
+  const path = buildAiBackgroundStoragePath(claim.client_id, claim.source_ref, claim.id);
+  let uploaded = false;
+  try {
+    const provider = await input.callProvider(claim, config);
+    await input.uploadImage(path, provider.bytes, { contentType: "image/png", upsert: false });
+    uploaded = true;
+    const generated = await input.markGenerated(claim, path, provider.metadata, config);
+    return { generated, path, config };
+  } catch (error) {
+    let message = safeGenerationError(error);
+    if (uploaded) {
+      try {
+        await input.cleanupStorage(path);
+      } catch {
+        message = `${message} Generated file cleanup also failed; operator review required.`.slice(0, 1000);
+      }
+    }
+    try {
+      await input.markFailed(claim, message);
+    } catch {
+      message = `${message} Failed-state persistence also failed; operator review required.`.slice(0, 1000);
+    }
+    throw new AiBackgroundGenerationError("generate", message);
+  }
 }
 
 export async function requestAiBackgroundImage(input: {

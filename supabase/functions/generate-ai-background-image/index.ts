@@ -1,6 +1,6 @@
 import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
-import { buildAiBackgroundStoragePath, persistAiBackgroundImage, requestAiBackgroundImage, resolveImageConfiguration, safeGenerationError } from "../_shared/ai-background-image.ts";
+import { AiBackgroundGenerationError, requestAiBackgroundImage, runAiBackgroundGeneration, safeGenerationError } from "../_shared/ai-background-image.ts";
 
 const FUNCTION_NAME = "generate-ai-background-image";
 const BUCKET = "client-assets";
@@ -35,49 +35,46 @@ Deno.serve(async (req: Request) => {
     if (!generationId || !clientId) return fail(400, "request", "generation_id and client_id are required.");
     const apiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
     if (!apiKey) return fail(503, "configuration", "OPENAI_API_KEY is not configured.");
-    let imageConfig: { model: string; size: string; quality: string };
-    try {
-      imageConfig = resolveImageConfiguration({
+    const result = await runAiBackgroundGeneration<{ client_id: string; source_ref: string; [key: string]: unknown }>({
+      configuration: {
         model: Deno.env.get("OPENAI_IMAGE_MODEL"),
         defaultSize: Deno.env.get("OPENAI_IMAGE_SIZE_DEFAULT"),
         defaultQuality: Deno.env.get("OPENAI_IMAGE_QUALITY_DEFAULT"),
         requestedSize: body.image_size,
         requestedQuality: body.image_quality,
-      });
-    } catch (error) {
-      return fail(503, "configuration", safeGenerationError(error));
-    }
-    const { model, size, quality } = imageConfig;
-
-    const { data: claimed, error: claimError } = await sb.rpc("generate_ai_background_image", { p_generation_id: generationId, p_client_id: clientId, p_image_size: size, p_image_quality: quality });
-    const row = claimed?.[0];
-    if (claimError || !row) return fail(409, "claim", claimError?.message ?? "Prompt is not approved or generation is already active.");
-
-    const provider = await requestAiBackgroundImage({ fetchImpl: fetch, url: OPENAI_IMAGE_URL, apiKey, prompt: row.prompt_text, config: imageConfig });
-
-    const path = buildAiBackgroundStoragePath(row.client_id, row.source_ref, generationId);
-    const generatedAt = new Date().toISOString();
-    let saved: Record<string, unknown> | null = null;
-    await persistAiBackgroundImage({
-      path,
-      bytes: decodeBase64(provider.base64),
-      upload: async (uploadPath, bytes, options) => { const { error } = await sb.storage.from(BUCKET).upload(uploadPath, bytes, options); if (error) throw new Error(`Storage upload failed: ${error.message}`); },
-      save: async () => {
-        const result = await sb.from("client_ai_background_image_generations").update({
-          prompt_status: "generated", image_model: model, image_size: size, image_quality: quality,
-          storage_bucket: BUCKET, storage_path: path, provider_response: provider.metadata,
-          generated_at: generatedAt, updated_at: generatedAt,
-        }).eq("id", generationId).eq("prompt_status", "generating").select("*").single();
-        if (result.error || !result.data) throw new Error(result.error?.message ?? "Could not persist generated image metadata.");
-        saved = result.data;
       },
-      remove: async (removePath) => { const { error } = await sb.storage.from(BUCKET).remove([removePath]); if (error) throw error; },
+      authorize: async () => {}, // JWT and staff checks have already succeeded above.
+      claimGeneration: async ({ size, quality }) => {
+        const { data, error } = await sb.rpc("generate_ai_background_image", { p_generation_id: generationId, p_client_id: clientId, p_image_size: size, p_image_quality: quality });
+        if (error) throw error;
+        return data?.[0] ?? null;
+      },
+      callProvider: async (claim, config) => {
+        const provider = await requestAiBackgroundImage({ fetchImpl: fetch, url: OPENAI_IMAGE_URL, apiKey, prompt: claim.prompt_text, config });
+        return { bytes: decodeBase64(provider.base64), metadata: provider.metadata };
+      },
+      uploadImage: async (path, bytes, options) => { const { error } = await sb.storage.from(BUCKET).upload(path, bytes, options); if (error) throw new Error(`Storage upload failed: ${error.message}`); },
+      markGenerated: async (claim, path, metadata, config) => {
+        const generatedAt = new Date().toISOString();
+        const saved = await sb.from("client_ai_background_image_generations").update({
+          prompt_status: "generated", image_model: config.model, image_size: config.size, image_quality: config.quality,
+          storage_bucket: BUCKET, storage_path: path, provider_response: metadata,
+          generated_at: generatedAt, updated_at: generatedAt,
+        }).eq("id", claim.id).eq("prompt_status", "generating").select("*").single();
+        if (saved.error || !saved.data) throw new Error(saved.error?.message ?? "Could not persist generated image metadata.");
+        return saved.data;
+      },
+      markFailed: async (claim, message) => {
+        const { error } = await sb.from("client_ai_background_image_generations").update({ prompt_status: "failed", error_message: message, updated_at: new Date().toISOString() }).eq("id", claim.id).eq("prompt_status", "generating");
+        if (error) throw error;
+      },
+      cleanupStorage: async (path) => { const { error } = await sb.storage.from(BUCKET).remove([path]); if (error) throw error; },
     });
-    await sb.from("activity_log").insert({ client_id: row.client_id, event_type: "ai_background_image_generated", plain_english_message: `AI background image generated for ${row.source_ref}.`, object_type: "client_ai_background_image_generation", object_id: generationId, metadata: { source_ref: row.source_ref, model, size, quality, storage_path: path } });
-    return json({ ok: true, generation: saved });
+    await sb.from("activity_log").insert({ client_id: result.generated.client_id, event_type: "ai_background_image_generated", plain_english_message: `AI background image generated for ${result.generated.source_ref}.`, object_type: "client_ai_background_image_generation", object_id: generationId, metadata: { source_ref: result.generated.source_ref, model: result.config.model, size: result.config.size, quality: result.config.quality, storage_path: result.path } });
+    return json({ ok: true, generation: result.generated });
   } catch (error) {
     const message = safeGenerationError(error);
-    if (generationId) await sb.from("client_ai_background_image_generations").update({ prompt_status: "failed", error_message: message.slice(0, 1000), updated_at: new Date().toISOString() }).eq("id", generationId).eq("prompt_status", "generating");
-    return fail(500, "generate", message);
+    const stage = error instanceof AiBackgroundGenerationError ? error.stage : "generate";
+    return fail(stage === "claim" ? 409 : stage === "configuration" ? 503 : 500, stage, message);
   }
 });
