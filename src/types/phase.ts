@@ -604,6 +604,23 @@ export interface DistributionRecordRow {
   permanent_failure?: boolean;
 }
 
+export interface ClientDistributionAccount {
+  id: string;
+  client_id: string;
+  platform: string;
+  label: string;
+  handle: string;
+  external_account_id: string;
+  account_type: string | null;
+  is_default: boolean;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
 export type AnalyticsStatus = "awaiting_metrics" | "metrics_partial" | "complete" | "failed";
 
 export interface AnalyticsRecordRow {
