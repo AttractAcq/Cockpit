@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 
 const migration = readFileSync("supabase/migrations/20260720000027_ai_background_image_generation.sql", "utf8");
+const repairMigration = readFileSync("supabase/migrations/20260720000028_ai_background_prompt_validation_repair.sql", "utf8");
 const edge = readFileSync("supabase/functions/generate-ai-background-image/index.ts", "utf8");
 const helperSource = readFileSync("supabase/functions/_shared/ai-background-image.ts", "utf8");
 const api = readFileSync("src/lib/api.ts", "utf8");
@@ -26,6 +27,14 @@ assert.match(migration, /prompt_status in \('generating'\)/);
 assert.match(migration, /production brief does not belong to client/);
 assert.match(migration, /source ref/);
 assert.match(migration, /AI background prompt draft created/);
+assert.match(repairMigration, /create or replace function public\.create_ai_background_prompt/);
+assert.match(repairMigration, /p_prompt_text is not null and length\(btrim\(p_prompt_text\)\)=0/);
+assert.match(repairMigration, /VALIDATION: prompt text cannot be blank/);
+assert.match(repairMigration, /if p_prompt_text is null then[\s\S]*Create a background image only/);
+assert.match(repairMigration, /else\s+v_prompt := btrim\(p_prompt_text\)/);
+assert.match(repairMigration, /security definer set search_path = ''/i);
+assert.doesNotMatch(repairMigration, /\b(drop|truncate|delete|alter table)\b/i);
+assert.doesNotMatch(repairMigration, /client_assets|client_asset_generation_jobs|client_distribution_records|client_metric_snapshots|client_business_signal_snapshots|client_performance_scores|generate-phase-3|openai|cron\./i);
 
 assert.match(edge, /Deno\.env\.get\("OPENAI_API_KEY"\)/);
 assert.match(edge, /runAiBackgroundGeneration/);
