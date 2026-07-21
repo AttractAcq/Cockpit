@@ -244,6 +244,18 @@ export interface VisualInputUpload {
   size: number;
 }
 
+export type AiBackgroundPromptStatus = "draft" | "needs_review" | "approved" | "rejected" | "generating" | "generated" | "failed";
+export interface AiBackgroundGenerationRow {
+  id: string; client_id: string; production_brief_id: string | null; source_ref: string;
+  format: "feed_post" | "carousel" | "story_sequence"; frame_index: number | null;
+  prompt_text: string; prompt_status: AiBackgroundPromptStatus; prompt_created_by: string;
+  prompt_approved_by: string | null; prompt_approved_at: string | null; image_model: string | null;
+  brief_fingerprint_at_prompt: string; brief_fingerprint_at_approval: string | null;
+  image_size: string | null; image_quality: string | null; storage_bucket: string | null;
+  storage_path: string | null; public_url: string | null; provider_response: Record<string, unknown>;
+  error_message: string | null; generated_at: string | null; created_at: string; updated_at: string;
+}
+
 /** Visual direction sent to the AI generator alongside a production brief. */
 export interface AiVisualDirection {
   visual_mode: AiVisualMode;
