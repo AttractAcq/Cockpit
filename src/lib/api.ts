@@ -1236,6 +1236,12 @@ export async function generateAiBackgroundImage(generationId: string, clientId: 
   return result.generation;
 }
 
+export async function checkAiBackgroundImage(generationId: string): Promise<AiBackgroundGenerationRow> {
+  const result = await invokeFn<{ ok: boolean; generation?: AiBackgroundGenerationRow; message?: string }>("check-ai-background-image", { generation_id: generationId });
+  if (!result.ok || !result.generation) throw new Error(result.message ?? "AI background result check failed.");
+  return result.generation;
+}
+
 export async function getAiBackgroundSignedUrl(row: AiBackgroundGenerationRow): Promise<string> {
   if (!row.storage_path) throw new Error("Generated background has no storage path.");
   const { data, error } = await supabase.storage.from(row.storage_bucket ?? "client-assets").createSignedUrl(row.storage_path, 300);

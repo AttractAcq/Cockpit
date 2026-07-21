@@ -244,7 +244,7 @@ export interface VisualInputUpload {
   size: number;
 }
 
-export type AiBackgroundPromptStatus = "draft" | "needs_review" | "approved" | "rejected" | "generating" | "generated" | "failed";
+export type AiBackgroundPromptStatus = "draft" | "needs_review" | "approved" | "rejected" | "generating" | "provider_submitted" | "checking" | "generated" | "failed";
 export interface AiBackgroundGenerationRow {
   id: string; client_id: string; production_brief_id: string | null; source_ref: string;
   format: "feed_post" | "carousel" | "story_sequence"; frame_index: number | null;
@@ -254,6 +254,9 @@ export interface AiBackgroundGenerationRow {
   image_size: string | null; image_quality: string | null; storage_bucket: string | null;
   storage_path: string | null; public_url: string | null; provider_response: Record<string, unknown>;
   error_message: string | null; generated_at: string | null; created_at: string; updated_at: string;
+  provider_request_id: string | null; provider_status: string | null; provider_submitted_at: string | null;
+  provider_checked_at: string | null; provider_completed_at: string | null; provider_expires_at: string | null;
+  last_provider_error: string | null; check_count: number;
 }
 
 /** Visual direction sent to the AI generator alongside a production brief. */

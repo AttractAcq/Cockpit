@@ -198,3 +198,36 @@ export async function persistAiBackgroundImage(input: {
     throw error;
   }
 }
+
+export const OPENAI_BATCH_TERMINAL_FAILURES = new Set(["failed", "expired", "cancelled", "cancelling"]);
+export const OPENAI_BATCH_RUNNING = new Set(["validating", "in_progress", "finalizing"]);
+
+async function providerJson(response: Response): Promise<Record<string, unknown>> {
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof (value as { error?: { message?: unknown } }).error?.message === "string" ? (value as { error: { message: string } }).error.message : `OpenAI returned HTTP ${response.status}`);
+  return value as Record<string, unknown>;
+}
+
+export async function submitAiBackgroundBatch(input: { fetchImpl: typeof fetch; apiKey: string; generationId: string; prompt: string; config: { model: string; size: string; quality: string } }): Promise<{ batchId: string; inputFileId: string; status: string; expiresAt: string | null }> {
+  const line = JSON.stringify({ custom_id: input.generationId, method: "POST", url: "/v1/images/generations", body: { ...input.config, prompt: input.prompt, n: 1, background: "opaque", moderation: "auto" } });
+  const form = new FormData(); form.set("purpose", "batch"); form.set("file", new Blob([`${line}\n`], { type: "application/jsonl" }), "ai-background.jsonl");
+  const file = await providerJson(await input.fetchImpl("https://api.openai.com/v1/files", { method: "POST", headers: { Authorization: `Bearer ${input.apiKey}` }, body: form, signal: AbortSignal.timeout(20_000) }));
+  const inputFileId = typeof file.id === "string" ? file.id : ""; if (!inputFileId) throw new Error("OpenAI batch input file ID was missing.");
+  const batch = await providerJson(await input.fetchImpl("https://api.openai.com/v1/batches", { method: "POST", headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ input_file_id: inputFileId, endpoint: "/v1/images/generations", completion_window: "24h", metadata: { generation_id: input.generationId } }), signal: AbortSignal.timeout(20_000) }));
+  const batchId = typeof batch.id === "string" ? batch.id : ""; if (!batchId) throw new Error("OpenAI batch ID was missing.");
+  return { batchId, inputFileId, status: typeof batch.status === "string" ? batch.status : "validating", expiresAt: typeof batch.expires_at === "number" ? new Date(batch.expires_at * 1000).toISOString() : null };
+}
+
+export async function checkAiBackgroundBatch(input: { fetchImpl: typeof fetch; apiKey: string; batchId: string; generationId: string }): Promise<{ status: string; base64?: string; metadata?: Record<string, unknown>; error?: string }> {
+  const batch = await providerJson(await input.fetchImpl(`https://api.openai.com/v1/batches/${encodeURIComponent(input.batchId)}`, { headers: { Authorization: `Bearer ${input.apiKey}` }, signal: AbortSignal.timeout(20_000) }));
+  const status = typeof batch.status === "string" ? batch.status : "unknown";
+  if (OPENAI_BATCH_RUNNING.has(status)) return { status };
+  if (OPENAI_BATCH_TERMINAL_FAILURES.has(status)) return { status, error: `OpenAI batch ended with status ${status}.` };
+  if (status !== "completed" || typeof batch.output_file_id !== "string") return { status, error: "OpenAI batch completed without an output file." };
+  const output = await input.fetchImpl(`https://api.openai.com/v1/files/${encodeURIComponent(batch.output_file_id)}/content`, { headers: { Authorization: `Bearer ${input.apiKey}` }, signal: AbortSignal.timeout(20_000) });
+  if (!output.ok) throw new Error(`OpenAI batch output returned HTTP ${output.status}`);
+  const lines = (await output.text()).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { custom_id?: string; response?: { status_code?: number; body?: { data?: Array<{ b64_json?: string; revised_prompt?: string }>; error?: { message?: string } } }; error?: { message?: string } });
+  const item = lines.find((line) => line.custom_id === input.generationId); const body = item?.response?.body; const base64 = body?.data?.[0]?.b64_json;
+  if (!item || item.response?.status_code !== 200 || !base64) return { status: "failed", error: body?.error?.message ?? item?.error?.message ?? "OpenAI batch image result was missing." };
+  return { status: "completed", base64, metadata: sanitizeProviderMetadata(body.data?.[0] ?? {}) };
+}
