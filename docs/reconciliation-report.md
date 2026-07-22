@@ -1,6 +1,8 @@
 # AA-OS Supabase Reconciliation Report
 
-**Generated:** 2026-06-21  
+> **DEPRECATED (2026-07-22).** This report describes an `entities`/`campaigns`/`triage_items`/MRR-era architecture that no longer exists in the live database (`credential_registry` and the other tables named below are gone). It was superseded first by the Client Context OS schema, and the active build is now Reel Studio (see `../CLAUDE.md`). Kept for historical reference only — do not treat any table/column/edge-function name below as current.
+
+**Generated:** 2026-06-21
 **Current approved production project:** `xivewedajschthjlblfb` ("Cockpit") — West EU (Paris)
 **Method:** Read-only SQL via Supabase MCP. No schema changes made.  
 **Scope:** Reconcile live Supabase state against `attract-acquisition-backend.md` v1.1, `attract-acquisition-system-map_1.md` v1.1, and `attract-acquisition-frontend_1.md`.
