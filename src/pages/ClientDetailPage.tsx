@@ -625,7 +625,7 @@ export function ClientDetailPage() {
       case "execution_files":
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
       case "overview":
-        return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} /></div>;
+        return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} executionMonth={currentMonth()} /></div>;
       case "client_settings":
         return <ClientSettingsPanel clientId={id} />;
       case "masters":
