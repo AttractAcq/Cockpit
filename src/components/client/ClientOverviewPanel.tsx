@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, Panel } from "@/components/primitives";
-import { fetchActivityLog, fetchCalendarCells, fetchMasterRowByRef } from "@/lib/api";
+import { fetchActivityLog, fetchCalendarCells, fetchMasterRowByRef, fetchPipelineMetrics, type PipelineMetrics } from "@/lib/api";
 import { fmtRelative } from "@/lib/format";
 import type { ActivityLogEntry } from "@/types/client";
 import type { CalendarCellRow, MasterRow, MasterTable } from "@/types/phase";
@@ -24,9 +24,17 @@ function slotFor(rowType: string): string {
   return "other";
 }
 
-export function ClientOverviewPanel({ clientId }: { clientId: string }) {
+const PIPELINE_STAGES: Array<{ key: keyof PipelineMetrics["active"]; label: string }> = [
+  { key: "master", label: "Masters" }, { key: "content_creation", label: "Content Creation" },
+  { key: "assets", label: "Assets" }, { key: "distribution", label: "Distribution" },
+  { key: "analytics", label: "Analytics" }, { key: "analysis", label: "Analysis / Iteration" },
+  { key: "completed", label: "Completed Runs" },
+];
+
+export function ClientOverviewPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
   const [activity, setActivity] = useState<ActivityLogEntry[]>([]);
   const [cells, setCells] = useState<CalendarCellRow[]>([]);
+  const [pipeline, setPipeline] = useState<PipelineMetrics | null>(null);
   const [open, setOpen] = useState<{ table: MasterTable; row: MasterRow } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,15 +44,17 @@ export function ClientOverviewPanel({ clientId }: { clientId: string }) {
     setLoading(true); setError(null);
     try {
       const months = [...new Set(days.map(monthOf))];
-      const [events, ...monthCells] = await Promise.all([
+      const [events, metrics, ...monthCells] = await Promise.all([
         fetchActivityLog({ clientId, limit: 10 }),
+        fetchPipelineMetrics(clientId, executionMonth),
         ...months.map((month) => fetchCalendarCells(clientId, month)),
       ]);
       setActivity(events);
+      setPipeline(metrics);
       setCells(monthCells.flat());
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setLoading(false); }
-  }, [clientId, days]);
+  }, [clientId, days, executionMonth]);
   useEffect(() => { void load(); }, [load]);
 
   async function openRef(ref: string) {
@@ -62,8 +72,13 @@ export function ClientOverviewPanel({ clientId }: { clientId: string }) {
       <Panel title="Recent Activity" meta="latest 10" className="min-w-0">
         {activity.length === 0 ? <EmptyState icon="clock" title="No activity yet" body="Client-specific events will appear here." /> : activity.map((entry) => <div key={entry.id} className="border-b border-line px-4 py-3 last:border-b-0"><div className="flex flex-wrap items-start gap-2"><span className="font-mono text-2xs text-teal">{entry.event_type}</span><span className="min-w-0 flex-1 text-xs leading-5 text-paper">{entry.plain_english_message}</span><span className="font-mono text-2xs text-paper-3">{fmtRelative(entry.created_at)}</span></div></div>)}
       </Panel>
-      <Panel title="Pipeline" meta="data source not connected" className="min-w-0">
-        <div className="p-5"><div className="rounded-lg border border-dashed border-line-2 bg-ink p-4"><p className="text-xs text-paper-2">Current pipeline data source is not connected.</p><p className="mt-2 text-2xs leading-5 text-paper-3">Future scope: applications, diagnostics, proposals, wins and losses. No pipeline totals are inferred here.</p></div></div>
+      <Panel title="Pipeline" meta={`live · ${executionMonth}`} className="min-w-0">
+        {pipeline && <div className="p-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {PIPELINE_STAGES.map(({ key, label }) => <div key={key} className="rounded-lg border border-line bg-ink p-2.5"><div className="font-mono text-lg text-teal">{pipeline.active[key]}</div><div className="mt-1 text-2xs text-paper-3">{label}</div></div>)}
+          </div>
+          <p className="mt-3 text-2xs leading-5 text-paper-3">{pipeline.totals.entered} refs entered · {pipeline.totals.produced} produced · {pipeline.totals.approved} approved · {pipeline.totals.distributionReady} distribution-ready · {pipeline.totals.scheduled} scheduled · {pipeline.totals.published} published · {pipeline.totals.analyticsComplete} analytics complete</p>
+        </div>}
       </Panel>
     </div>
     <Panel title="Next 7 Days" meta="Phase 3 calendar preview" className="min-w-0 shrink-0">

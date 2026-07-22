@@ -134,6 +134,10 @@ function shiftMonth(month: string, amount: number): string {
   const date = new Date(Date.UTC(year, number - 1 + amount, 1));
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+function localTodayAsUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
 
 function tableForRef(ref: string): MasterTable { return ref.includes("-AD-") ? "ads_master" : ref.includes("-ST-") ? "story_master" : "organic_master"; }
 
@@ -141,8 +145,8 @@ export function Phase3CalendarPanel({ clientId, executionMonth }: { clientId: st
   const [selectedMonth, setSelectedMonth] = useState(executionMonth);
   const [cells, setCells] = useState<CalendarCellRow[]>([]);
   const [masters, setMasters] = useState<Map<string, { table: MasterTable; row: MasterRow }>>(new Map());
-  const [view, setView] = useState<View>("month");
-  const [weekStart, setWeekStart] = useState(() => monday(new Date(`${executionMonth}-01T00:00:00Z`)));
+  const [view, setView] = useState<View>("week");
+  const [weekStart, setWeekStart] = useState(() => monday(localTodayAsUtc()));
   const [open, setOpen] = useState<{ table: MasterTable; row: MasterRow } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -162,7 +166,10 @@ export function Phase3CalendarPanel({ clientId, executionMonth }: { clientId: st
     finally { setLoading(false); }
   }, [clientId, selectedMonth]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setWeekStart(monday(new Date(`${selectedMonth}-01T00:00:00Z`))); }, [selectedMonth]);
+  useEffect(() => {
+    const today = localTodayAsUtc();
+    setWeekStart(monday(selectedMonth === iso(today).slice(0, 7) ? today : new Date(`${selectedMonth}-01T00:00:00Z`)));
+  }, [selectedMonth]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, Map<Slot, CalendarCellRow[]>>();
