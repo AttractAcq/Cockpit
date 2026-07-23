@@ -150,9 +150,9 @@ export async function submitHiggsfieldTextToImage(params: HiggsfieldSubmitParams
   };
 }
 
-/** A single camera-motion directive for a DoP image-to-video request (e.g. {motion: "360 Orbit", strength: 0.5}). */
+/** A single camera-motion directive for a DoP image-to-video request. Confirmed 2026-07-23 via two live validation responses from the real API: (1) the field is `id`, not `motion` as third-party docs implied; (2) `id` must be an actual UUID from Higgsfield's motion catalog (e.g. "Zoom In" -> "fbcbec5b-30f8-4b17-ba6e-8e8d5b265562"), not a free-text slug like "push_in" -- a slug value fails with a `uuid_parsing` 422. The catalog is listed at `GET https://platform.higgsfield.ai/v1/motions` (undocumented in official/third-party docs found so far; discovered empirically). There is currently no code path in this repo that calls that endpoint or caches its result -- `video_shots.motion_type` must be populated with a real catalog UUID by whatever writes it (Phase C UI, once built). */
 export interface HiggsfieldMotion {
-  motion: string;
+  id: string;
   strength: number;
 }
 
@@ -170,7 +170,7 @@ export interface HiggsfieldImageToVideoParams {
   timeoutMs?: number;
 }
 
-/** POST https://platform.higgsfield.ai/{model_id} -- DoP image-to-video step. Requires a source image plus motion directives; DoP is not callable with a prompt alone. */
+/** POST https://platform.higgsfield.ai/{model_id} -- DoP image-to-video step. Requires a source image plus motion directives; DoP is not callable with a prompt alone. Field names (`image_url`, `motions[].id`) confirmed 2026-07-23 via a live 422 validation response from the real API -- the previously-assumed `image`/`motions[].motion` names (from third-party reseller docs) were wrong. */
 export async function submitHiggsfieldImageToVideo(params: HiggsfieldImageToVideoParams): Promise<HiggsfieldSubmitResult> {
   const { fetchImpl, credential, modelId, prompt, imageUrl, motions, endImageUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = params;
   const response = await fetchWithTimeout(fetchImpl, `${HIGGSFIELD_BASE_URL}/${modelId}`, {
@@ -181,7 +181,7 @@ export async function submitHiggsfieldImageToVideo(params: HiggsfieldImageToVide
     },
     body: JSON.stringify({
       prompt,
-      image: imageUrl,
+      image_url: imageUrl,
       motions,
       ...(endImageUrl ? { end_image: endImageUrl } : {}),
     }),

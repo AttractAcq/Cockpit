@@ -10,8 +10,9 @@
 //
 // Requires HIGGSFIELD_API_KEY, HIGGSFIELD_API_SECRET, and HIGGSFIELD_MODEL_DRAFT /
 // HIGGSFIELD_MODEL_FINAL (the DoP model_id per render tier) to be configured
-// as Supabase secrets. None exist yet as of 2026-07-23 -- this function will
-// fail closed with a clear "configuration" error until they are set.
+// as Supabase secrets -- fails closed with a clear "configuration" error if
+// unset. Confirmed live 2026-07-23: HIGGSFIELD_MODEL_DRAFT = "higgsfield-ai/dop/lite"
+// successfully submitted and completed a real DoP job end-to-end.
 import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
 import {
@@ -105,7 +106,7 @@ Deno.serve(async (req: Request) => {
         modelId,
         prompt: shot.compiled_prompt,
         imageUrl: signed.data.signedUrl,
-        motions: [{ motion: shot.motion_type, strength: shot.motion_strength }],
+        motions: [{ id: shot.motion_type, strength: shot.motion_strength }],
       });
       const submittedAt = new Date().toISOString();
       const saved = await sb
