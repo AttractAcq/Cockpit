@@ -16,6 +16,7 @@ import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
 import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount } from "@/types/phase";
+import type { BrandPromptBlockRow, HiggsfieldMotion, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 
 // Helper: normalise entity_name from Supabase FK join
 function entityName(row: Record<string, unknown>): string | null {
@@ -2941,4 +2942,205 @@ export async function fetchPipelineMetrics(clientId: string, executionMonth: str
       analyticsComplete: analytics.filter((row) => row.analytics_status === "complete").length,
     },
   };
+}
+
+// ── REEL STUDIO (Phase C: orchestration + Studio UI) ─────────────────────────
+// Reads come straight from Supabase (RLS: staff SELECT-only). Every write goes
+// through a service-role edge function — video_projects/video_shots have no
+// direct INSERT/UPDATE/DELETE policy for staff.
+
+// Reel Studio projects can be started from any organic/ads master row for the
+// client, not just the current execution month (unlike MastersPanel, which is
+// month-scoped) -- so these two reads are deliberately not month-filtered.
+export async function fetchOrganicMasterRowsForClient(clientId: string): Promise<OrganicMasterRow[]> {
+  const { data, error } = await supabase.from("organic_master").select("*")
+    .eq("client_id", clientId).order("month", { ascending: false }).order("ref");
+  if (error) throw error;
+  return (data ?? []) as OrganicMasterRow[];
+}
+
+export async function fetchAdsMasterRowsForClient(clientId: string): Promise<AdsMasterRow[]> {
+  const { data, error } = await supabase.from("ads_master").select("*")
+    .eq("client_id", clientId).order("month", { ascending: false }).order("ref");
+  if (error) throw error;
+  return (data ?? []) as AdsMasterRow[];
+}
+
+export async function fetchVideoProjects(clientId: string): Promise<VideoProjectRow[]> {
+  const { data, error } = await supabase.from("video_projects").select("*")
+    .eq("client_id", clientId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as VideoProjectRow[];
+}
+
+export async function fetchVideoProject(id: string): Promise<VideoProjectRow> {
+  const { data, error } = await supabase.from("video_projects").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as VideoProjectRow;
+}
+
+export async function fetchVideoShots(videoProjectId: string): Promise<VideoShotRow[]> {
+  const { data, error } = await supabase.from("video_shots").select("*")
+    .eq("video_project_id", videoProjectId).order("shot_number", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as VideoShotRow[];
+}
+
+// Batched shot fetch for the project list view's shot-count/progress display
+// -- avoids one query per project card.
+export async function fetchVideoShotsForProjects(videoProjectIds: string[]): Promise<VideoShotRow[]> {
+  if (videoProjectIds.length === 0) return [];
+  const { data, error } = await supabase.from("video_shots").select("*")
+    .in("video_project_id", videoProjectIds).order("shot_number", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as VideoShotRow[];
+}
+
+export async function fetchBrandPromptBlocks(): Promise<BrandPromptBlockRow[]> {
+  const { data, error } = await supabase.from("brand_prompt_blocks").select("*")
+    .order("block_type").order("version", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as BrandPromptBlockRow[];
+}
+
+export async function createVideoProject(input: {
+  clientId: string;
+  sourceTable: "organic_master" | "ads_master";
+  sourceRowId: string;
+  title: string;
+  archetype: string;
+  awarenessStage: string;
+  targetDurationSec: number;
+  brandPromptBlockId?: string;
+}): Promise<VideoProjectRow> {
+  const result = await invokeFn<{ ok: boolean; project?: VideoProjectRow; message?: string }>("create-video-project", {
+    client_id: input.clientId,
+    source_table: input.sourceTable,
+    source_row_id: input.sourceRowId,
+    title: input.title,
+    archetype: input.archetype,
+    awareness_stage: input.awarenessStage,
+    target_duration_sec: input.targetDurationSec,
+    brand_prompt_block_id: input.brandPromptBlockId,
+  });
+  if (!result.ok || !result.project) throw new Error(result.message ?? "create-video-project returned no project.");
+  return result.project;
+}
+
+export async function updateVideoProjectStatus(videoProjectId: string, newStatus: string): Promise<VideoProjectRow> {
+  const result = await invokeFn<{ ok: boolean; project?: VideoProjectRow; message?: string }>("update-video-project-status", {
+    video_project_id: videoProjectId, new_status: newStatus,
+  });
+  if (!result.ok || !result.project) throw new Error(result.message ?? "update-video-project-status returned no project.");
+  return result.project;
+}
+
+export async function handoffVideoProject(videoProjectId: string): Promise<{ project: VideoProjectRow; assetCount: number; assetGroupRef: string; briefSourceRef: string }> {
+  const result = await invokeFn<{
+    ok: boolean; project?: VideoProjectRow; asset_count?: number; asset_group_ref?: string;
+    brief?: { source_ref?: string }; message?: string;
+  }>("handoff-video-project", { video_project_id: videoProjectId });
+  if (!result.ok || !result.project) throw new Error(result.message ?? "handoff-video-project returned no project.");
+  return {
+    project: result.project, assetCount: result.asset_count ?? 0,
+    assetGroupRef: result.asset_group_ref ?? "", briefSourceRef: result.brief?.source_ref ?? "",
+  };
+}
+
+export async function createVideoShot(input: {
+  videoProjectId: string;
+  shotNumber: number;
+  beatDescription: string;
+  compiledPrompt: string;
+  shotClass: string;
+  humanPresence?: string;
+  motionType?: string | null;
+  motionStrength?: number | null;
+  renderTier?: string;
+}): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("create-video-shot", {
+    video_project_id: input.videoProjectId,
+    shot_number: input.shotNumber,
+    beat_description: input.beatDescription,
+    compiled_prompt: input.compiledPrompt,
+    shot_class: input.shotClass,
+    human_presence: input.humanPresence ?? "none",
+    motion_type: input.motionType ?? undefined,
+    motion_strength: input.motionStrength ?? undefined,
+    render_tier: input.renderTier ?? "draft",
+  });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "create-video-shot returned no shot.");
+  return result.shot;
+}
+
+export async function updateVideoShot(shotId: string, patch: Partial<{
+  shotNumber: number;
+  beatDescription: string;
+  compiledPrompt: string;
+  shotClass: string;
+  humanPresence: string;
+  motionType: string | null;
+  motionStrength: number | null;
+  renderTier: string;
+}>): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("update-video-shot", {
+    shot_id: shotId,
+    shot_number: patch.shotNumber,
+    beat_description: patch.beatDescription,
+    compiled_prompt: patch.compiledPrompt,
+    shot_class: patch.shotClass,
+    human_presence: patch.humanPresence,
+    motion_type: patch.motionType,
+    motion_strength: patch.motionStrength,
+    render_tier: patch.renderTier,
+  });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "update-video-shot returned no shot.");
+  return result.shot;
+}
+
+export async function deleteVideoShot(shotId: string): Promise<void> {
+  const result = await invokeFn<{ ok: boolean; message?: string }>("delete-video-shot", { shot_id: shotId });
+  if (!result.ok) throw new Error(result.message ?? "delete-video-shot failed.");
+}
+
+export async function fetchHiggsfieldMotions(): Promise<HiggsfieldMotion[]> {
+  const result = await invokeFn<{ ok: boolean; motions?: HiggsfieldMotion[]; message?: string }>("list-higgsfield-motions", {});
+  if (!result.ok || !result.motions) throw new Error(result.message ?? "list-higgsfield-motions returned no catalog.");
+  return result.motions;
+}
+
+export async function generateShotStill(shotId: string): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("submit-shot-still-image", { shot_id: shotId });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "submit-shot-still-image failed.");
+  return result.shot;
+}
+
+export async function checkShotStill(shotId: string): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("check-shot-still-image", { shot_id: shotId });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "check-shot-still-image failed.");
+  return result.shot;
+}
+
+export async function generateShotVideo(shotId: string): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("submit-shot-generation", { shot_id: shotId });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "submit-shot-generation failed.");
+  return result.shot;
+}
+
+export async function checkShotVideo(shotId: string): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("check-shot-generation", { shot_id: shotId });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "check-shot-generation failed.");
+  return result.shot;
+}
+
+export async function getVideoShotSignedUrls(shot: VideoShotRow): Promise<{ stillUrl: string | null; clipUrl: string | null }> {
+  const [stillUrl, clipUrl] = await Promise.all([
+    shot.still_image_url
+      ? supabase.storage.from("video-assets").createSignedUrl(shot.still_image_url, 300).then((r) => r.data?.signedUrl ?? null)
+      : Promise.resolve(null),
+    shot.clip_url
+      ? supabase.storage.from("video-assets").createSignedUrl(shot.clip_url, 300).then((r) => r.data?.signedUrl ?? null)
+      : Promise.resolve(null),
+  ]);
+  return { stillUrl, clipUrl };
 }

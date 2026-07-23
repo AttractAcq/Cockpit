@@ -207,6 +207,48 @@ export async function submitHiggsfieldImageToVideo(params: HiggsfieldImageToVide
   };
 }
 
+export interface HiggsfieldMotionCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  previewUrl: string | null;
+  startEndFrame: boolean;
+}
+
+/** GET https://platform.higgsfield.ai/v1/motions -- undocumented (found empirically, see higgsfield-api.md memory notes). Lists the full motion catalog Phase C's shot editor needs to resolve a human-meaningful motion name to the UUID the DoP endpoint actually requires. */
+export async function listHiggsfieldMotions(
+  fetchImpl: typeof fetch,
+  credential: HiggsfieldCredential,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<HiggsfieldMotionCatalogEntry[]> {
+  const response = await fetchWithTimeout(fetchImpl, `${HIGGSFIELD_BASE_URL}/v1/motions`, {
+    method: "GET",
+    headers: { Authorization: buildHiggsfieldAuthHeader(credential) },
+  }, timeoutMs);
+
+  const body = await response.json().catch(() => ([])) as Array<{
+    id?: string;
+    name?: string;
+    description?: string;
+    preview_url?: string;
+    start_end_frame?: boolean;
+  }>;
+
+  if (!response.ok) {
+    throw new Error(`Higgsfield motions catalog returned HTTP ${response.status}: ${JSON.stringify(body).slice(0, 400)}`);
+  }
+
+  return (Array.isArray(body) ? body : [])
+    .filter((entry): entry is Required<Pick<typeof entry, "id" | "name">> & typeof entry => !!entry.id && !!entry.name)
+    .map((entry) => ({
+      id: entry.id!,
+      name: entry.name!,
+      description: entry.description ?? "",
+      previewUrl: entry.preview_url ?? null,
+      startEndFrame: entry.start_end_frame ?? false,
+    }));
+}
+
 export interface HiggsfieldStatusResult {
   status: HiggsfieldJobStatus;
   videoUrl: string | null;

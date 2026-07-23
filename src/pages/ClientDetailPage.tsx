@@ -12,6 +12,7 @@ import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
 import { ContextFilesPanel } from "@/components/client/ContextFilesPanel";
 import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
 import { MastersPanel } from "@/components/client/MastersPanel";
+import { ReelStudioPanel } from "@/components/client/ReelStudioPanel";
 import { Phase3CalendarPanel } from "@/components/client/Phase3CalendarPanel";
 import { ClientOverviewPanel } from "@/components/client/ClientOverviewPanel";
 import { ClientSettingsPanel } from "@/components/client/ClientSettingsPanel";
@@ -36,6 +37,7 @@ type Section =
   | "pipeline"
   | "masters"
   | "content_creation"
+  | "reel_studio"
   | "automations"
   | "assets"
   | "distribution"
@@ -58,6 +60,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Calendar",         section: "calendar" },
   { label: "Content",          section: "masters" },
   { label: "Content Briefs",   section: "content_creation" },
+  { label: "Reel Studio",      section: "reel_studio" },
   { label: "Assets",           section: "assets" },
   { label: "Distribution",     section: "distribution" },
   { label: "Analytics",        section: "analytics" },
@@ -636,6 +639,8 @@ export function ClientDetailPage() {
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase3Controls()}</div><Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} /></div>;
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
+      case "reel_studio":
+        return <ReelStudioPanel clientId={id} />;
       case "assets":
         return <AssetsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
       case "distribution":
