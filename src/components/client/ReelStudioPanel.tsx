@@ -11,6 +11,7 @@ import {
   fetchBrandPromptBlocks,
   fetchHiggsfieldMotions,
   fetchOrganicMasterRowsForClient,
+  fetchProductionBrief,
   fetchVideoProjects,
   fetchVideoShots,
   fetchVideoShotsForProjects,
@@ -18,6 +19,7 @@ import {
   generateShotVideo,
   getVideoShotSignedUrls,
   handoffVideoProject,
+  transitionContentCreationToAssets,
   updateVideoProjectStatus,
   updateVideoShot,
 } from "@/lib/api";
@@ -326,13 +328,13 @@ function NewProjectModal({ clientId, organicRows, adsRows, brandBlocks, prefill,
   organicRows: OrganicMasterRow[];
   adsRows: AdsMasterRow[];
   brandBlocks: BrandPromptBlockRow[];
-  prefill: { table: "organic_master" | "ads_master"; rowId: string } | null;
+  prefill: { table: "organic_master" | "ads_master"; rowId: string; title?: string; productionBriefId?: string } | null;
   onClose: () => void;
   onCreated: (project: VideoProjectRow) => void;
 }) {
   const [sourceTable, setSourceTable] = useState<"organic_master" | "ads_master">(prefill?.table ?? "organic_master");
   const [sourceRowId, setSourceRowId] = useState(prefill?.rowId ?? "");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(prefill?.title ?? "");
   const [archetype, setArchetype] = useState<VideoArchetype>("A1");
   const [awarenessStage, setAwarenessStage] = useState<AwarenessStage>("unaware");
   const [targetDurationSec, setTargetDurationSec] = useState(28);
@@ -344,12 +346,13 @@ function NewProjectModal({ clientId, organicRows, adsRows, brandBlocks, prefill,
   const brandDnaBlocks = brandBlocks.filter((block) => block.block_type === "brand_dna");
 
   async function save() {
-    if (!sourceRowId) { setError("Choose a source content row."); return; }
+    if (prefill && !sourceRowId) { setError("Choose a source content row."); return; }
     if (!title.trim()) { setError("Title is required."); return; }
     setBusy(true); setError(null);
     try {
       const project = await createVideoProject({
-        clientId, sourceTable, sourceRowId, title: title.trim(), archetype, awarenessStage,
+        clientId, sourceTable: prefill ? sourceTable : undefined, sourceRowId: prefill ? sourceRowId : undefined,
+        title: title.trim(), archetype, awarenessStage,
         targetDurationSec, brandPromptBlockId: brandPromptBlockId || undefined,
       });
       onCreated(project);
@@ -361,7 +364,7 @@ function NewProjectModal({ clientId, organicRows, adsRows, brandBlocks, prefill,
     <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
       <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-4"><h2 className="text-sm font-medium text-paper">New Reel Studio Project</h2><button className="text-paper-3 hover:text-paper" onClick={onClose}>✕</button></header>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
-        <div><label className="mb-1 block text-2xs font-mono uppercase tracking-wide text-paper-3">Source</label><div className="flex gap-2"><select value={sourceTable} onChange={(event) => { setSourceTable(event.target.value as "organic_master" | "ads_master"); setSourceRowId(""); }} className="rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper"><option value="organic_master">Organic</option><option value="ads_master">Ads</option></select><select value={sourceRowId} onChange={(event) => setSourceRowId(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper"><option value="">Choose content row…</option>{options.map((row) => <option key={row.id} value={row.id}>{row.ref}</option>)}</select></div></div>
+        {prefill && <div><label className="mb-1 block text-2xs font-mono uppercase tracking-wide text-paper-3">Source</label><div className="flex gap-2"><select value={sourceTable} onChange={(event) => { setSourceTable(event.target.value as "organic_master" | "ads_master"); setSourceRowId(""); }} className="rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper"><option value="organic_master">Organic</option><option value="ads_master">Ads</option></select><select value={sourceRowId} onChange={(event) => setSourceRowId(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper"><option value="">Choose content row…</option>{options.map((row) => <option key={row.id} value={row.id}>{row.ref}</option>)}</select></div></div>}
         <div><label className="mb-1 block text-2xs font-mono uppercase tracking-wide text-paper-3">Title</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper outline-none focus:border-teal/50" /></div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className="mb-1 block text-2xs font-mono uppercase tracking-wide text-paper-3">Archetype</label><select value={archetype} onChange={(event) => setArchetype(event.target.value as VideoArchetype)} className="w-full rounded border border-line bg-ink px-2 py-1.5 text-xs text-paper">{ARCHETYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>
@@ -410,6 +413,8 @@ export function ReelStudioPanel({ clientId }: { clientId: string }) {
 
   const prefillTable = searchParams.get("reel_source_table");
   const prefillRowId = searchParams.get("reel_source_row_id");
+  const prefillTitle = searchParams.get("reel_title");
+  const prefillBriefId = searchParams.get("reel_production_brief_id");
   useEffect(() => {
     if ((prefillTable === "organic_master" || prefillTable === "ads_master") && prefillRowId) {
       setNewProjectOpen(true);
@@ -419,7 +424,27 @@ export function ReelStudioPanel({ clientId }: { clientId: string }) {
   function clearPrefill() {
     const next = new URLSearchParams(searchParams);
     next.delete("reel_source_table"); next.delete("reel_source_row_id"); next.delete("reel_source_ref");
+    next.delete("reel_title"); next.delete("reel_production_brief_id");
     setSearchParams(next, { replace: true });
+  }
+
+  // When a project is created from the Content Briefs "AI" redirect (prefill
+  // carries a production_brief_id), move that brief's effective pipeline
+  // stage past content_creation immediately -- the real client_assets rows
+  // don't exist yet (those come later via handoff-video-project), but the
+  // brief should show as Passed Through right away. Best-effort: the project
+  // has already committed either way.
+  async function passBriefThrough(briefId: string) {
+    try {
+      const brief = await fetchProductionBrief(briefId);
+      await transitionContentCreationToAssets({
+        clientId, executionMonth: brief.execution_month, sourceRef: brief.source_ref,
+        productionBriefId: brief.id, assetGroupRef: null,
+        title: brief.title, assetFormat: brief.asset_format,
+        briefSnapshot: brief as unknown as Record<string, unknown>,
+        reason: "reel_studio_project_created",
+      });
+    } catch { /* non-fatal */ }
   }
 
   const openProject = projects.find((project) => project.id === openProjectId) ?? null;
@@ -447,9 +472,15 @@ export function ReelStudioPanel({ clientId }: { clientId: string }) {
       })}</div>}
     {newProjectOpen && <NewProjectModal
       clientId={clientId} organicRows={organicRows} adsRows={adsRows} brandBlocks={brandBlocks}
-      prefill={(prefillTable === "organic_master" || prefillTable === "ads_master") && prefillRowId ? { table: prefillTable, rowId: prefillRowId } : null}
+      prefill={(prefillTable === "organic_master" || prefillTable === "ads_master") && prefillRowId
+        ? { table: prefillTable, rowId: prefillRowId, title: prefillTitle ?? undefined, productionBriefId: prefillBriefId ?? undefined }
+        : null}
       onClose={() => { setNewProjectOpen(false); clearPrefill(); }}
-      onCreated={(project) => { setProjects((current) => [project, ...current]); setNewProjectOpen(false); clearPrefill(); setOpenProjectId(project.id); }}
+      onCreated={(project) => {
+        setProjects((current) => [project, ...current]); setNewProjectOpen(false);
+        if (prefillBriefId) void passBriefThrough(prefillBriefId);
+        clearPrefill(); setOpenProjectId(project.id);
+      }}
     />}
   </div>;
 }

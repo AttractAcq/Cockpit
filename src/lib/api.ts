@@ -3005,8 +3005,8 @@ export async function fetchBrandPromptBlocks(): Promise<BrandPromptBlockRow[]> {
 
 export async function createVideoProject(input: {
   clientId: string;
-  sourceTable: "organic_master" | "ads_master";
-  sourceRowId: string;
+  sourceTable?: "organic_master" | "ads_master";
+  sourceRowId?: string;
   title: string;
   archetype: string;
   awarenessStage: string;

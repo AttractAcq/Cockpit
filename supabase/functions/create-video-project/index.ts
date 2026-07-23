@@ -1,7 +1,8 @@
-// Reel Studio Phase C: creates one video_projects row tied to exactly one
+// Reel Studio Phase C: creates one video_projects row, optionally tied to a
 // planned content row (an organic_master or ads_master row for the same
-// client -- mirrors the DB's XOR source constraint). This is the entry point
-// for turning a planned piece of content into a Reel Studio production.
+// client -- mirrors the DB's "at most one" source constraint). source_table
+// and source_row_id may both be omitted for a genuinely original reel that
+// isn't already planned in the content pipeline (a standalone project).
 import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
 
@@ -48,8 +49,10 @@ Deno.serve(async (req: Request) => {
     const targetDurationSec = body.target_duration_sec;
 
     if (!clientId) return fail(400, "request", "client_id is required.");
-    if (!SOURCE_TABLES.has(sourceTable)) return fail(400, "request", "source_table must be organic_master or ads_master.");
-    if (!sourceRowId) return fail(400, "request", "source_row_id is required.");
+    if (sourceTable || sourceRowId) {
+      if (!SOURCE_TABLES.has(sourceTable)) return fail(400, "request", "source_table must be organic_master or ads_master.");
+      if (!sourceRowId) return fail(400, "request", "source_table and source_row_id must both be provided, or both omitted.");
+    }
     if (!title) return fail(400, "request", "title is required.");
     if (!ARCHETYPES.has(archetype)) return fail(400, "request", "archetype must be one of A1-A5.");
     if (!AWARENESS_STAGES.has(awarenessStage)) return fail(400, "request", "awareness_stage is not a recognized value.");
@@ -57,9 +60,11 @@ Deno.serve(async (req: Request) => {
       return fail(400, "request", "target_duration_sec must be between 22 and 34.");
     }
 
-    const source = await sb.from(sourceTable).select("id, client_id").eq("id", sourceRowId).maybeSingle();
-    if (source.error || !source.data) return fail(404, "source", "Source row not found.");
-    if (source.data.client_id !== clientId) return fail(400, "source", "Source row does not belong to client_id.");
+    if (sourceTable && sourceRowId) {
+      const source = await sb.from(sourceTable).select("id, client_id").eq("id", sourceRowId).maybeSingle();
+      if (source.error || !source.data) return fail(404, "source", "Source row not found.");
+      if (source.data.client_id !== clientId) return fail(400, "source", "Source row does not belong to client_id.");
+    }
 
     let brandBlock;
     if (body.brand_prompt_block_id?.trim()) {
