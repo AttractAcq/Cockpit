@@ -1,23 +1,29 @@
-// Reel Studio Phase B: submits exactly ONE pending video_shots row to
-// Higgsfield and records the returned request_id. Mirrors the claim/submit
-// pattern in generate-ai-background-image/index.ts. Polling and download
-// happen separately in check-shot-generation (single-item-per-call, same
+// Reel Studio Phase B, stage 2 of 2: submits exactly ONE still_complete
+// video_shots row to Higgsfield's DoP image-to-video model, using the still
+// frame produced by stage 1 (submit-shot-still-image / check-shot-still-image)
+// plus the shot's motion directive. DoP is image-to-video -- it cannot be
+// called with a prompt alone; see _shared/higgsfield.ts for the full
+// correction notes. Mirrors the claim/submit pattern in
+// generate-ai-background-image/index.ts. Polling and download happen
+// separately in check-shot-generation (single-item-per-call, same
 // resource-safety reasoning as the asset-generation job worker).
 //
 // Requires HIGGSFIELD_API_KEY, HIGGSFIELD_API_SECRET, and HIGGSFIELD_MODEL_DRAFT /
-// HIGGSFIELD_MODEL_FINAL to be configured as Supabase secrets. None exist yet
-// as of 2026-07-22 -- this function will fail closed with a clear
-// "configuration" error until they are set.
+// HIGGSFIELD_MODEL_FINAL (the DoP model_id per render tier) to be configured
+// as Supabase secrets. None exist yet as of 2026-07-23 -- this function will
+// fail closed with a clear "configuration" error until they are set.
 import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
 import {
   readHiggsfieldCredential,
   readHiggsfieldModelId,
   safeHiggsfieldError,
-  submitHiggsfieldGeneration,
+  submitHiggsfieldImageToVideo,
 } from "../_shared/higgsfield.ts";
 
 const FUNCTION_NAME = "submit-shot-generation";
+const BUCKET = "video-assets";
+const SIGNED_URL_EXPIRY_SECONDS = 3600;
 
 const fail = (status: number, stage: string, message: string) =>
   json({ ok: false, function: FUNCTION_NAME, stage, message }, status);
@@ -43,19 +49,40 @@ Deno.serve(async (req: Request) => {
     const credential = readHiggsfieldCredential();
     if (!credential) return fail(503, "configuration", "HIGGSFIELD_API_KEY and HIGGSFIELD_API_SECRET are not configured.");
 
-    // Atomically claim: only a 'pending' shot can be submitted, and only once.
+    // Atomically claim: only a shot whose still-image stage is done can start
+    // the DoP image-to-video stage, and only once.
     const claimedAt = new Date().toISOString();
     const claimed = await sb
       .from("video_shots")
       .update({ status: "submitted", error: null, updated_at: claimedAt })
       .eq("id", shotId)
-      .eq("status", "pending")
+      .eq("status", "still_complete")
       .select("*")
       .single();
     if (claimed.error || !claimed.data) {
-      return fail(409, "claim", claimed.error?.message ?? "Shot is not pending, or does not exist.");
+      return fail(409, "claim", claimed.error?.message ?? "Shot's still image is not complete, or does not exist.");
     }
-    const shot = claimed.data as { id: string; render_tier: "draft" | "final"; compiled_prompt: string };
+    const shot = claimed.data as {
+      id: string;
+      render_tier: "draft" | "final";
+      compiled_prompt: string;
+      still_image_url: string | null;
+      motion_type: string | null;
+      motion_strength: number | null;
+    };
+
+    if (!shot.still_image_url) {
+      const message = "Shot has no still_image_url; the still-image stage did not produce one.";
+      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+        .eq("id", shotId).eq("status", "submitted");
+      return fail(409, "claim", message);
+    }
+    if (!shot.motion_type || shot.motion_strength === null) {
+      const message = "Shot has no motion_type/motion_strength set; cannot submit to DoP without a camera-motion directive.";
+      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+        .eq("id", shotId).eq("status", "submitted");
+      return fail(400, "request", message);
+    }
 
     const modelId = readHiggsfieldModelId(shot.render_tier);
     if (!modelId) {
@@ -67,11 +94,18 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-      const submitted = await submitHiggsfieldGeneration({
+      const signed = await sb.storage.from(BUCKET).createSignedUrl(shot.still_image_url, SIGNED_URL_EXPIRY_SECONDS);
+      if (signed.error || !signed.data?.signedUrl) {
+        throw new Error(signed.error?.message ?? "Could not create a signed URL for the still image.");
+      }
+
+      const submitted = await submitHiggsfieldImageToVideo({
         fetchImpl: fetch,
         credential,
         modelId,
         prompt: shot.compiled_prompt,
+        imageUrl: signed.data.signedUrl,
+        motions: [{ motion: shot.motion_type, strength: shot.motion_strength }],
       });
       const submittedAt = new Date().toISOString();
       const saved = await sb
