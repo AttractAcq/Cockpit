@@ -3047,6 +3047,14 @@ export async function handoffVideoProject(videoProjectId: string): Promise<{ pro
   };
 }
 
+export async function generateVideoStoryboard(videoProjectId: string): Promise<VideoShotRow[]> {
+  const result = await invokeFn<{ ok: boolean; shots?: VideoShotRow[]; message?: string }>("generate-video-storyboard", {
+    video_project_id: videoProjectId,
+  });
+  if (!result.ok || !result.shots) throw new Error(result.message ?? "generate-video-storyboard returned no shots.");
+  return result.shots;
+}
+
 export async function createVideoShot(input: {
   videoProjectId: string;
   shotNumber: number;

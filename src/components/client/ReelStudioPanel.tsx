@@ -17,6 +17,7 @@ import {
   fetchVideoShotsForProjects,
   generateShotStill,
   generateShotVideo,
+  generateVideoStoryboard,
   getVideoShotSignedUrls,
   handoffVideoProject,
   transitionContentCreationToAssets,
@@ -261,6 +262,7 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
   const [statusBusy, setStatusBusy] = useState(false);
   const [shotModal, setShotModal] = useState<{ shot: VideoShotRow | null } | null>(null);
   const [handoffInfo, setHandoffInfo] = useState<string | null>(null);
+  const [storyboardBusy, setStoryboardBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -289,6 +291,14 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
     finally { setStatusBusy(false); }
   }
 
+  async function generateStoryboard() {
+    if (!window.confirm("Generate a full AI storyboard for this project's linked content brief?")) return;
+    setStoryboardBusy(true); setError(null);
+    try { setShots((await generateVideoStoryboard(project.id)).sort((a, b) => a.shot_number - b.shot_number)); }
+    catch (value) { setError(errorText(value)); }
+    finally { setStoryboardBusy(false); }
+  }
+
   async function deleteShot(shot: VideoShotRow) {
     if (!window.confirm(`Delete shot ${shot.shot_number}?`)) return;
     setError(null);
@@ -315,7 +325,11 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
     </div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {handoffInfo && <div role="status" className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{handoffInfo}</div>}
-    <div className="shrink-0"><Button size="sm" variant="primary" onClick={() => setShotModal({ shot: null })}>Add shot</Button></div>
+    <div className="flex shrink-0 gap-2">
+      <Button size="sm" variant="primary" onClick={() => setShotModal({ shot: null })}>Add shot</Button>
+      {shots.length === 0 && (project.organic_master_id || project.ads_master_id) &&
+        <Button size="sm" variant="secondary" disabled={storyboardBusy} onClick={() => void generateStoryboard()}>{storyboardBusy ? "Generating storyboard…" : "Generate full storyboard"}</Button>}
+    </div>
     {loading ? <div className="p-6 text-xs text-paper-3">Loading shots…</div>
       : shots.length === 0 ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center text-xs text-paper-3">No shots yet. Add the first one.</div>
       : <div className="overflow-hidden rounded-[10px] border border-line bg-ink-200">{shots.map((shot) => <ShotRow key={shot.id} shot={shot} onChanged={(next) => setShots((current) => current.map((row) => row.id === next.id ? next : row))} onEdit={() => setShotModal({ shot })} onDelete={() => void deleteShot(shot)} />)}</div>}
