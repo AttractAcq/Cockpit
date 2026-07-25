@@ -32,6 +32,8 @@ type Section =
   | "context_inputs"
   | "context_files"
   | "execution_files"
+  | "proof_upload"
+  | "ideation"
   | "overview"
   | "client_settings"
   | "pipeline"
@@ -41,14 +43,15 @@ type Section =
   | "automations"
   | "assets"
   | "distribution"
+  | "paid_distribution"
   | "analytics"
   | "performance-iteration"
   | "archive"
   | "activity";
 
 // Visible label + order per H4 cleanup. Internal section keys are kept stable
-// (masters, content_creation) so existing routes/links don't break — only the
-// user-facing labels and ordering change.
+// (masters, content_creation, distribution) so existing routes/links don't
+// break — only the user-facing labels and ordering change.
 const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Overview",         section: "overview" },
   { label: "Client Settings",  section: "client_settings" },
@@ -57,12 +60,15 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Context Inputs",   section: "context_inputs" },
   { label: "Context Files",    section: "context_files" },
   { label: "Execution Files",  section: "execution_files" },
+  { label: "Proof Upload",     section: "proof_upload" },
+  { label: "Ideation",         section: "ideation" },
   { label: "Calendar",         section: "calendar" },
   { label: "Content",          section: "masters" },
   { label: "Content Briefs",   section: "content_creation" },
   { label: "Reel Studio",      section: "reel_studio" },
   { label: "Assets",           section: "assets" },
-  { label: "Distribution",     section: "distribution" },
+  { label: "Organic Distribution", section: "distribution" },
+  { label: "Paid Distribution",    section: "paid_distribution" },
   { label: "Analytics",        section: "analytics" },
   { label: "Performance & Iteration", section: "performance-iteration" },
   { label: "Archive",          section: "archive" },
@@ -96,6 +102,9 @@ function PlaceholderSection({
 
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
+  proof_upload: { title: "Proof Upload",   description: "Not yet built." },
+  ideation: { title: "Ideation",           description: "Not yet built." },
+  paid_distribution: { title: "Paid Distribution", description: "Not yet built." },
 };
 
 type PhaseResult =
