@@ -1,7 +1,6 @@
 import {
   IDEATION_EVIDENCE_SELECTION_VERSION,
   IDEATION_EXECUTION_FILE_NUMBERS,
-  IDEATION_LEASE_SECONDS,
   IDEATION_MAX_ATTEMPTS,
   IDEATION_MODEL_CONFIGURATION,
   IDEATION_MODULE_VERSION,
@@ -13,6 +12,13 @@ import {
 } from "./config.ts";
 import { sha256, stableJson } from "./hash.ts";
 import { IDEATION_PROMPT_CONSTRUCTION_CONFIG } from "./model.ts";
+import {
+  ideationOutputTokenBudget,
+  ideationTruncationCorrectionTokenBudget,
+  IDEATION_OUTPUT_TOKEN_POLICY,
+  IDEATION_PROVIDER_TIME_POLICY,
+  resolveIdeationProviderRuntime,
+} from "./provider-runtime.ts";
 
 export interface IdeationConfigurationInput {
   clientId: string;
@@ -30,6 +36,21 @@ export async function buildIdeationConfigurationSnapshot(input: IdeationConfigur
     context_file_numbers: [...technique.context_file_numbers],
   }));
   const promptConstructionDigest = await sha256(stableJson(IDEATION_PROMPT_CONSTRUCTION_CONFIG));
+  // The effective provider runtime and the deterministic output-token budgets
+  // are recorded here so a semantically different configuration can never reuse
+  // a completed run's idempotency identity.
+  const providerRuntime = resolveIdeationProviderRuntime();
+  const outputTokenBudgets = Object.fromEntries(
+    Object.entries(input.slotAllocation).map(([slug, slots]) => {
+      const slotCount = Array.isArray(slots) ? slots.length : 0;
+      const budget = ideationOutputTokenBudget(slotCount);
+      return [slug, {
+        requested_slots: slotCount,
+        max_output_tokens: budget,
+        truncation_correction_max_output_tokens: ideationTruncationCorrectionTokenBudget(budget),
+      }];
+    }),
+  );
 
   return {
     client: {
@@ -68,12 +89,22 @@ export async function buildIdeationConfigurationSnapshot(input: IdeationConfigur
     model: {
       ...IDEATION_MODEL_CONFIGURATION,
       selected_model: input.selectedModel,
+      time_budget_policy: IDEATION_PROVIDER_TIME_POLICY,
+      output_token_policy: IDEATION_OUTPUT_TOKEN_POLICY,
+      effective: {
+        connect_timeout_ms: providerRuntime.connect_timeout_ms,
+        call_timeout_ms: providerRuntime.call_timeout_ms,
+        technique_deadline_ms: providerRuntime.technique_deadline_ms,
+        minimum_correction_budget_ms: providerRuntime.minimum_correction_budget_ms,
+        output_token_budgets: outputTokenBudgets,
+      },
     },
     output_schema_version: IDEATION_OUTPUT_SCHEMA_VERSION,
     module_version: IDEATION_MODULE_VERSION,
     retry_policy: {
       max_attempts: IDEATION_MAX_ATTEMPTS,
-      lease_seconds: IDEATION_LEASE_SECONDS,
+      lease_seconds: providerRuntime.lease_seconds,
+      heartbeat_interval_ms: providerRuntime.heartbeat_interval_ms,
       preserve_successful_candidates: true,
       retry_only_missing_slots: true,
       non_retryable_shortfall_is_terminal: true,

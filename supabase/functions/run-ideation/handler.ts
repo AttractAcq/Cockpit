@@ -1,5 +1,4 @@
 import {
-  IDEATION_LEASE_SECONDS,
   IDEATION_MAX_ATTEMPTS,
   IDEATION_MODULE_VERSION,
   IDEATION_OUTPUT_SCHEMA_VERSION,
@@ -10,6 +9,11 @@ import {
   type IdeationTechniqueSlug,
 } from "../_shared/ideation/config.ts";
 import { isRetryableIdeationFailure } from "../_shared/ideation/errors.ts";
+import {
+  resolveIdeationProviderRuntime,
+  type IdeationProviderRuntime,
+} from "../_shared/ideation/provider-runtime.ts";
+import { logIdeationLease } from "../_shared/ideation/telemetry.ts";
 import { parseIdeationRequestBody, type IdeationRequestBody } from "../_shared/ideation/request.ts";
 import type { IdeationAssetType, IdeationPeriod } from "../_shared/ideation/period.ts";
 import type { IdeationEvidenceSource } from "../_shared/ideation/evidence.ts";
@@ -135,6 +139,11 @@ export interface RunIdeationDependencies {
     formatReference: TechniqueResearch;
     executionSources: IdeationEvidenceSource[];
     assetTypes: IdeationAssetType[];
+    telemetry?: {
+      cycleId: string;
+      techniqueSlug: IdeationTechniqueSlug;
+      attemptNumber: number;
+    };
   }): Promise<ModelResult>;
   now(): Date;
   randomUUID(): string;
@@ -290,13 +299,61 @@ async function renewLease(
   persistence: IdeationPersistence,
   cycleId: string,
   leaseOwner: string,
+  leaseSeconds: number,
 ) {
   const result = await persistence.renewLease({
     p_cycle_id: cycleId,
     p_lease_owner: leaseOwner,
-    p_lease_seconds: IDEATION_LEASE_SECONDS,
+    p_lease_seconds: leaseSeconds,
   });
   if (result.error) throw new Error(`LEASE_HEARTBEAT_FAILED: ${result.error.message}`);
+}
+
+/**
+ * Keeps the cycle lease alive across provider calls that may now run for the
+ * whole configured technique deadline. The heartbeat only extends ownership —
+ * it never grants it. Loss is recorded and re-raised by the caller so a worker
+ * that lost its lease during a slow response can never persist results.
+ */
+function startLeaseHeartbeat(
+  persistence: IdeationPersistence,
+  cycleId: string,
+  leaseOwner: string,
+  runtime: IdeationProviderRuntime,
+): { stop(): void; failure(): Error | null } {
+  const startedAt = Date.now();
+  let failure: Error | null = null;
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (inFlight || failure) return;
+    inFlight = true;
+    void persistence.renewLease({
+      p_cycle_id: cycleId,
+      p_lease_owner: leaseOwner,
+      p_lease_seconds: runtime.lease_seconds,
+    }).then((result) => {
+      if (result.error) {
+        failure = new Error(`LEASE_HEARTBEAT_FAILED: ${result.error.message}`);
+      }
+      logIdeationLease({
+        cycle_id: cycleId,
+        event: result.error ? "heartbeat_failed" : "heartbeat_ok",
+        elapsed_ms: Date.now() - startedAt,
+        lease_seconds: runtime.lease_seconds,
+        heartbeat_interval_ms: runtime.heartbeat_interval_ms,
+      });
+    }).catch((error: unknown) => {
+      failure = error instanceof Error ? error : new Error(String(error));
+    }).finally(() => {
+      inFlight = false;
+    });
+  }, runtime.heartbeat_interval_ms);
+  // Never hold the runtime open on the heartbeat alone.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return {
+    stop: () => clearInterval(timer),
+    failure: () => failure,
+  };
 }
 
 function evidenceReferences(candidates: Array<{ evidence_references?: unknown }>): unknown[] {
@@ -385,6 +442,9 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
     }
 
     const selectedModel = deps.selectedModel();
+    // Resolved once per request so the lease written to the database and the
+    // deadline the provider calls run under can never disagree.
+    const providerRuntime = resolveIdeationProviderRuntime();
     const slotAllocation = buildSlotAllocation(quantityPlan.slots);
     const authoritySnapshot = await deps.buildAuthoritySnapshot(authority);
     const configurationSnapshot = await deps.buildConfigurationSnapshot({
@@ -411,7 +471,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
       p_techniques: techniqueManifest,
       p_slot_allocation: slotAllocation,
       p_lease_owner: leaseOwner,
-      p_lease_seconds: IDEATION_LEASE_SECONDS,
+      p_lease_seconds: providerRuntime.lease_seconds,
       p_actor_id: access.userId,
     });
     if (begin.error) {
@@ -482,7 +542,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
       const format = bySlug.get("format-swipe")?.research;
       if (!persona || !format) throw new Error("Standing Persona and Format Swipe references are required.");
       const executionSources = await deps.buildExecutionEvidenceSources(authority);
-      await renewLease(persistence, cycleId, leaseOwner);
+      await renewLease(persistence, cycleId, leaseOwner, providerRuntime.lease_seconds);
 
       const existingBySlug = new Map<IdeationTechniqueSlug, Array<Record<string, unknown>>>();
       for (const slug of IDEATION_TECHNIQUE_SLUGS) existingBySlug.set(slug, []);
@@ -493,73 +553,97 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
         }
       }
 
-      const generated = await Promise.all(IDEATION_SOURCING_SLUGS.map(async (slug) => {
-        const module = bySlug.get(slug);
-        const requested = slotAllocation[slug];
-        const existingCandidates = existingBySlug.get(slug) ?? [];
-        const existingIndexes = new Set(existingCandidates.map((candidate) => Number(candidate.candidate_index)));
-        const missing = requested
-          .map((assetType, candidateIndex) => ({ assetType, candidateIndex }))
-          .filter((slot) => !existingIndexes.has(slot.candidateIndex));
-        const persistedRun = persistedRunsBySlug.get(slug);
-        if (missing.length > 0 && persistedRun?.status !== "running") {
-          return {
-            slug,
-            module,
-            missing,
-            result: {
-              ok: false as const,
-              code: String(persistedRun?.error_code ?? "TECHNIQUE_NOT_RETRYABLE"),
-              error: String(persistedRun?.error_message ?? "Technique is not eligible for regeneration."),
-              model: selectedModel,
-              retried: false,
-              retryable: false,
-            },
-          };
-        }
-        if (!module?.research) {
-          return {
-            slug,
-            module,
-            missing,
-            result: {
-              ok: false as const,
-              code: "TECHNIQUE_MODULE_FAILED",
-              error: modules.failures.find((failure) => failure.techniqueSlug === slug)?.error
-                ?? "Technique research is unavailable.",
-              model: selectedModel,
-              retried: false,
-              retryable: false,
-            },
-          };
-        }
-        if (missing.length === 0) {
-          return {
-            slug,
-            module,
-            missing,
-            result: {
-              ok: true as const,
-              candidates: [],
-              structuredFindings: {},
-              model: selectedModel,
-              retried: false,
-            },
-          };
-        }
-        const result = await deps.generateTechniqueCandidates({
-          clientName: authority.authority.client.name,
-          techniqueName: techniqueName(slug),
-          techniqueFocus: module.message,
-          research: module.research,
-          personaReference: persona,
-          formatReference: format,
-          executionSources,
-          assetTypes: missing.map((slot) => slot.assetType),
-        });
-        return { slug, module, missing, result };
-      }));
-      await renewLease(persistence, cycleId, leaseOwner);
+      const attemptNumber = Number(beginData.cycle.attempt_count ?? 1);
+      const heartbeat = startLeaseHeartbeat(persistence, cycleId, leaseOwner, providerRuntime);
+      let generated: Array<{
+        slug: typeof IDEATION_SOURCING_SLUGS[number];
+        module: TechniqueModuleResult | undefined;
+        missing: Array<{ assetType: IdeationAssetType; candidateIndex: number }>;
+        result: ModelResult;
+      }>;
+      try {
+        generated = await Promise.all(IDEATION_SOURCING_SLUGS.map(async (slug) => {
+          const module = bySlug.get(slug);
+          const requested = slotAllocation[slug];
+          const existingCandidates = existingBySlug.get(slug) ?? [];
+          const existingIndexes = new Set(existingCandidates.map((candidate) => Number(candidate.candidate_index)));
+          const missing = requested
+            .map((assetType, candidateIndex) => ({ assetType, candidateIndex }))
+            .filter((slot) => !existingIndexes.has(slot.candidateIndex));
+          const persistedRun = persistedRunsBySlug.get(slug);
+          if (missing.length > 0 && persistedRun?.status !== "running") {
+            return {
+              slug,
+              module,
+              missing,
+              result: {
+                ok: false as const,
+                code: String(persistedRun?.error_code ?? "TECHNIQUE_NOT_RETRYABLE"),
+                error: String(persistedRun?.error_message ?? "Technique is not eligible for regeneration."),
+                model: selectedModel,
+                retried: false,
+                retryable: false,
+              },
+            };
+          }
+          if (!module?.research) {
+            return {
+              slug,
+              module,
+              missing,
+              result: {
+                ok: false as const,
+                code: "TECHNIQUE_MODULE_FAILED",
+                error: modules.failures.find((failure) => failure.techniqueSlug === slug)?.error
+                  ?? "Technique research is unavailable.",
+                model: selectedModel,
+                retried: false,
+                retryable: false,
+              },
+            };
+          }
+          if (missing.length === 0) {
+            return {
+              slug,
+              module,
+              missing,
+              result: {
+                ok: true as const,
+                candidates: [],
+                structuredFindings: {},
+                model: selectedModel,
+                retried: false,
+              },
+            };
+          }
+          const result = await deps.generateTechniqueCandidates({
+            clientName: authority.authority.client.name,
+            techniqueName: techniqueName(slug),
+            techniqueFocus: module.message,
+            research: module.research,
+            personaReference: persona,
+            formatReference: format,
+            executionSources,
+            assetTypes: missing.map((slot) => slot.assetType),
+            telemetry: { cycleId, techniqueSlug: slug, attemptNumber },
+          });
+          return { slug, module, missing, result };
+        }));
+      } finally {
+        heartbeat.stop();
+      }
+      const heartbeatFailure = heartbeat.failure();
+      if (heartbeatFailure) throw heartbeatFailure;
+      // Ownership is re-checked against the database before anything generated
+      // during a long provider response can be persisted.
+      await renewLease(persistence, cycleId, leaseOwner, providerRuntime.lease_seconds);
+      logIdeationLease({
+        cycle_id: cycleId,
+        event: "ownership_checked",
+        elapsed_ms: 0,
+        lease_seconds: providerRuntime.lease_seconds,
+        heartbeat_interval_ms: providerRuntime.heartbeat_interval_ms,
+      });
 
       const generatedBySlug = new Map(generated.map((item) => [item.slug, item]));
       const existingResearchKeys = new Set(
@@ -706,7 +790,9 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
       if (bundle.run.status === "failed") {
         const firstFailure = warnings[0];
         return fail(
-          firstFailure?.code === "ANTHROPIC_TIMEOUT" ? 504 : 502,
+          firstFailure?.code === "ANTHROPIC_TIMEOUT" || firstFailure?.code === "ANTHROPIC_CONNECT_TIMEOUT"
+            ? 504
+            : 502,
           "generation",
           firstFailure?.code ?? "NO_CANDIDATES",
           firstFailure?.message ?? "No candidates were generated.",

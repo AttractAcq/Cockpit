@@ -80,6 +80,98 @@ Validate bearer token
 Technique 5 is `no_source` and Technique 6 is `inactive` in PR 1. Their zero-slot
 states are explicit and do not invoke Anthropic.
 
+## 4a. Provider time and output budgets
+
+Stage 1.1 replaced a single fixed 35-second correction deadline and a fixed
+2 200-token output budget with bounded, server-configurable budgets. Both had
+failed live: `competitor-objections` returned `ANTHROPIC_TIMEOUT` after 35s on
+its correction call, and `review-mined-pain-language` returned
+`ANTHROPIC_TRUNCATED` at the 2 200-token floor.
+
+Time budgets are resolved per request from bounded Supabase secrets. Every value
+has a documented default, minimum, and maximum; a malformed value falls back to
+the default and an out-of-range value is clamped. No setting can make a model
+call unbounded.
+
+| Setting | Secret | Default | Min | Max |
+| --- | --- | --- | --- | --- |
+| Request establishment | `AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS` | 20 000 | 5 000 | 60 000 |
+| Whole provider call | `AA_IDEATION_PROVIDER_CALL_TIMEOUT_MS` | 95 000 | 40 000 | 180 000 |
+| Total technique deadline | `AA_IDEATION_TECHNIQUE_DEADLINE_MS` | 135 000 | 45 000 | 300 000 |
+| Minimum correction budget | `AA_IDEATION_MIN_CORRECTION_BUDGET_MS` | 45 000 | 20 000 | 150 000 |
+
+None of these secrets is required. All four are unset in production and the
+documented defaults apply.
+
+The whole-call deadline covers connection, provider response wait, and
+response-body read. The connect deadline is narrower and reports a distinct
+`ANTHROPIC_CONNECT_TIMEOUT`; both codes are typed and retryable. Settings are
+reconciled so no deadline exceeds the budget containing it: the call deadline is
+clamped to the technique deadline and the connect deadline to the call deadline.
+A correction call is never issued unless the remaining technique budget can
+absorb it — the same wall-clock discipline `generate-production-brief` uses
+against the ~150s edge worker kill. The three sourcing techniques call the
+provider concurrently, so one technique deadline is the request's model wall
+clock.
+
+Lease duration is derived, not configured: `ceil(technique_deadline / 1000) + 45`
+seconds, clamped to 60..600. At the default deadline this is 180 seconds — the
+value Stage 1 already used — but it now provably covers the deadline and scales
+with it. The heartbeat interval is one third of the lease.
+
+Output budgets are deterministic and slot-aware:
+`clamp(2 600 + 1 400 × requested_slots, 4 000, 16 000)`. The 2 600-token base
+covers the fixed part of the response contract — the four `structured_findings`
+arrays and the JSON envelope — which does not shrink when a technique is
+allocated a single slot. A one-slot technique therefore receives 4 000 tokens
+rather than the 2 200 that truncated live. A truncation correction receives
+1.5x the base budget, capped at 16 000. There is exactly one correction attempt,
+so the budget cannot grow without limit.
+
+The effective deadlines, the effective per-technique output budgets, the derived
+lease, and the heartbeat interval are all persisted in
+`configuration_snapshot.model.effective` and `configuration_snapshot.retry_policy`,
+so they participate in the idempotency hash. Changing a budget changes the hash,
+and an old configuration can never silently reuse a semantically different
+completed result.
+
+### Prompt compaction
+
+The evidence registry block previously re-serialized every bounded excerpt a
+second time, so each approved source reached the model twice. The block now
+carries provenance identifiers only — `source_id`, `source_ref`, `source_type`,
+`source_url`, `content_hash` — while each bounded excerpt is supplied exactly
+once under its own trust classification. Sources are deduplicated by
+`source_id`, and conflicting content for one `source_id` still fails closed.
+
+No approved source, identifier, provenance field, or support span is dropped;
+only the verbatim second copy is. The authority hierarchy, the untrusted-data
+framing of external research, evidence provenance, numeric grounding, and
+high-risk claim validation are unchanged. Server-side grounding validation reads
+the evidence objects, not the serialized prompt, so it is unaffected.
+
+Required authority is never silently truncated mid-claim. If the assembled
+prompt exceeds 400 000 characters the technique fails closed with a
+non-retryable `IDEATION_PROMPT_BUDGET_EXCEEDED` before any provider call. The
+compaction policy version and the prompt ceiling are part of the prompt
+construction digest, and therefore of the configuration hash.
+
+### Operational telemetry
+
+Each provider call emits one structured `ideation.provider` log line carrying
+identifiers, counts, durations, and typed codes only: cycle ID, technique slug,
+attempt number, call index, correction reason, requested slot count, prompt
+characters, approximate prompt tokens, selected source count, research result
+count, configured output tokens, configured call and connect deadlines, the
+technique deadline, elapsed milliseconds, remaining budget, outcome, stop
+reason, failure code, and retryability. Lease heartbeats and ownership checks
+emit an `ideation.provider` lease line.
+
+No API key, bearer token, prompt, authority excerpt, research body, candidate
+body, service-role credential, or raw provider response is ever logged, and no
+timeout value or internal infrastructure detail is returned to an unauthorised
+caller.
+
 ## 5. Period and quantity contract
 
 Date ranges are inclusive and limited to 31 days. A valid range may touch up to
@@ -110,7 +202,9 @@ asset type; aggregate count alone cannot complete a cycle.
 
 ## 6. Lease, retry, and terminal-state contract
 
-- A new cycle starts at attempt 1 with a 180-second lease.
+- A new cycle starts at attempt 1 with a lease derived from the configured
+  technique deadline (see section 4a). The lease always outlives the deadline,
+  and stays inside the 60..600 second window `begin_ideation_run` enforces.
 - An unexpired lease returns `RUN_IN_PROGRESS`.
 - An expired running cycle or retryable partial cycle is reclaimed under row
   lock with a new owner.
@@ -125,9 +219,13 @@ asset type; aggregate count alone cannot complete a cycle.
   `failed`. The UI does not offer Retry.
 - Completion and failure require the current lease owner and clear the lease.
 
-The Edge Function renews the lease before and after the bounded parallel model
-work. All research/candidate persistence and completion state changes occur in
-one owner-bound RPC transaction.
+The Edge Function renews the lease before the bounded parallel model work,
+heartbeats it on a fixed interval while the provider calls are in flight, and
+re-checks ownership after them. A worker that lost its lease during a slow
+provider response fails the ownership check and persists nothing. All
+research/candidate persistence and completion state changes occur in one
+owner-bound RPC transaction, and `complete_ideation_run` independently rejects a
+non-owner.
 
 ## 7. Idempotency contract
 
@@ -144,9 +242,11 @@ The configuration snapshot and SHA-256 hash include:
 - evidence/research provider configuration;
 - prompt version, full prompt-construction configuration, and its digest;
 - output schema version;
-- provider, selected model, effective model parameters, timeouts, token policy,
-  and formatting retry policy;
-- lease and attempt policy.
+- provider, selected model, the bounded time-budget and output-token policies,
+  the effective resolved deadlines, and the effective per-technique output
+  budgets (see section 4a);
+- lease and attempt policy, including the derived lease duration and heartbeat
+  interval.
 
 Stable serialization sorts object keys, preserves array order, omits undefined
 object fields, and normalizes undefined array elements to `null`. Volatile
@@ -210,7 +310,12 @@ in draft payloads. Code-owned identifiers and provenance metadata add no free
 factual claim fields.
 
 Anthropic `stop_reason=max_tokens` is a typed retryable
-`ANTHROPIC_TRUNCATED` failure and is never parsed or persisted.
+`ANTHROPIC_TRUNCATED` failure and is never parsed or persisted. This holds even
+when the truncated body happens to parse as valid JSON — the stop reason is
+checked before the text is read. Truncation earns one bounded correction attempt
+at a larger capped output allowance (section 4a); if that also truncates, the
+technique returns the typed retryable failure and the cycle-level three-attempt
+cap takes over.
 
 ## 10. Frontend contract
 
@@ -253,6 +358,7 @@ docker exec -i <disposable-container> psql -v ON_ERROR_STOP=1 -U postgres -d ide
 docker exec -i <disposable-container> psql -v ON_ERROR_STOP=1 -U postgres -d ideation_test < tests/ideation-pr1-integration.sql
 docker exec -i <disposable-container> psql -v ON_ERROR_STOP=1 -U postgres -d ideation_test < tests/ideation-pr1-adversarial.sql
 bash tests/ideation-pr1-concurrency.sh
+node --test --experimental-strip-types tests/ideation-provider-reliability.test.ts
 npm run typecheck -- --pretty false
 npm run build
 docker run --rm -v "<repo>:/app:ro" -w /app \

@@ -49,6 +49,26 @@ three-attempt cap is checked under row lock; final expiry becomes terminal
 `IDEATION_ATTEMPTS_EXHAUSTED`. A required non-retryable technique shortfall makes
 the cycle terminal and is never regenerated.
 
+## Provider Reliability (Stage 1.1)
+
+Two live Stage 1 failures were operational, not architectural: a fixed
+35-second correction deadline produced `ANTHROPIC_TIMEOUT`, and a fixed
+2 200-token output budget produced `ANTHROPIC_TRUNCATED`. Both budgets are now
+bounded and configurable — see section 4a of
+`docs/AA_IDEATION_IMPLEMENTATION_PLAN.md` for the settings, defaults, and bounds.
+
+The lease state machine above is unchanged. The lease *duration* is now derived
+from the configured technique deadline rather than hard-coded, so it always
+outlives the model work it must cover, and it is heartbeated while provider
+calls are in flight. Ownership is re-checked after the model phase and again
+inside `complete_ideation_run`, so a worker that lost its lease during a slow
+provider response persists nothing.
+
+Unchanged by Stage 1.1: the three-attempt cap, terminal-state rules, exact
+candidate allocation, the authority hierarchy, evidence provenance and grounding
+validation, and the rejection of any truncated response — including one whose
+body happens to parse as valid JSON.
+
 ## Allocation Integrity
 
 The completion RPC derives the technique run from the cycle and canonical slug,

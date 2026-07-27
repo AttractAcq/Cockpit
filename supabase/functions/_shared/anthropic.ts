@@ -12,6 +12,7 @@ export const DEFAULT_AI_MODEL = "claude-opus-4-8";
 export type AnthropicErrorCode =
   | "ANTHROPIC_DISABLED"
   | "ANTHROPIC_KEY_MISSING"
+  | "ANTHROPIC_CONNECT_TIMEOUT"
   | "ANTHROPIC_TIMEOUT"
   | "ANTHROPIC_HTTP_ERROR"
   | "ANTHROPIC_RESPONSE_INVALID"
@@ -47,8 +48,18 @@ export interface AnthropicCallOpts {
   user: string;
   model?: string;
   maxTokens?: number;
-  /** Abort after this many ms. Default 300 000 (5 min). */
+  /**
+   * Whole-call deadline: connection, provider response wait, and response-body
+   * read. Abort after this many ms. Default 300 000 (5 min).
+   */
   timeoutMs?: number;
+  /**
+   * Narrower deadline for request establishment only — aborts if response
+   * headers have not arrived in time, and reports ANTHROPIC_CONNECT_TIMEOUT
+   * rather than the whole-call ANTHROPIC_TIMEOUT. Omitted by default so frozen
+   * legacy callers keep a single whole-call deadline.
+   */
+  connectTimeoutMs?: number;
   /** Reject stop_reason=max_tokens. Defaults false to preserve frozen legacy callers. */
   rejectTruncation?: boolean;
 }
@@ -198,11 +209,21 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
     model = DEFAULT_AI_MODEL,
     maxTokens = 16000,
     timeoutMs = 300_000,
+    connectTimeoutMs,
     rejectTruncation = false,
   } = opts;
 
   const controller = new AbortController();
+  let connectTimedOut = false;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Only meaningful while it is strictly tighter than the whole-call deadline.
+  let connectTimer: ReturnType<typeof setTimeout> | undefined =
+    connectTimeoutMs !== undefined && connectTimeoutMs > 0 && connectTimeoutMs < timeoutMs
+      ? setTimeout(() => {
+        connectTimedOut = true;
+        controller.abort();
+      }, connectTimeoutMs)
+      : undefined;
 
   try {
     const res = await fetch(ANTHROPIC_API_URL, {
@@ -220,6 +241,13 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
       }),
       signal: controller.signal,
     });
+
+    // Headers arrived: the connection phase is over, so only the whole-call
+    // deadline may still abort the response-body read.
+    if (connectTimer !== undefined) {
+      clearTimeout(connectTimer);
+      connectTimer = undefined;
+    }
 
     const responseText = await res.text();
     if (!res.ok) {
@@ -263,6 +291,13 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
     return { ok: true, text };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
+      if (connectTimedOut) {
+        return anthropicFailure(
+          "ANTHROPIC_CONNECT_TIMEOUT",
+          `Anthropic request was not established within ${Math.round((connectTimeoutMs ?? 0) / 1000)}s.`,
+          true,
+        );
+      }
       return anthropicFailure("ANTHROPIC_TIMEOUT", `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.`, true);
     }
     return anthropicFailure(
@@ -272,5 +307,6 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
     );
   } finally {
     clearTimeout(timer);
+    if (connectTimer !== undefined) clearTimeout(connectTimer);
   }
 }
