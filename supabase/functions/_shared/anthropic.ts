@@ -9,9 +9,28 @@ const ANTHROPIC_API_VERSION = "2023-06-01";
 
 export const DEFAULT_AI_MODEL = "claude-opus-4-8";
 
+export type AnthropicErrorCode =
+  | "ANTHROPIC_DISABLED"
+  | "ANTHROPIC_KEY_MISSING"
+  | "ANTHROPIC_TIMEOUT"
+  | "ANTHROPIC_HTTP_ERROR"
+  | "ANTHROPIC_RESPONSE_INVALID"
+  | "ANTHROPIC_EMPTY_RESPONSE"
+  | "ANTHROPIC_REFUSAL"
+  | "ANTHROPIC_TRUNCATED"
+  | "ANTHROPIC_FETCH_ERROR";
+
 export type AnthropicResult =
   | { ok: true; text: string }
-  | { ok: false; error: string };
+  | { ok: false; code: AnthropicErrorCode; error: string; retryable: boolean };
+
+function anthropicFailure(
+  code: AnthropicErrorCode,
+  error: string,
+  retryable: boolean,
+): AnthropicResult {
+  return { ok: false, code, error, retryable };
+}
 
 /** Returns true only if AA_AI_GENERATION_ENABLED is exactly "true" (case-insensitive). */
 export function isAiEnabled(): boolean {
@@ -30,6 +49,8 @@ export interface AnthropicCallOpts {
   maxTokens?: number;
   /** Abort after this many ms. Default 300 000 (5 min). */
   timeoutMs?: number;
+  /** Reject stop_reason=max_tokens. Defaults false to preserve frozen legacy callers. */
+  rejectTruncation?: boolean;
 }
 
 /**
@@ -44,11 +65,11 @@ export async function callAnthropicStreaming(
   onProgress?: (textDelta: string) => Promise<void>,
 ): Promise<AnthropicResult> {
   if (!isAiEnabled()) {
-    return { ok: false, error: "AA_AI_GENERATION_ENABLED is not true. No AI call made." };
+    return anthropicFailure("ANTHROPIC_DISABLED", "AA_AI_GENERATION_ENABLED is not true. No AI call made.", false);
   }
   const apiKey = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim();
   if (!apiKey) {
-    return { ok: false, error: "ANTHROPIC_API_KEY is not set. Cannot proceed with AI generation." };
+    return anthropicFailure("ANTHROPIC_KEY_MISSING", "ANTHROPIC_API_KEY is not set. Cannot proceed with AI generation.", false);
   }
 
   const {
@@ -80,15 +101,17 @@ export async function callAnthropicStreaming(
       signal: controller.signal,
     });
 
-    clearTimeout(timer);
-
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      return { ok: false, error: `Anthropic API returned HTTP ${res.status}: ${errBody.slice(0, 400)}` };
+      return anthropicFailure(
+        "ANTHROPIC_HTTP_ERROR",
+        `Anthropic API returned HTTP ${res.status}: ${errBody.slice(0, 400)}`,
+        res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500,
+      );
     }
 
     if (!res.body) {
-      return { ok: false, error: "Anthropic streaming response has no body." };
+      return anthropicFailure("ANTHROPIC_EMPTY_RESPONSE", "Anthropic streaming response has no body.", true);
     }
 
     const reader = res.body.getReader();
@@ -135,19 +158,22 @@ export async function callAnthropicStreaming(
     }
 
     if (!accumulated.trim()) {
-      return { ok: false, error: "Anthropic streaming returned empty text." };
+      return anthropicFailure("ANTHROPIC_EMPTY_RESPONSE", "Anthropic streaming returned empty text.", true);
     }
 
     return { ok: true, text: accumulated };
   } catch (err) {
     clearTimeout(timer);
     if (err instanceof Error && err.name === "AbortError") {
-      return { ok: false, error: `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.` };
+      return anthropicFailure("ANTHROPIC_TIMEOUT", `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.`, true);
     }
-    return {
-      ok: false,
-      error: `Anthropic fetch error: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    return anthropicFailure(
+      "ANTHROPIC_FETCH_ERROR",
+      `Anthropic fetch error: ${err instanceof Error ? err.message : String(err)}`,
+      true,
+    );
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -158,18 +184,12 @@ export async function callAnthropicStreaming(
  */
 export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicResult> {
   if (!isAiEnabled()) {
-    return {
-      ok: false,
-      error: "AA_AI_GENERATION_ENABLED is not true. No AI call made.",
-    };
+    return anthropicFailure("ANTHROPIC_DISABLED", "AA_AI_GENERATION_ENABLED is not true. No AI call made.", false);
   }
 
   const apiKey = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim();
   if (!apiKey) {
-    return {
-      ok: false,
-      error: "ANTHROPIC_API_KEY is not set. Cannot proceed with AI generation.",
-    };
+    return anthropicFailure("ANTHROPIC_KEY_MISSING", "ANTHROPIC_API_KEY is not set. Cannot proceed with AI generation.", false);
   }
 
   const {
@@ -178,6 +198,7 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
     model = DEFAULT_AI_MODEL,
     maxTokens = 16000,
     timeoutMs = 300_000,
+    rejectTruncation = false,
   } = opts;
 
   const controller = new AbortController();
@@ -200,43 +221,56 @@ export async function callAnthropic(opts: AnthropicCallOpts): Promise<AnthropicR
       signal: controller.signal,
     });
 
-    clearTimeout(timer);
-
+    const responseText = await res.text();
     if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      return {
-        ok: false,
-        error: `Anthropic API returned HTTP ${res.status}: ${errBody.slice(0, 400)}`,
-      };
+      return anthropicFailure(
+        "ANTHROPIC_HTTP_ERROR",
+        `Anthropic API returned HTTP ${res.status}: ${responseText.slice(0, 400)}`,
+        res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500,
+      );
     }
 
-    const data = await res.json() as {
+    let data: {
       content?: Array<{ type: string; text?: string }>;
       error?: { message: string };
       stop_reason?: string;
     };
+    try {
+      data = JSON.parse(responseText) as typeof data;
+    } catch {
+      return anthropicFailure("ANTHROPIC_RESPONSE_INVALID", "Anthropic returned an invalid JSON response body.", true);
+    }
 
     if (data.error) {
-      return { ok: false, error: `Anthropic error: ${data.error.message}` };
+      return anthropicFailure("ANTHROPIC_HTTP_ERROR", `Anthropic error: ${data.error.message}`, true);
+    }
+    if (data.stop_reason === "refusal") {
+      return anthropicFailure("ANTHROPIC_REFUSAL", "Anthropic refused the generation request.", false);
+    }
+    if (rejectTruncation && data.stop_reason === "max_tokens") {
+      return anthropicFailure(
+        "ANTHROPIC_TRUNCATED",
+        "Anthropic stopped at the token limit before a complete response was guaranteed.",
+        true,
+      );
     }
 
     const text = (data.content ?? []).find((b) => b.type === "text")?.text ?? "";
     if (!text.trim()) {
-      return { ok: false, error: "Anthropic returned an empty response body." };
+      return anthropicFailure("ANTHROPIC_EMPTY_RESPONSE", "Anthropic returned an empty response body.", true);
     }
 
     return { ok: true, text };
   } catch (err) {
-    clearTimeout(timer);
     if (err instanceof Error && err.name === "AbortError") {
-      return {
-        ok: false,
-        error: `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.`,
-      };
+      return anthropicFailure("ANTHROPIC_TIMEOUT", `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.`, true);
     }
-    return {
-      ok: false,
-      error: `Anthropic fetch error: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    return anthropicFailure(
+      "ANTHROPIC_FETCH_ERROR",
+      `Anthropic fetch error: ${err instanceof Error ? err.message : String(err)}`,
+      true,
+    );
+  } finally {
+    clearTimeout(timer);
   }
 }

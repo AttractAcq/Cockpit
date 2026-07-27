@@ -1,0 +1,14 @@
+const RETRYABLE_CODES = new Set([
+  "ANTHROPIC_TIMEOUT",
+  "ANTHROPIC_HTTP_ERROR",
+  "ANTHROPIC_FETCH_ERROR",
+  "ANTHROPIC_RESPONSE_INVALID",
+  "ANTHROPIC_EMPTY_RESPONSE",
+  "ANTHROPIC_TRUNCATED",
+  "BEGIN_RUN_FAILED",
+  "RUN_COMMITTED_READ_FAILED",
+]);
+
+export function isRetryableIdeationFailure(code: string): boolean {
+  return RETRYABLE_CODES.has(code);
+}

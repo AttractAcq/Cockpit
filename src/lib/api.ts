@@ -10,13 +10,24 @@
 //   messages     : sender→sender_name + defaults for absent cols
 //   campaigns    : daily_budget_cents/100→budget_daily + spend/perf defaults
 //   automations  : status/last_run_at → Automation shape
-import { supabase, invokeFn } from "./supabase";
+import { EdgeFunctionInvocationError, supabase, invokeFn } from "./supabase";
+import { decodeIdeationFailureBody } from "./ideation-failure";
 import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
 import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount } from "@/types/phase";
 import type { BrandPromptBlockRow, HiggsfieldMotion, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
+import type {
+  IdeationCandidate,
+  IdeationOverview,
+  IdeationResearchResult,
+  IdeationRun,
+  IdeationTechniqueRun,
+  IdeationInvocationFailure,
+  RunIdeationInput,
+  RunIdeationResponse,
+} from "@/types/ideation";
 
 // Helper: normalise entity_name from Supabase FK join
 function entityName(row: Record<string, unknown>): string | null {
@@ -1044,6 +1055,82 @@ export async function updateExecutionFileReviewState(fileId: string, reviewState
 
 export async function regenerateExecutionFile(clientId: string, month: string, section: Phase2Section): Promise<Phase2Result> {
   return generatePhase2Section(clientId, month, section);
+}
+
+export async function fetchIdeationOverview(clientId: string, signal?: AbortSignal): Promise<IdeationOverview> {
+  let runsQuery = supabase
+    .from("client_ideation_cycles")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false })
+    .limit(25);
+  if (signal) runsQuery = runsQuery.abortSignal(signal);
+  const { data: runsData, error: runsError } = await runsQuery;
+  if (runsError) throw runsError;
+  const runs = (runsData ?? []) as IdeationRun[];
+  if (!runs.length) return { runs: [], technique_runs: [], research_results: [], candidates: [] };
+
+  const cycleIds = runs.map((run) => run.id);
+  const techniqueRunsQuery = supabase
+    .from("client_ideation_technique_runs")
+    .select("*")
+    .in("ideation_cycle_id", cycleIds)
+    .order("technique_order");
+  const researchQuery = supabase.from("client_ideation_research_results").select("*").in("ideation_cycle_id", cycleIds).order("created_at");
+  const candidatesQuery = supabase.from("client_ideation_candidates").select("*").in("ideation_cycle_id", cycleIds).order("created_at");
+  const [techniqueRunsResult, researchResult, candidatesResult] = await Promise.all([
+    signal ? techniqueRunsQuery.abortSignal(signal) : techniqueRunsQuery,
+    signal ? researchQuery.abortSignal(signal) : researchQuery,
+    signal ? candidatesQuery.abortSignal(signal) : candidatesQuery,
+  ]);
+  const error = techniqueRunsResult.error ?? researchResult.error ?? candidatesResult.error;
+  if (error) throw error;
+
+  const techniqueRuns = (techniqueRunsResult.data ?? []) as IdeationTechniqueRun[];
+  const researchResults = (researchResult.data ?? []) as IdeationResearchResult[];
+  const runById = new Map(techniqueRuns.map((run) => [run.id, run]));
+  const researchById = new Map(researchResults.map((research) => [research.id, research]));
+  const candidates = ((candidatesResult.data ?? []) as Array<Omit<IdeationCandidate, "technique" | "technique_run" | "research_result">>)
+    .map((candidate) => ({
+      ...candidate,
+      technique: (() => {
+        const run = runById.get(candidate.technique_run_id);
+        return run ? {
+          slug: run.technique_slug,
+          name: typeof run.technique_snapshot?.name === "string"
+            ? run.technique_snapshot.name
+            : run.technique_slug.replaceAll("-", " "),
+          version: run.technique_version,
+          order: run.technique_order,
+        } : null;
+      })(),
+      technique_run: runById.get(candidate.technique_run_id) ?? null,
+      research_result: researchById.get(candidate.research_result_id) ?? null,
+    }));
+  return {
+    runs,
+    technique_runs: techniqueRuns,
+    research_results: researchResults,
+    candidates,
+  };
+}
+
+export async function runIdeation(input: RunIdeationInput): Promise<RunIdeationResponse> {
+  // invokeFn throws EdgeFunctionInvocationError for every non-2xx response.
+  // This function therefore returns only the successful discriminated shape.
+  return await invokeFn<RunIdeationResponse>("run-ideation", {
+    client_id: input.client_id,
+    period_type: input.period_type,
+    start_date: input.start_date,
+    end_date: input.end_date,
+    month: input.month,
+    idempotency_key: input.idempotency_key,
+  });
+}
+
+export function decodeIdeationInvocationFailure(error: unknown): IdeationInvocationFailure | null {
+  if (!(error instanceof EdgeFunctionInvocationError) || error.functionName !== "run-ideation") return null;
+  return decodeIdeationFailureBody(error.responseBody, error.message);
 }
 
 export async function fetchOrganicMasterRows(

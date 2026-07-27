@@ -24,6 +24,7 @@ import { PerformanceIterationPanel } from "@/components/client/PerformanceIterat
 import { ArchivePanel } from "@/components/client/ArchivePanel";
 import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
+import { IdeationPanel } from "@/components/client/IdeationPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
@@ -103,7 +104,6 @@ function PlaceholderSection({
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
   proof_upload: { title: "Proof Upload",   description: "Not yet built." },
-  ideation: { title: "Ideation",           description: "Not yet built." },
   paid_distribution: { title: "Paid Distribution", description: "Not yet built." },
 };
 
@@ -646,6 +646,8 @@ export function ClientDetailPage() {
         return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase3Controls()}</div><Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} /></div>;
+      case "ideation":
+        return <IdeationPanel clientId={id} executionMonth={currentMonth()} />;
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "reel_studio":
