@@ -2,9 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Modal, Tag } from "@/components/primitives";
 import {
   decodeIdeationInvocationFailure,
+  decodeIdeationScoringInvocationFailure,
   fetchIdeationOverview,
+  fetchIdeationScoringOverview,
   runIdeation,
+  scoreIdeationCandidates,
 } from "@/lib/api";
+import {
+  activeScoringRun,
+  bandDescription,
+  bandToneClass,
+  canRescore,
+  canRetryScoring,
+  canStartScoring,
+  orderCandidatesForDisplay,
+  scoreIndicator,
+  scoringProgressLabel,
+  scoringRunHistory,
+} from "@/lib/ideation-scoring-view";
 import {
   createIdeationRequestCoordinator,
   type IdeationMutationToken,
@@ -18,6 +33,12 @@ import type {
   IdeationRun,
   RunIdeationResponse,
 } from "@/types/ideation";
+import {
+  IDEATION_SCORE_DIMENSIONS,
+  type IdeationCandidateScore,
+  type IdeationScoringOverview,
+  type IdeationScoringRun,
+} from "@/types/ideation-scoring";
 
 const FIELD_CLASS = "rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50";
 const PERIODS: Array<{ value: IdeationPeriodType; label: string; description: string }> = [
@@ -82,10 +103,14 @@ function sourceDomain(candidate: IdeationCandidate): string {
 function CandidateDetail({
   candidate,
   run,
+  score,
+  scoringRun,
   onClose,
 }: {
   candidate: IdeationCandidate;
   run: IdeationRun | null;
+  score: IdeationCandidateScore | null;
+  scoringRun: IdeationScoringRun | null;
   onClose: () => void;
 }) {
   const research = candidate.research_result;
@@ -97,7 +122,9 @@ function CandidateDetail({
           <Tag kind="task">{candidate.asset_type}</Tag>
           <Tag kind="muted">{candidate.technique?.name ?? "Technique"}</Tag>
           <Tag kind="decision">{candidate.status.replaceAll("_", " ")}</Tag>
+          {score && <Tag kind="muted">{`Rank ${score.rank ?? "—"} · ${score.overall_score}/100`}</Tag>}
         </div>
+        {score && <CandidateScoreDetail score={score} scoringRun={scoringRun} />}
         {[
           ["Hook", candidate.hook],
           ["Core Message", candidate.core_message],
@@ -147,6 +174,182 @@ function CandidateDetail({
           <div><span className="text-paper-2">Source provider:</span> {research?.source_provider ?? "Unavailable"}</div>
           <div><span className="text-paper-2">Analysis:</span> {research?.analysis_provider ? `${research.analysis_provider} / ${research.analysis_model}` : "No model analysis"}</div>
         </section>
+      </div>
+    </Modal>
+  );
+}
+
+
+function CandidateCard({
+  candidate,
+  score,
+  showRank,
+  onOpen,
+}: {
+  candidate: IdeationCandidate;
+  score: IdeationCandidateScore | null;
+  showRank: boolean;
+  onOpen: () => void;
+}) {
+  const scoreSummary = score
+    ? `, ${bandDescription(score.priority_band, score.overall_score)}${score.rank !== null ? `, rank ${score.rank}` : ""}`
+    : "";
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${candidate.working_title}${scoreSummary}`}
+      className="flex min-h-[160px] w-full flex-col gap-3 rounded-[10px] border border-line bg-ink-200 p-4 text-left transition-colors hover:border-teal/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/60"
+      onClick={onOpen}
+    >
+      <div className="flex items-start gap-2">
+        {showRank && score?.rank !== null && score !== null && (
+          <span className="rounded border border-line bg-ink px-1.5 py-0.5 font-mono text-2xs text-paper">
+            #{score.rank}
+          </span>
+        )}
+        <h3 className="min-w-0 flex-1 text-sm font-medium text-paper">{candidate.working_title}</h3>
+        {score ? (
+          <span className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-2xs ${bandToneClass(score.priority_band)}`}>
+            {score.overall_score}/100 {score.priority_band}
+          </span>
+        ) : (
+          <Tag kind="decision">{candidate.status.replaceAll("_", " ")}</Tag>
+        )}
+      </div>
+      <p className="line-clamp-3 text-xs leading-5 text-paper-3">{candidate.hook}</p>
+      <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line pt-2 text-2xs text-paper-3">
+        <span>{candidate.technique?.name ?? "Technique"}</span>
+        <span>·</span>
+        <span>{candidate.asset_type}</span>
+        <span>·</span>
+        <span className="min-w-0 truncate">{scoreIndicator(score)}</span>
+        <span className="ml-auto">{new Date(candidate.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </div>
+    </button>
+  );
+}
+
+function ScoreDimensions({ score }: { score: IdeationCandidateScore }) {
+  return (
+    <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+      {IDEATION_SCORE_DIMENSIONS.map((dimension) => (
+        <div key={dimension.key} className="flex items-baseline gap-2 text-xs">
+          <dt className="min-w-0 flex-1 truncate text-paper-3">
+            {dimension.label} <span className="text-paper-3">(w{dimension.weight})</span>
+          </dt>
+          <dd className="font-mono text-paper">{score[dimension.key]}/10</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function CandidateScoreDetail({
+  score,
+  scoringRun,
+}: {
+  score: IdeationCandidateScore;
+  scoringRun: IdeationScoringRun | null;
+}) {
+  return (
+    <section className="rounded border border-line bg-ink p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Score</h3>
+        <span className={`rounded-full border px-2 py-0.5 font-mono text-2xs ${bandToneClass(score.priority_band)}`}>
+          {bandDescription(score.priority_band, score.overall_score)}
+        </span>
+        {score.rank !== null && (
+          <span className="rounded-full border border-line px-2 py-0.5 font-mono text-2xs text-paper">
+            Rank {score.rank}
+          </span>
+        )}
+      </div>
+      <ScoreDimensions score={score} />
+      <div className="mt-3">
+        <h4 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Rationale</h4>
+        <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-paper">{score.rationale}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <h4 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Strengths</h4>
+          <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-paper">
+            {score.strengths.map((entry) => <li key={entry}>{entry}</li>)}
+          </ul>
+        </div>
+        <div>
+          <h4 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Risks</h4>
+          {score.risks.length ? (
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-warn">
+              {score.risks.map((entry) => <li key={entry}>{entry}</li>)}
+            </ul>
+          ) : <p className="mt-1 text-xs text-paper-3">No risks were recorded.</p>}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <h4 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Scoring authority references</h4>
+          {score.authority_references.length ? (
+            <ul className="mt-1 space-y-0.5 font-mono text-2xs text-teal">
+              {score.authority_references.map((entry) => <li key={entry} className="break-all">{entry}</li>)}
+            </ul>
+          ) : <p className="mt-1 text-2xs text-paper-3">None cited.</p>}
+        </div>
+        <div>
+          <h4 className="text-2xs font-medium uppercase tracking-wide text-paper-3">Candidate evidence references</h4>
+          {score.evidence_references.length ? (
+            <ul className="mt-1 space-y-0.5 font-mono text-2xs text-teal">
+              {score.evidence_references.map((entry) => <li key={entry} className="break-all">{entry}</li>)}
+            </ul>
+          ) : <p className="mt-1 text-2xs text-paper-3">None cited.</p>}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 border-t border-line pt-3 text-2xs text-paper-3 sm:grid-cols-2">
+        <div><span className="text-paper-2">Rubric:</span> {score.rubric_version}</div>
+        <div><span className="text-paper-2">Scoring run:</span> {score.scoring_run_id}</div>
+        <div><span className="text-paper-2">Model:</span> {score.provider} / {score.model}</div>
+        <div><span className="text-paper-2">Prompt:</span> {score.prompt_version}</div>
+        <div><span className="text-paper-2">Output schema:</span> {score.output_schema_version}</div>
+        <div><span className="text-paper-2">Scoring attempt:</span> {scoringRun?.attempt_count ?? "unknown"}</div>
+      </div>
+    </section>
+  );
+}
+
+function RescoreConfirmModal({
+  expectedCandidates,
+  previousRunId,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  expectedCandidates: number;
+  previousRunId: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      title="Re-score content"
+      description="This starts a new scoring run. The previous run and its scores are preserved."
+      onClose={onCancel}
+      closeDisabled={busy}
+      widthClass="max-w-lg"
+      footer={
+        <>
+          <Button variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" disabled={busy} onClick={onConfirm}>
+            {busy ? "Re-scoring…" : "Re-score content"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-xs text-paper">
+        <p>All {expectedCandidates} candidates will be scored again against the same approved authority.</p>
+        <p className="text-paper-3">
+          The current scoring run stays in history and remains readable. The new run records it as the run it supersedes.
+        </p>
+        <p className="font-mono text-2xs text-paper-3">Superseding {previousRunId}</p>
       </div>
     </Modal>
   );
@@ -313,6 +516,10 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [generationWarnings, setGenerationWarnings] = useState<RunIdeationResponse["warnings"]>([]);
+  const [scoring, setScoring] = useState<IdeationScoringOverview>({ scoring_runs: [], scores: [] });
+  const [scoringBusy, setScoringBusy] = useState(false);
+  const [rescoreOpen, setRescoreOpen] = useState(false);
+  const [orderMode, setOrderMode] = useState<"ranked" | "original">("ranked");
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const clientIdRef = useRef(clientId);
@@ -339,6 +546,11 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
     setError(null);
     try {
       const next = await fetchIdeationOverview(clientId, controller.signal);
+      const nextScoring = await fetchIdeationScoringOverview(
+        clientId,
+        next.runs.map((run) => run.id),
+        controller.signal,
+      );
       if (
         requestId !== requestSequence.current
         || controller.signal.aborted
@@ -346,6 +558,7 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
         || (mutationToken && !coordinator.isCurrent(mutationToken))
       ) return;
       setOverview(next);
+      setScoring(nextScoring);
       setSelectedRunId((current) => preferredRunId ?? current ?? next.runs[0]?.id ?? null);
     } catch (value) {
       if (
@@ -371,6 +584,10 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
     requestController.current?.abort();
     requestSequence.current += 1;
     setOverview({ runs: [], technique_runs: [], research_results: [], candidates: [] });
+    setScoring({ scoring_runs: [], scores: [] });
+    setScoringBusy(false);
+    setRescoreOpen(false);
+    setOrderMode("ranked");
     setSelectedRunId(null);
     setOpenCandidate(null);
     setGenerationWarnings([]);
@@ -400,6 +617,80 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
       .filter((run) => run.ideation_cycle_id === selectedRun.id)
       .sort((left, right) => left.technique_order - right.technique_order)
     : [];
+
+  const selectedScoringRun = useMemo(
+    () => activeScoringRun(scoring.scoring_runs, selectedRun?.id ?? null),
+    [scoring.scoring_runs, selectedRun],
+  );
+  const selectedScoringHistory = useMemo(
+    () => scoringRunHistory(scoring.scoring_runs, selectedRun?.id ?? null),
+    [scoring.scoring_runs, selectedRun],
+  );
+  const displayCandidates = useMemo(
+    () => orderCandidatesForDisplay(candidates, scoring.scores, selectedScoringRun, orderMode),
+    [candidates, scoring.scores, selectedScoringRun, orderMode],
+  );
+  const showRankedList = orderMode === "ranked" && selectedScoringRun?.status === "completed";
+  const scoreByCandidateId = useMemo(() => {
+    const map = new Map<string, IdeationCandidateScore>();
+    if (selectedScoringRun) {
+      for (const score of scoring.scores) {
+        if (score.scoring_run_id === selectedScoringRun.id) map.set(score.candidate_id, score);
+      }
+    }
+    return map;
+  }, [scoring.scores, selectedScoringRun]);
+
+  // One entry point for all three scoring mutations. Each captures the
+  // originating client and a coordinator token, so a client change, an unmount,
+  // or a duplicate click can never apply a stale result.
+  async function runScoring(kind: "score" | "retry-score" | "rescore", rescoreOf?: string) {
+    if (!selectedRun || scoringBusy) return;
+    const originatingClientId = clientId;
+    const originatingRunId = selectedRun.id;
+    const token = coordinator.begin(kind, originatingClientId);
+    if (!token) return;
+    setScoringBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await scoreIdeationCandidates({
+        client_id: originatingClientId,
+        ideation_cycle_id: originatingRunId,
+        rescore_of_scoring_run_id: rescoreOf,
+      });
+      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
+      setRescoreOpen(false);
+      setOrderMode("ranked");
+      setNotice(result.idempotent_replay
+        ? "Existing scoring result returned; no duplicate scoring run was created."
+        : result.scoring_run.status === "completed"
+          ? "Candidates scored and ranked."
+          : `Scoring retained ${result.scoring_run.scored_candidate_count} scores; some candidates remain unscored.`);
+      await load(originatingRunId, token);
+    } catch (value) {
+      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
+      const failure = decodeIdeationScoringInvocationFailure(value);
+      setRescoreOpen(false);
+      if (failure) {
+        setError(
+          `${failure.message}${
+            failure.shortfall !== null && failure.shortfall > 0
+              ? ` (${failure.shortfall} candidates unscored)`
+              : ""
+          }`,
+        );
+        await load(originatingRunId, token);
+      } else {
+        setError(errorText(value));
+      }
+    } finally {
+      if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
+        setScoringBusy(false);
+      }
+      coordinator.finish(token);
+    }
+  }
 
   async function retrySelectedRun() {
     if (!selectedRun || selectedRun.status !== "retryable" || retrying) return;
@@ -484,6 +775,9 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
                     setSelectedRunId(event.target.value);
                     setGenerationWarnings([]);
                     setOpenCandidate(null);
+                    setRescoreOpen(false);
+                    setOrderMode("ranked");
+                    setNotice(null);
                   }}
                 >
                   {overview.runs.map((run) => <option key={run.id} value={run.id}>{new Date(run.created_at).toLocaleString()} · {run.candidate_count} ideas</option>)}
@@ -504,6 +798,100 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
                 {selectedRun.error_code ? ` (${selectedRun.error_code})` : ""}
               </p>
             )}
+            <div className="mt-4 rounded border border-line bg-ink p-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Score and Sort</h2>
+                  <p className="mt-1 text-2xs text-paper-3" id="ideation-scoring-status" role="status">
+                    {selectedScoringRun
+                      ? `${selectedScoringRun.status.replaceAll("_", " ")} · ${scoringProgressLabel(selectedScoringRun)}`
+                      : selectedRun.status === "completed"
+                        ? "This run is eligible for scoring."
+                        : "Only a completed run with every candidate generated can be scored."}
+                  </p>
+                </div>
+                {canStartScoring(selectedRun.status, selectedScoringRun) && (
+                  <Button
+                    variant="primary"
+                    disabled={scoringBusy}
+                    aria-busy={scoringBusy}
+                    aria-describedby="ideation-scoring-status"
+                    onClick={() => void runScoring("score")}
+                  >
+                    {scoringBusy ? "Scoring…" : "Score and Sort Content"}
+                  </Button>
+                )}
+                {canRetryScoring(selectedScoringRun) && (
+                  <Button
+                    variant="secondary"
+                    disabled={scoringBusy}
+                    aria-busy={scoringBusy}
+                    aria-describedby="ideation-scoring-status"
+                    onClick={() => void runScoring("retry-score")}
+                  >
+                    {scoringBusy ? "Retrying…" : "Retry Scoring"}
+                  </Button>
+                )}
+                {canRescore(selectedScoringRun) && (
+                  <Button
+                    variant="secondary"
+                    disabled={scoringBusy}
+                    aria-busy={scoringBusy}
+                    aria-describedby="ideation-scoring-status"
+                    onClick={() => setRescoreOpen(true)}
+                  >
+                    Re-score Content
+                  </Button>
+                )}
+              </div>
+              {selectedScoringRun?.status === "running" && (
+                <p className="mt-2 text-2xs text-teal">
+                  Scoring is in progress. Attempt {selectedScoringRun.attempt_count} of {selectedScoringRun.maximum_attempts}.
+                </p>
+              )}
+              {selectedScoringRun && selectedScoringRun.status !== "running" && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-2xs text-paper-3">
+                  <span>expected {selectedScoringRun.expected_candidate_count}</span>
+                  <span>scored {selectedScoringRun.scored_candidate_count}</span>
+                  <span>failed {selectedScoringRun.failed_candidate_count}</span>
+                  <span>rubric {selectedScoringRun.rubric_version}</span>
+                  <span className="break-all">active run {selectedScoringRun.id}</span>
+                  {selectedScoringRun.supersedes_scoring_run_id && (
+                    <span className="break-all">supersedes {selectedScoringRun.supersedes_scoring_run_id}</span>
+                  )}
+                  {selectedScoringHistory.length > 1 && (
+                    <span>{selectedScoringHistory.length} scoring runs in history</span>
+                  )}
+                </div>
+              )}
+              {selectedScoringRun?.error_message && (
+                <p className="mt-2 text-2xs text-warn">
+                  {selectedScoringRun.error_message}
+                  {selectedScoringRun.error_code ? ` (${selectedScoringRun.error_code})` : ""}
+                </p>
+              )}
+              {selectedScoringRun?.status === "completed" && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-2xs text-paper-3">Order</span>
+                  <Button
+                    variant={orderMode === "ranked" ? "primary" : "secondary"}
+                    size="sm"
+                    aria-pressed={orderMode === "ranked"}
+                    onClick={() => setOrderMode("ranked")}
+                  >
+                    Ranked
+                  </Button>
+                  <Button
+                    variant={orderMode === "original" ? "primary" : "secondary"}
+                    size="sm"
+                    aria-pressed={orderMode === "original"}
+                    onClick={() => setOrderMode("original")}
+                  >
+                    Original order (audit)
+                  </Button>
+                </div>
+              )}
+            </div>
             <div className="mt-4">
               <div className="flex items-center justify-between border-b border-line pb-2">
                 <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Technique Runs</h2>
@@ -543,46 +931,55 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
             )}
           </section>
 
-          {GROUPS.map(({ assetType, label }) => {
-            const group = candidates.filter((candidate) => candidate.asset_type === assetType);
-            return (
-              <section key={assetType}>
-                <div className="mb-2 flex items-center gap-2 border-b border-line pb-2">
-                  <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">{label}</h2>
-                  <span className="rounded-full border border-line bg-ink-100 px-2 py-0.5 font-mono text-2xs text-paper">{group.length}</span>
-                </div>
-                {group.length ? (
-                  <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-                    {group.map((candidate) => (
-                      <button
-                        key={candidate.id}
-                        type="button"
-                        aria-label={`Open ${candidate.working_title}`}
-                        className="flex min-h-[160px] w-full flex-col gap-3 rounded-[10px] border border-line bg-ink-200 p-4 text-left transition-colors hover:border-teal/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/60"
-                        onClick={() => setOpenCandidate(candidate)}
-                      >
-                        <div className="flex items-start gap-2">
-                          <h3 className="min-w-0 flex-1 text-sm font-medium text-paper">{candidate.working_title}</h3>
-                          <Tag kind="decision">{candidate.status.replaceAll("_", " ")}</Tag>
-                        </div>
-                        <p className="line-clamp-3 text-xs leading-5 text-paper-3">{candidate.hook}</p>
-                        <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line pt-2 text-2xs text-paper-3">
-                          <span>{candidate.technique?.name ?? "Technique"}</span>
-                          <span>·</span>
-                          <span>{candidate.asset_type}</span>
-                          <span>·</span>
-                          <span>{sourceDomain(candidate)}</span>
-                          <span className="ml-auto">{new Date(candidate.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                        </div>
-                      </button>
-                    ))}
+          {showRankedList ? (
+            <section>
+              <div className="mb-2 flex items-center gap-2 border-b border-line pb-2">
+                <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Ranked Content</h2>
+                <span className="rounded-full border border-line bg-ink-100 px-2 py-0.5 font-mono text-2xs text-paper">
+                  {displayCandidates.length}
+                </span>
+                <span className="text-2xs text-paper-3">Highest ranked first</span>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                {displayCandidates.map(({ candidate, score }) => (
+                  <CandidateCard
+                    key={candidate.id}
+                    candidate={candidate}
+                    score={score}
+                    showRank
+                    onOpen={() => setOpenCandidate(candidate)}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : (
+            GROUPS.map(({ assetType, label }) => {
+              const group = displayCandidates.filter((entry) => entry.candidate.asset_type === assetType);
+              return (
+                <section key={assetType}>
+                  <div className="mb-2 flex items-center gap-2 border-b border-line pb-2">
+                    <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">{label}</h2>
+                    <span className="rounded-full border border-line bg-ink-100 px-2 py-0.5 font-mono text-2xs text-paper">{group.length}</span>
                   </div>
-                ) : (
-                  <p className="rounded border border-dashed border-line px-3 py-4 text-xs text-paper-3">No {label.toLowerCase()} were required for this period.</p>
-                )}
-              </section>
-            );
-          })}
+                  {group.length ? (
+                    <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                      {group.map(({ candidate, score }) => (
+                        <CandidateCard
+                          key={candidate.id}
+                          candidate={candidate}
+                          score={score}
+                          showRank={false}
+                          onOpen={() => setOpenCandidate(candidate)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded border border-dashed border-line px-3 py-4 text-xs text-paper-3">No {label.toLowerCase()} were required for this period.</p>
+                  )}
+                </section>
+              );
+            })
+          )}
         </div>
       )}
 
@@ -618,8 +1015,23 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
           }}
         />
       )}
+      {rescoreOpen && selectedScoringRun && (
+        <RescoreConfirmModal
+          expectedCandidates={selectedScoringRun.expected_candidate_count}
+          previousRunId={selectedScoringRun.id}
+          busy={scoringBusy}
+          onCancel={() => setRescoreOpen(false)}
+          onConfirm={() => void runScoring("rescore", selectedScoringRun.id)}
+        />
+      )}
       {openCandidate && (
-        <CandidateDetail candidate={openCandidate} run={selectedRun} onClose={() => setOpenCandidate(null)} />
+        <CandidateDetail
+          candidate={openCandidate}
+          run={selectedRun}
+          score={scoreByCandidateId.get(openCandidate.id) ?? null}
+          scoringRun={selectedScoringRun}
+          onClose={() => setOpenCandidate(null)}
+        />
       )}
     </div>
   );

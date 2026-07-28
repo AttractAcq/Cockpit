@@ -1,4 +1,11 @@
-export type IdeationMutationKind = "generate" | "retry";
+// Stage 2 scoring mutations join the same client-owned coordinator, so a client
+// change invalidates in-flight scoring exactly as it does generation.
+export type IdeationMutationKind =
+  | "generate"
+  | "retry"
+  | "score"
+  | "retry-score"
+  | "rescore";
 
 export interface IdeationMutationToken {
   readonly clientId: string;

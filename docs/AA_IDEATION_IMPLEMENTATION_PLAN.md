@@ -3,6 +3,24 @@
 Status: Active plan for Ideation PR 1 / PR 1.1
 Architecture authority: `docs/AA_PHASE_1_PHASE_2_FROZEN_BASELINE.md`
 
+## 0. Locked five-stage Ideation plan
+
+| Stage | Scope | State |
+| --- | --- | --- |
+| 1 | Operational candidate generation | Accepted baseline, commit `a84eba3`. This document. |
+| 2 | Score and sort generated candidates | Built — see `docs/AA_IDEATION_STAGE_2_SCORING.md`. |
+| 3 | Create and approve a proposed Calendar | Next build, not started. |
+| 4 | Commit approved content into Calendar and `organic_master` | Not started. |
+| 5 | Full end-to-end verification | Not started. |
+
+The stages are not reordered or redesigned. The full Ideation system is **not**
+complete: Stages 3, 4, and 5 remain unimplemented, and no Stage 2 scoring has run
+against production candidates.
+
+**IDEATION-D1 — Markdown evidence-span compatibility** remains open and deferred
+(section 4b). It must be resolved no later than Stage 5, together with the first
+live generation-to-scoring integration test.
+
 ## 1. Active scope
 
 The first Ideation release supports only:
@@ -102,6 +120,10 @@ forward through the contract but did not converge:
 | `f2f2a430` | Claim lacks proposition-level lexical support / exact quotation altered |
 | `81dae095` | Exact quotation support_note invalid / paraphrase support_span altered |
 | `8075776e` | Paraphrase support_span altered / claim lacks proposition-level support |
+
+This is tracked as **IDEATION-D1 — Markdown evidence-span compatibility**, and
+is consciously deferred for resolution no later than Stage 5. Stage 2 neither
+weakens this validator nor depends on a live completed cycle.
 
 **Diagnosed root cause — a structural mismatch, not a prompt defect.** The
 grounding validator splits cited evidence into sentences and requires a

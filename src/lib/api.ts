@@ -11,6 +11,15 @@
 //   campaigns    : daily_budget_cents/100→budget_daily + spend/perf defaults
 //   automations  : status/last_run_at → Automation shape
 import { EdgeFunctionInvocationError, supabase, invokeFn } from "./supabase";
+import { decodeIdeationScoringFailureBody } from "./ideation-scoring-failure";
+import type {
+  IdeationCandidateScore,
+  IdeationScoringInvocationFailure,
+  IdeationScoringOverview,
+  IdeationScoringRun,
+  ScoreIdeationCandidatesInput,
+  ScoreIdeationCandidatesResponse,
+} from "../types/ideation-scoring";
 import { decodeIdeationFailureBody } from "./ideation-failure";
 import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
@@ -3238,4 +3247,51 @@ export async function getVideoShotSignedUrls(shot: VideoShotRow): Promise<{ stil
       : Promise.resolve(null),
   ]);
   return { stillUrl, clipUrl };
+}
+
+export async function fetchIdeationScoringOverview(
+  clientId: string,
+  cycleIds: string[],
+  signal?: AbortSignal,
+): Promise<IdeationScoringOverview> {
+  if (cycleIds.length === 0) return { scoring_runs: [], scores: [] };
+  const runsQuery = supabase
+    .from("client_ideation_scoring_runs")
+    .select("*")
+    .eq("client_id", clientId)
+    .in("ideation_cycle_id", cycleIds)
+    .order("created_at", { ascending: false });
+  const { data: runsData, error: runsError } = await (signal ? runsQuery.abortSignal(signal) : runsQuery);
+  if (runsError) throw runsError;
+  const scoringRuns = (runsData ?? []) as IdeationScoringRun[];
+  if (!scoringRuns.length) return { scoring_runs: [], scores: [] };
+
+  const scoresQuery = supabase
+    .from("client_ideation_candidate_scores")
+    .select("*")
+    .in("scoring_run_id", scoringRuns.map((run) => run.id))
+    .order("rank", { ascending: true, nullsFirst: false });
+  const { data: scoresData, error: scoresError } = await (signal ? scoresQuery.abortSignal(signal) : scoresQuery);
+  if (scoresError) throw scoresError;
+  return { scoring_runs: scoringRuns, scores: (scoresData ?? []) as IdeationCandidateScore[] };
+}
+
+export async function scoreIdeationCandidates(
+  input: ScoreIdeationCandidatesInput,
+): Promise<ScoreIdeationCandidatesResponse> {
+  // invokeFn throws EdgeFunctionInvocationError for every non-2xx response, so
+  // this returns only the successful discriminated shape.
+  return await invokeFn<ScoreIdeationCandidatesResponse>("score-ideation-candidates", {
+    client_id: input.client_id,
+    ideation_cycle_id: input.ideation_cycle_id,
+    rescore_of_scoring_run_id: input.rescore_of_scoring_run_id,
+  });
+}
+
+export function decodeIdeationScoringInvocationFailure(
+  error: unknown,
+): IdeationScoringInvocationFailure | null {
+  if (!(error instanceof EdgeFunctionInvocationError)) return null;
+  if (error.functionName !== "score-ideation-candidates") return null;
+  return decodeIdeationScoringFailureBody(error.responseBody, error.message);
 }
