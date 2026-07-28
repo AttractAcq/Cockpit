@@ -128,10 +128,31 @@ never in "claim".
 Give each candidate at least five evidence references, so that all five of its
 field values appear verbatim as the "claim" of at least one reference.
 
-For exact_quote, copy quoted_text verbatim from the cited bounded excerpt. For
-paraphrase, copy support_span verbatim from the cited bounded excerpt and explain
-its support in support_note; never use quotation marks or quoted_text. For
-derived_claim, cite one or more source_ids and provide reasoning_note.
+HOW TO MAKE EVERY FIELD PASS GROUNDING
+Write each candidate field in the approved authority's own vocabulary. Reuse the
+distinctive nouns and verbs that actually appear in the excerpt you will cite —
+do not substitute synonyms, and do not introduce a concept the excerpt does not
+contain. Build each field this way:
+1. First choose one sentence from one bounded excerpt above.
+2. Write the field so that its meaningful words are words from that sentence.
+3. Cite that same sentence as the evidence for that field.
+A field whose wording shares no substantive vocabulary with the sentence you cite
+will be rejected.
+
+Prefer evidence_type "paraphrase". Copy the chosen sentence verbatim into
+support_span, exactly as it appears in the bounded excerpt, and explain the
+support in support_note; never use quotation marks or quoted_text for a
+paraphrase.
+
+Use "exact_quote" only when quoted_text is a character-for-character substring of
+one single cited bounded excerpt. If you are not copying literally, use
+"paraphrase" instead. Use "derived_claim" only when the field follows from one or
+more cited sources; cite them and explain in reasoning_note.
+
+Do not write superlatives ("best", "fastest", "number one"), absolutes
+("always", "never", "every", "all", "nobody"), guarantees, certainty ("will",
+"inevitably"), competitor comparisons, causal promises, or any number, unless
+that exact concept appears in the sentence you cite.
 
 Produce exactly {{CANDIDATE_COUNT}} candidates. Keep every field concise.`;
 
