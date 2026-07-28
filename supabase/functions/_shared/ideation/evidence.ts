@@ -46,3 +46,24 @@ export function serializeEvidenceRegistry(sources: IdeationEvidenceSource[]): st
     "</bounded_excerpt>",
   ].join("\n")).join("\n\n");
 }
+
+/**
+ * Identity-only listing of the allowed evidence registry.
+ *
+ * Every bounded excerpt is already supplied exactly once, under its own trust
+ * classification, by serializeEvidenceRegistry. The allowed-registry block only
+ * has to establish which identifiers may be cited, so it repeats the provenance
+ * fields a reference must copy verbatim — source_id, source_ref, source_url,
+ * source_type, content_hash — and never repeats the excerpt body.
+ */
+export function serializeEvidenceRegistryIdentities(sources: IdeationEvidenceSource[]): string {
+  return sources.map((source) =>
+    [
+      `SOURCE_ID: ${source.source_id}`,
+      `SOURCE_REF: ${source.source_ref}`,
+      `SOURCE_TYPE: ${source.source_type}`,
+      `SOURCE_URL: ${source.source_url}`,
+      `CONTENT_HASH: ${source.content_hash}`,
+    ].join(" | ")
+  ).join("\n");
+}

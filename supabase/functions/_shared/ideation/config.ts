@@ -47,20 +47,21 @@ export const IDEATION_OUTPUT_SCHEMA_VERSION = "ideation-candidates.v1.1";
 export const IDEATION_QUANTITY_SCHEMA_VERSION = "aa.ideation.quantity.v1";
 export const IDEATION_EVIDENCE_SELECTION_VERSION = "aa.ideation.evidence-selection.v1";
 export const IDEATION_EXECUTION_FILE_NUMBERS = [1, 2, 4, 5, 11] as const;
-export const IDEATION_LEASE_SECONDS = 180;
 export const IDEATION_MAX_ATTEMPTS = 3;
+
+// Provider time budgets, output-token budgets, and the derived lease live in
+// ./provider-runtime.ts. They are resolved per request from bounded server-side
+// environment settings, and the effective values are persisted in the
+// configuration snapshot so they participate in the idempotency hash.
 export const IDEATION_MODEL_CONFIGURATION = Object.freeze({
   provider: "anthropic",
   primary_model_env: "AA_IDEATION_AI_MODEL",
   fallback_model_env: "AA_PHASE2_AI_MODEL",
   fallback_model: "claude-sonnet-4-6",
   temperature: null,
-  initial_timeout_ms: 90_000,
-  format_retry_timeout_ms: 35_000,
-  format_retries: 1,
-  max_tokens_floor: 2_200,
-  max_tokens_per_candidate: 460,
-  max_tokens_cap: 12_000,
+  // One bounded correction attempt per technique, for a malformed or a truncated
+  // response. Cycle-level retries remain capped by IDEATION_MAX_ATTEMPTS.
+  correction_attempts: 1,
   reject_max_token_truncation: true,
 });
 
@@ -72,9 +73,12 @@ const SOURCE_POLICY = Object.freeze({
 const MODEL_POLICY = Object.freeze({
   provider: "anthropic",
   model_env: "AA_IDEATION_AI_MODEL",
-  attempt_timeout_ms: 90_000,
-  format_retry_timeout_ms: 35_000,
-  format_retries: 1,
+  // Effective deadlines and output budgets are resolved per request and recorded
+  // under configuration_snapshot.model.effective — never duplicated here, so a
+  // manifest entry can never disagree with the runtime that actually applied.
+  time_budget_policy: "aa.ideation.provider-time-budget.v1",
+  output_token_policy: "aa.ideation.output-token-budget.v1",
+  correction_attempts: 1,
 });
 
 export const IDEATION_TECHNIQUE_MANIFEST: readonly IdeationTechniqueDefinition[] = Object.freeze([

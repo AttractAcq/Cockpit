@@ -12,6 +12,7 @@ import {
   IDEATION_TECHNIQUE_MANIFEST,
   IDEATION_TECHNIQUE_SLUGS,
 } from "../supabase/functions/_shared/ideation/config.ts";
+import { resolveIdeationProviderRuntime } from "../supabase/functions/_shared/ideation/provider-runtime.ts";
 import type { TechniqueResearch } from "../supabase/functions/_shared/ideation/techniques/types.ts";
 import { createIdeationRequestCoordinator } from "../src/lib/ideation-request-coordinator.ts";
 
@@ -38,6 +39,10 @@ interface HarnessOptions {
   attemptCount?: number;
   completeError?: string;
   renewError?: string;
+  /** Lease is renewed successfully this many times, then reports loss. */
+  renewErrorAfterCalls?: number;
+  /** Simulates a provider response that takes real time to arrive. */
+  slowModelMs?: number;
   failError?: string;
   refreshFailsAfterTerminal?: boolean;
 }
@@ -50,6 +55,7 @@ interface Harness {
     createPersistence: number;
     generate: number;
     complete: number;
+    telemetry: Array<{ cycleId: string; techniqueSlug: string; attemptNumber: number }>;
   };
 }
 
@@ -124,6 +130,8 @@ class MemoryPersistence implements IdeationPersistence {
   bundle: RunBundle;
   private options: HarnessOptions;
   failPersisted = false;
+  beginArgs: Record<string, unknown> = {};
+  renewArgs: Array<Record<string, unknown>> = [];
   beginCalls = 0;
   renewCalls = 0;
   completeCalls = 0;
@@ -135,8 +143,9 @@ class MemoryPersistence implements IdeationPersistence {
     this.bundle = makeBundle(options.beginReplay ?? "running", options.attemptCount ?? 1);
   }
 
-  async beginRun(): Promise<RpcResult> {
+  async beginRun(args: Record<string, unknown>): Promise<RpcResult> {
     this.beginCalls += 1;
+    this.beginArgs = args;
     if (this.options.beginReplay) {
       return {
         data: {
@@ -162,11 +171,17 @@ class MemoryPersistence implements IdeationPersistence {
     };
   }
 
-  async renewLease(): Promise<RpcResult> {
+  async renewLease(args: Record<string, unknown>): Promise<RpcResult> {
     this.renewCalls += 1;
-    return this.options.renewError
-      ? { data: null, error: { message: this.options.renewError } }
-      : { data: { renewed: true }, error: null };
+    this.renewArgs.push(args);
+    if (this.options.renewError) return { data: null, error: { message: this.options.renewError } };
+    if (
+      this.options.renewErrorAfterCalls !== undefined &&
+      this.renewCalls > this.options.renewErrorAfterCalls
+    ) {
+      return { data: null, error: { message: "LEASE_OWNERSHIP_LOST" } };
+    }
+    return { data: { renewed: true }, error: null };
   }
 
   async completeRun(args: Record<string, unknown>): Promise<RpcResult> {
@@ -271,7 +286,13 @@ class MemoryPersistence implements IdeationPersistence {
 
 function makeHarness(options: HarnessOptions = {}): Harness {
   const persistence = new MemoryPersistence(options);
-  const calls = { authorize: 0, createPersistence: 0, generate: 0, complete: 0 };
+  const calls: Harness["calls"] = {
+    authorize: 0,
+    createPersistence: 0,
+    generate: 0,
+    complete: 0,
+    telemetry: [],
+  };
   const defaultAuthorize: RunIdeationDependencies["authorize"] = async (header) => {
     calls.authorize += 1;
     if (!header) {
@@ -324,8 +345,12 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       return { results: modules, failures: [] };
     },
     buildExecutionEvidenceSources: async () => [],
-    generateTechniqueCandidates: async ({ assetTypes }) => {
+    generateTechniqueCandidates: async ({ assetTypes, telemetry }) => {
       calls.generate += 1;
+      if (telemetry) calls.telemetry.push(telemetry);
+      if (options.slowModelMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.slowModelMs));
+      }
       if (options.modelFailure) {
         return {
           ok: false,
@@ -652,5 +677,107 @@ test("canonical technique set remains exact in handler fixtures", () => {
   assert.deepEqual(
     IDEATION_TECHNIQUE_MANIFEST.map((technique) => technique.slug),
     [...IDEATION_TECHNIQUE_SLUGS],
+  );
+});
+
+test("the persisted lease safely covers the configured provider deadline", async () => {
+  const harness = makeHarness();
+  const response = await harness.handler(request());
+  assert.equal(response.status, 201);
+
+  const runtime = resolveIdeationProviderRuntime();
+  const leaseSeconds = Number(harness.persistence.beginArgs.p_lease_seconds);
+
+  // A lease shorter than the model deadline would let a slow provider response
+  // finish while the run is already reclaimable by another worker.
+  assert.ok(
+    leaseSeconds * 1000 > runtime.technique_deadline_ms,
+    `lease ${leaseSeconds}s must outlive the ${runtime.technique_deadline_ms}ms technique deadline`,
+  );
+  assert.equal(leaseSeconds, runtime.lease_seconds);
+  // begin_ideation_run rejects anything outside 60..600.
+  assert.ok(leaseSeconds >= 60 && leaseSeconds <= 600);
+  // Every renewal uses the same duration the run was created with.
+  for (const args of harness.persistence.renewArgs) {
+    assert.equal(Number(args.p_lease_seconds), leaseSeconds);
+  }
+});
+
+test("a worker that loses its lease during a slow provider response cannot persist", async () => {
+  const harness = makeHarness({
+    // The pre-generation renewal succeeds; ownership is lost while the provider
+    // is still responding, so the post-generation ownership check fails.
+    renewErrorAfterCalls: 1,
+    slowModelMs: 20,
+  });
+  const response = await harness.handler(request());
+
+  assert.equal(harness.calls.generate, 3, "generation still ran");
+  assert.equal(harness.persistence.completeCalls, 0, "nothing may be persisted after losing the lease");
+  assert.equal(harness.persistence.failCalls, 1, "the run is driven to a recorded terminal state");
+  assert.equal(response.status, 500);
+
+  const payload = await body(response);
+  const error = payload.error as Record<string, unknown>;
+  assert.equal(error.code, "IDEATION_ORCHESTRATION_FAILED");
+  assert.equal(error.retryable, false);
+  assert.ok(String(error.message).includes("LEASE_HEARTBEAT_FAILED"));
+  assert.ok(!JSON.stringify(payload).includes("lease_owner="));
+});
+
+test("a provider connect timeout behaves exactly like the whole-call timeout", async () => {
+  const failure = {
+    error: "Anthropic request was not established in time.",
+    retryable: true,
+  };
+
+  // While attempts remain, both timeout codes are retryable shortfalls, not
+  // terminal failures — HTTP status stays independent of retryability.
+  for (const code of ["ANTHROPIC_TIMEOUT", "ANTHROPIC_CONNECT_TIMEOUT"]) {
+    const harness = makeHarness({ modelFailure: { code, ...failure } });
+    const response = await harness.handler(request());
+    const payload = await body(response);
+
+    assert.equal(response.status, 202, code);
+    assert.equal((payload.run as Record<string, unknown>).status, "retryable", code);
+    const warnings = payload.warnings as Array<Record<string, unknown>>;
+    assert.equal(warnings.length, 3, code);
+    assert.equal(warnings.every((warning) => warning.retryable === true), true, code);
+    assert.equal(warnings.every((warning) => warning.code === code), true, code);
+    assert.equal(harness.persistence.completeCalls, 1, code);
+  }
+
+  // Once the run is terminal, both timeout codes report a gateway timeout.
+  for (const code of ["ANTHROPIC_TIMEOUT", "ANTHROPIC_CONNECT_TIMEOUT"]) {
+    const harness = makeHarness({ modelFailure: { code, ...failure }, attemptCount: 3 });
+    const response = await harness.handler(request());
+    const payload = await body(response);
+
+    assert.equal(response.status, 504, code);
+    const error = payload.error as Record<string, unknown>;
+    assert.equal(error.code, code);
+    assert.equal(error.retryable, false, "an exhausted run is not retryable");
+    const details = error.details as Record<string, unknown>;
+    assert.equal(details.retry_allowed, false);
+    assert.equal(details.shortfall, 3);
+    assert.equal(details.maximum_attempts, 3);
+  }
+});
+
+test("telemetry context reaches the model boundary and carries no content", async () => {
+  const harness = makeHarness();
+  await harness.handler(request());
+
+  assert.equal(harness.calls.telemetry.length, 3);
+  for (const entry of harness.calls.telemetry) {
+    assert.equal(entry.cycleId, CYCLE_ID);
+    assert.equal(entry.attemptNumber, 1);
+    assert.ok(IDEATION_TECHNIQUE_SLUGS.includes(entry.techniqueSlug as typeof IDEATION_TECHNIQUE_SLUGS[number]));
+    // Identifiers and counters only — never authority, prompts, or candidates.
+    assert.deepEqual(Object.keys(entry).sort(), ["attemptNumber", "cycleId", "techniqueSlug"]);
+  }
+  assert.deepEqual(
+    harness.calls.telemetry.map((entry) => entry.techniqueSlug).sort(),
+    ["competitor-objections", "end-customer-complaints", "review-mined-pain-language"],
   );
 });
