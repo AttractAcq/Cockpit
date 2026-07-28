@@ -105,9 +105,11 @@ Deno.serve(async (req: Request) => {
     const imageUrl = result.imageUrls[0] ?? null;
     if (result.status !== "completed" || !imageUrl) {
       const message = safeHiggsfieldError(result.error ?? `Higgsfield status: ${result.status}`);
+      // Phase 2: the provider itself failed to render — a fresh still job is the
+      // safe recovery (retry-shot-still-image).
       const saved = await sb
         .from("video_shots")
-        .update({ status: "failed", error: message, updated_at: checkedAt })
+        .update({ status: "failed", error: message, failure_stage: "still_render", failed_at: checkedAt, updated_at: checkedAt })
         .eq("id", shotId)
         .in("status", ["still_submitted", "still_rendering"])
         .select("*")
@@ -155,9 +157,13 @@ Deno.serve(async (req: Request) => {
       if (saved.error || !saved.data) throw new Error(saved.error?.message ?? "Could not persist the completed still image.");
       return json({ ok: true, shot: saved.data });
     } catch (error) {
+      // The remove() above guarantees no orphaned object is left behind, so the
+      // still-download failure is fully resettable by retry-shot-still-image.
       if (uploaded && storagePath) await sb.storage.from(BUCKET).remove([storagePath]).catch(() => {});
       const message = safeHiggsfieldError(error);
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      const failedAt = new Date().toISOString();
+      await sb.from("video_shots")
+        .update({ status: "failed", error: message, failure_stage: "still_download", failed_at: failedAt, updated_at: failedAt })
         .eq("id", shotId).in("status", ["still_submitted", "still_rendering"]);
       throw error;
     }

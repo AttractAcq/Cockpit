@@ -14,6 +14,20 @@
 //   • Never log access tokens or signed media URLs.
 import { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { readCredential } from "./aa.ts";
+import { resolveRecordPublishCapability } from "./publish-capability.ts";
+// Phase 3: the Meta error primitives moved to a dependency-free module so the
+// Reels state machine can classify provider errors without importing this file.
+// Re-exported here so every existing import site keeps working unchanged.
+import {
+  classifyMetaError,
+  MetaPublishError,
+  storyValidationError,
+  type MetaErrorCategory,
+  type MetaErrorClassification,
+} from "./meta-errors.ts";
+
+export { classifyMetaError, MetaPublishError, storyValidationError };
+export type { MetaErrorCategory, MetaErrorClassification };
 
 const GRAPH_VERSION = "v21.0";
 
@@ -47,82 +61,11 @@ export interface DistributionRecord {
 }
 
 // ── Error classification ─────────────────────────────────────────────────────
-export type MetaErrorCategory =
-  | "container_not_ready"
-  | "container_processing_timeout"
-  | "container_error"
-  | "container_expired"
-  | "meta_authentication"
-  | "meta_rate_limited"
-  | "meta_server_error"
-  | "transient_media"
-  | "meta_publish_failed"
-  | "story_validation";
-
-export interface MetaErrorClassification {
-  provider: "meta";
-  category: MetaErrorCategory;
-  retryable: boolean;
-  code?: number;
-  subcode?: number;
-  message: string;
-}
-
-/** Error carrying a structured Meta classification. Never contains tokens/URLs. */
-export class MetaPublishError extends Error {
-  classification: MetaErrorClassification;
-  constructor(classification: MetaErrorClassification) {
-    super(classification.message);
-    this.name = "MetaPublishError";
-    this.classification = classification;
-  }
-}
-
-/** Permanent Story input error (bad media count/type). Never retryable. */
-export function storyValidationError(message: string): MetaPublishError {
-  return new MetaPublishError({ provider: "meta", category: "story_validation", retryable: false, message });
-}
+// Now lives in ./meta-errors.ts (imported and re-exported above).
 
 /** Sequence gate: a Story frame may publish only once every earlier frame is published. */
 export function earlierFramesAllPublished(earlierFrameStatuses: string[]): boolean {
   return earlierFrameStatuses.every((status) => status === "published");
-}
-
-/**
- * Classify a Meta Graph error response body. code 9007 / subcode 2207027 is the
- * "container not ready" race — retryable. Token problems (190) are auth failures.
- */
-export function classifyMetaError(
-  httpStatus: number,
-  data: unknown,
-  fallback: MetaErrorCategory = "meta_publish_failed",
-): MetaErrorClassification {
-  const err = (data && typeof data === "object" ? (data as { error?: Record<string, unknown> }).error : undefined) ?? {};
-  const code = typeof err.code === "number" ? err.code : undefined;
-  const subcode = typeof err.error_subcode === "number" ? err.error_subcode : undefined;
-  const type = typeof err.type === "string" ? err.type : undefined;
-  const message = typeof err.message === "string" && err.message ? err.message : `Meta Graph error (HTTP ${httpStatus}).`;
-
-  if (code === 9007 || subcode === 2207027) {
-    return { provider: "meta", category: "container_not_ready", retryable: true, code, subcode, message };
-  }
-  // Invalid/expired access token or session — not retryable without new creds.
-  if (code === 190 || subcode === 463 || subcode === 467 || (type === "OAuthException" && code === 102)) {
-    return { provider: "meta", category: "meta_authentication", retryable: false, code, subcode, message };
-  }
-  // Rate limiting (HTTP 429, or Meta app/user/page throttle codes) — retryable with backoff.
-  if (httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613) {
-    return { provider: "meta", category: "meta_rate_limited", retryable: true, code, subcode, message };
-  }
-  // Transient Meta server errors (5xx / code 1 & 2) — retryable.
-  if (httpStatus >= 500 || code === 1 || code === 2) {
-    return { provider: "meta", category: "meta_server_error", retryable: true, code, subcode, message };
-  }
-  return {
-    provider: "meta", category: fallback,
-    retryable: fallback === "container_not_ready" || fallback === "container_processing_timeout",
-    code, subcode, message,
-  };
 }
 
 /** True if the record already has evidence of a real Meta publication. */
@@ -367,8 +310,12 @@ async function publishToInstagram(sb: SupabaseClient, record: DistributionRecord
   const contentType = typeof settings.content_type === "string" ? settings.content_type : "IMAGE";
 
   if (contentType === "REELS") {
-    // Video publishing (Reels / video Stories) is out of scope — fail clearly, never fake.
-    throw new Error("REELS (video) publishing is not implemented; video is human-only downstream.");
+    // Defence in depth: publishDistributionRecord already refuses this via
+    // resolvePublishCapability. Never fake a result.
+    throw new MetaPublishError({
+      provider: "meta", category: "unsupported_capability", retryable: false,
+      message: "REELS (video) publishing is not implemented. Final Reel assembly and publishing arrive in a later phase.",
+    });
   }
   // Image Stories (content_type STORIES) ARE supported — validated + gated in runPublish.
 
@@ -431,6 +378,53 @@ export async function publishDistributionRecord(
   const mergedPayload = { ...(record.publish_payload ?? {}), ...(payloadOverrides.publish_payload as Record<string, unknown> ?? {}) };
   const mergedSettings = { ...(record.publish_settings ?? {}), ...(payloadOverrides.publish_settings as Record<string, unknown> ?? {}) };
   const working: DistributionRecord = { ...record, publish_payload: mergedPayload, publish_settings: mergedSettings };
+
+  // 0a) REELS are asynchronous (Meta transcodes the video), so they are never
+  //     published inside one invocation. A record carrying a final-Reel
+  //     deliverable is redirected to the scheduling path; one carrying none is a
+  //     shot clip and is refused outright by the capability check below.
+  const requestedContentType = typeof mergedSettings.content_type === "string" ? mergedSettings.content_type.toUpperCase() : "IMAGE";
+  const isReelRecord = requestedContentType === "REELS" || record.asset_format === "reel_video";
+  const linkedDeliverableId = (record as unknown as { video_deliverable_id?: string | null }).video_deliverable_id ?? null;
+  if (isReelRecord && linkedDeliverableId) {
+    // Not a failure and not a defect — the wrong entry point. The record keeps
+    // its prior status so the operator can schedule it.
+    return {
+      ok: false, status: priorStatus, error: "reels_require_scheduling",
+      provider: "meta", category: "unsupported_capability", retryable: false,
+      message: "Instagram Reels are published by the scheduled worker because Meta processes the video asynchronously. Schedule this Reel instead of publishing it inline.",
+    };
+  }
+
+  // 0b) CAPABILITY — before credentials and before any Meta call. A Reel
+  //    Studio MP4 (content_type REELS / asset_format reel_video / video media)
+  //    cannot be published by the current publisher. Phase 3 owns that path. The
+  //    record is marked permanently failed so the worker never loops on it, and
+  //    nothing is ever falsely marked published.
+  const capability = resolveRecordPublishCapability({
+    platform: record.platform, asset_format: record.asset_format,
+    publish_settings: mergedSettings, publish_payload: mergedPayload,
+  });
+  if (!capability.supported) {
+    const blockedAt = new Date().toISOString();
+    await sb.from("client_distribution_records").update({
+      publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, next_attempt_at: null,
+      last_error: `[unsupported_capability, non-retryable] ${capability.reason}`, updated_at: blockedAt,
+    }).eq("id", recordId);
+    await sb.from("activity_log").insert({
+      client_id: record.client_id, event_type: "publish_blocked_unsupported",
+      plain_english_message: `${record.source_ref} was not published: ${capability.reason}`,
+      metadata: {
+        distribution_record_id: record.id, source_ref: record.source_ref, asset_format: record.asset_format,
+        content_type: typeof mergedSettings.content_type === "string" ? mergedSettings.content_type : null,
+        capability_code: capability.code, mode, blocked_at: blockedAt,
+      },
+    }).then(() => {}, () => {}); // audit is best-effort; the block itself already committed
+    return {
+      ok: false, status: "failed", error: capability.code, message: capability.reason,
+      provider: "meta", category: "unsupported_capability", retryable: false,
+    };
+  }
 
   // 1) Credentials FIRST — never touch Meta or the published state without them.
   const config = await resolveMetaConfig(sb, clientSlug, working);
@@ -496,7 +490,7 @@ export async function publishDistributionRecord(
 }
 
 /** Only published assets reach analytics. Also advances pipeline state + snapshot. */
-async function handoffToAnalytics(sb: SupabaseClient, record: DistributionRecord, result: { external_post_id: string; permalink: string | null }, publishedAt: string): Promise<void> {
+export async function handoffToAnalytics(sb: SupabaseClient, record: DistributionRecord, result: { external_post_id: string; permalink: string | null }, publishedAt: string): Promise<void> {
   const contentType = typeof record.publish_settings?.content_type === "string" ? record.publish_settings.content_type : null;
   const surface = contentType === "STORIES" ? "STORY" : contentType === "CAROUSEL" ? "CAROUSEL" : "FEED";
   const sequenceIndex = record.sequence_index ?? 1;

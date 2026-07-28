@@ -55,7 +55,7 @@ Deno.serve(async (req: Request) => {
     const claimedAt = new Date().toISOString();
     const claimed = await sb
       .from("video_shots")
-      .update({ status: "submitted", error: null, updated_at: claimedAt })
+      .update({ status: "submitted", error: null, failure_stage: null, failed_at: null, last_video_attempt_at: claimedAt, updated_at: claimedAt })
       .eq("id", shotId)
       .eq("status", "still_complete")
       .select("*")
@@ -74,13 +74,13 @@ Deno.serve(async (req: Request) => {
 
     if (!shot.still_image_url) {
       const message = "Shot has no still_image_url; the still-image stage did not produce one.";
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      await sb.from("video_shots").update({ status: "failed", error: message, failure_stage: "video_submit", failed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq("id", shotId).eq("status", "submitted");
       return fail(409, "claim", message);
     }
     if (!shot.motion_type || shot.motion_strength === null) {
       const message = "Shot has no motion_type/motion_strength set; cannot submit to DoP without a camera-motion directive.";
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      await sb.from("video_shots").update({ status: "failed", error: message, failure_stage: "video_submit", failed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq("id", shotId).eq("status", "submitted");
       return fail(400, "request", message);
     }
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
     if (!modelId) {
       const envKey = shot.render_tier === "draft" ? "HIGGSFIELD_MODEL_DRAFT" : "HIGGSFIELD_MODEL_FINAL";
       const message = `${envKey} is not configured.`;
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      await sb.from("video_shots").update({ status: "failed", error: message, failure_stage: "video_submit", failed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq("id", shotId).eq("status", "submitted");
       return fail(503, "configuration", message);
     }
@@ -125,7 +125,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, shot: saved.data });
     } catch (error) {
       const message = safeHiggsfieldError(error);
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      await sb.from("video_shots").update({ status: "failed", error: message, failure_stage: "video_submit", failed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq("id", shotId).eq("status", "submitted");
       throw error;
     }

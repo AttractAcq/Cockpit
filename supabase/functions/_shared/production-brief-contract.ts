@@ -1,39 +1,120 @@
+import {
+  isProductionMode,
+  type AiProductionPath,
+  type ProductionMode,
+  type ProductionModeContract,
+} from "./production-mode-contract.ts";
+
 export const ASSET_FORMATS = ["ad_static", "reel_video", "story_sequence", "carousel", "feed_post"] as const;
 export type AssetFormat = typeof ASSET_FORMATS[number];
 export type ProductionSourceTable = "organic_master" | "story_master" | "ads_master";
 
-export interface ProductionBriefFormatContract {
+export interface ProductionBriefFormatContract extends ProductionModeContract {
   label: string;
   aspectRatio: string;
   output: string;
+  /**
+   * True only for formats where AI production is impossible in any mode. Reels are
+   * NOT human-only any more: their AI path is Reel Studio (`aiPath`), which is a
+   * different pipeline from the synchronous AI-image generator. The old
+   * `reel_video` rejection inside `_shared/ai-asset-generation.ts` is deliberately
+   * untouched — that gate protects the image pipeline, not Reel Studio.
+   */
   humanOnly: boolean;
+  /** Sections every brief of this format must carry, regardless of mode. */
+  baseSections: readonly string[];
+  /** Extra sections required by the selected production mode. */
+  modeSections: Partial<Record<ProductionMode, readonly string[]>>;
+  /** Sections required when no mode has been selected yet (generation default). */
   requiredSections: readonly string[];
 }
 
 const COMMON_SECTIONS = ["Source and Objective", "Brand and Creative Direction", "Proof and Claim Boundaries", "Call to Action", "Production Checklist"] as const;
 
+const REEL_BASE_SECTIONS = [
+  ...COMMON_SECTIONS,
+  "Video Length and Hook",
+  "Shot List",
+  "Voiceover and Script Direction",
+  "B-Roll Direction",
+  "Captions and Editing Rhythm",
+] as const;
+
+/** Sections that make an AI Reel Studio brief self-consistent instead of human-only. */
+const REEL_AI_SECTIONS = [
+  "On-Screen Text Direction",
+  "AI Visual Constraints",
+  "Human Presence Constraints",
+  "Final Production Notes",
+] as const;
+
+const IMAGE_MODE_SECTIONS: Partial<Record<ProductionMode, readonly string[]>> = {
+  human: [], ai: [], hybrid: [],
+};
+
 export const PRODUCTION_BRIEF_CONTRACTS: Record<AssetFormat, ProductionBriefFormatContract> = {
   feed_post: {
     label: "Instagram Feed Post", aspectRatio: "4:5", output: "One static image", humanOnly: false,
+    supportedModes: ["human", "ai", "hybrid"], defaultMode: null, aiPath: "ai_image_pipeline",
+    baseSections: [...COMMON_SECTIONS, "Hook and Copy Direction", "Visual Hierarchy"],
+    modeSections: IMAGE_MODE_SECTIONS,
     requiredSections: [...COMMON_SECTIONS, "Hook and Copy Direction", "Visual Hierarchy"],
   },
   carousel: {
     label: "Instagram Carousel", aspectRatio: "4:5 per slide", output: "Multi-slide carousel", humanOnly: false,
+    supportedModes: ["human", "ai", "hybrid"], defaultMode: null, aiPath: "ai_image_pipeline",
+    baseSections: [...COMMON_SECTIONS, "Slide-by-Slide Structure", "Cover Slide", "CTA Slide", "Design System Notes"],
+    modeSections: IMAGE_MODE_SECTIONS,
     requiredSections: [...COMMON_SECTIONS, "Slide-by-Slide Structure", "Cover Slide", "CTA Slide", "Design System Notes"],
   },
   story_sequence: {
     label: "Instagram Story Sequence", aspectRatio: "9:16", output: "Multi-frame story sequence", humanOnly: false,
+    supportedModes: ["human", "ai", "hybrid"], defaultMode: null, aiPath: "ai_image_pipeline",
+    baseSections: [...COMMON_SECTIONS, "Frame-by-Frame Structure", "Tap-Forward Logic", "Interactive Elements", "CTA Frame"],
+    modeSections: IMAGE_MODE_SECTIONS,
     requiredSections: [...COMMON_SECTIONS, "Frame-by-Frame Structure", "Tap-Forward Logic", "Interactive Elements", "CTA Frame"],
   },
   reel_video: {
-    label: "Instagram Reel", aspectRatio: "9:16", output: "Short-form video", humanOnly: true,
-    requiredSections: [...COMMON_SECTIONS, "Video Length and Hook", "Shot List", "Voiceover and Script Direction", "B-Roll Direction", "Captions and Editing Rhythm", "Human Production Only"],
+    label: "Instagram Reel", aspectRatio: "9:16", output: "Short-form video", humanOnly: false,
+    supportedModes: ["human", "ai", "hybrid"], defaultMode: "human", aiPath: "reel_studio",
+    baseSections: REEL_BASE_SECTIONS,
+    modeSections: {
+      human: ["Human Production Only"],
+      ai: REEL_AI_SECTIONS,
+      hybrid: [...REEL_AI_SECTIONS, "Hybrid Production Split"],
+    },
+    // No mode selected yet → the historical human-only shape stays the default.
+    requiredSections: [...REEL_BASE_SECTIONS, "Human Production Only"],
   },
   ad_static: {
     label: "Instagram Static Image Ad", aspectRatio: "4:5 unless the approved execution plan specifies otherwise", output: "One static image ad", humanOnly: false,
+    supportedModes: ["human", "ai", "hybrid"], defaultMode: null, aiPath: "ai_image_pipeline",
+    baseSections: [...COMMON_SECTIONS, "Campaign Lane and Audience", "Visual Concept", "Headline and Primary Text Direction", "Compliance Notes"],
+    modeSections: IMAGE_MODE_SECTIONS,
     requiredSections: [...COMMON_SECTIONS, "Campaign Lane and Audience", "Visual Concept", "Headline and Primary Text Direction", "Compliance Notes"],
   },
 };
+
+/** Modes an operator may select for a format. */
+export function supportedProductionModes(format: AssetFormat): readonly ProductionMode[] {
+  return PRODUCTION_BRIEF_CONTRACTS[format].supportedModes;
+}
+
+/** Where a format's AI production actually executes (null when AI is impossible). */
+export function aiProductionPath(format: AssetFormat): AiProductionPath | null {
+  return PRODUCTION_BRIEF_CONTRACTS[format].aiPath;
+}
+
+/**
+ * The exact heading set a brief must carry for a given format + mode. An AI Reel
+ * brief requires the AI-visual/human-presence sections and must NOT be asked for
+ * "Human Production Only" — that is the contradiction Phase 2 removes.
+ */
+export function requiredBriefSections(format: AssetFormat, mode: ProductionMode | null): readonly string[] {
+  const contract = PRODUCTION_BRIEF_CONTRACTS[format];
+  if (mode === null || !isProductionMode(mode)) return contract.requiredSections;
+  return [...contract.baseSections, ...(contract.modeSections[mode] ?? [])];
+}
 
 function normalized(value: unknown): string {
   return typeof value === "string" ? value.toLowerCase().replaceAll("_", " ").replaceAll("-", " ") : "";
@@ -49,9 +130,9 @@ export function resolveAssetFormat(sourceTable: ProductionSourceTable, row: Reco
   throw new Error(`Unsupported organic content_type: ${String(row.content_type ?? "missing")}`);
 }
 
-export function missingBriefSections(markdown: string, format: AssetFormat): string[] {
+export function missingBriefSections(markdown: string, format: AssetFormat, mode: ProductionMode | null = null): string[] {
   const headings = new Set([...markdown.matchAll(/^#{1,4}\s+(.+)$/gm)].map((match) => match[1].trim().toLowerCase()));
-  return PRODUCTION_BRIEF_CONTRACTS[format].requiredSections.filter((section) => !headings.has(section.toLowerCase()));
+  return requiredBriefSections(format, mode).filter((section) => !headings.has(section.toLowerCase()));
 }
 
 // ── Multi-image count resolution (shared by the UI and the edge generator) ────

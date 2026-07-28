@@ -1,30 +1,23 @@
-// Reel Studio: AI storyboard compiler. Analyzes the reel_video production
-// brief tied to a video_projects row's source content and asks Claude to
-// generate a full, sequenced shot list in one call, replacing the manual
-// "Add shot, one at a time" flow (create-video-shot) with a bulk starting
-// point the operator can still edit/delete per-shot afterward (shots are
-// inserted with status 'pending', same as manually-added shots).
-//
-// Deliberately does NOT require the linked brief to be 'approved' -- the
-// Content Briefs -> Reel Studio redirect reaches this exact state with a
-// brief that is only 'needs_review', and storyboard generation is a planning
-// step, not a publish step. Deliberately non-destructive: refuses to run if
-// the project already has any shots, or has no linked source content at all
-// (a standalone project has no brief to analyze).
+// Reel Studio Phase 1: generates one complete, validated pending storyboard
+// from the exact approved reel_video production brief bound to a project.
+// The database RPC locks the project and inserts the entire set atomically only
+// while it is still empty; image generation remains a separate user action.
 import { cors, json, svc } from "../_shared/aa.ts";
-import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
+import { STAFF_ROLES } from "../_shared/staff-roles.ts";
 import { callAnthropic, hasAnthropicKey, isAiEnabled } from "../_shared/anthropic.ts";
+import {
+  extractReelJson,
+  MAX_REEL_STORYBOARD_SHOTS,
+  MIN_REEL_STORYBOARD_SHOTS,
+  validateReelStoryboardOutput,
+} from "../_shared/reel-studio-contract.ts";
+import {
+  ReelStudioGateError,
+  resolveApprovedReelBrief,
+  type ReelProjectRecord,
+} from "../_shared/reel-studio-project.ts";
 
 const FUNCTION_NAME = "generate-video-storyboard";
-const SHOT_CLASSES = new Set(["metaphor", "atmosphere", "abstract"]);
-const HUMAN_PRESENCE = new Set(["none", "hands_only"]);
-const MIN_SHOTS = 4;
-const MAX_SHOTS = 12;
-
-// Total wall-clock budget for ALL model calls in one request -- the edge
-// platform hard-kills a worker at ~150s (HTTP 546, WORKER_RESOURCE_LIMIT).
-// Mirrors generate-production-brief's budget guard: never issue a retry we
-// cannot afford, return a clean 502 instead.
 const MODEL_BUDGET_MS = 135_000;
 const FIRST_CALL_TIMEOUT_MS = 115_000;
 const MIN_RETRY_BUDGET_MS = 45_000;
@@ -32,67 +25,29 @@ const MIN_RETRY_BUDGET_MS = 45_000;
 const fail = (status: number, stage: string, message: string) =>
   json({ ok: false, function: FUNCTION_NAME, stage, message }, status);
 
-interface RawShot {
-  beat_description?: unknown;
-  compiled_prompt?: unknown;
-  shot_class?: unknown;
-  human_presence?: unknown;
-}
-
-interface ValidatedShot {
-  beat_description: string;
-  compiled_prompt: string;
-  shot_class: string;
-  human_presence: string;
-}
-
 function compact(value: string | null | undefined, chars: number): string {
   return (value ?? "[EMPTY]").trim().slice(0, chars);
 }
 
-// Mirrors _shared/phase3-scope.ts's private extractJson, adapted for the
-// {"shots": [...]} shape this function expects instead of a bare object.
-function extractShotsJson(text: string): unknown {
-  try { return JSON.parse(text.trim()); } catch { /* fall through */ }
-  const fenced = text.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
-  if (fenced) { try { return JSON.parse(fenced[1]); } catch { /* fall through */ } }
-  const s = text.indexOf("{"), e = text.lastIndexOf("}");
-  if (s >= 0 && e > s) { try { return JSON.parse(text.slice(s, e + 1)); } catch { /* fall through */ } }
-  return null;
-}
-
-function validateShots(parsed: unknown): { ok: true; shots: ValidatedShot[] } | { ok: false; error: string } {
-  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { shots?: unknown }).shots)) {
-    return { ok: false, error: "Response was not valid JSON of the form {\"shots\": [...]}." };
-  }
-  const raw = (parsed as { shots: RawShot[] }).shots;
-  if (raw.length < MIN_SHOTS || raw.length > MAX_SHOTS) {
-    return { ok: false, error: `Expected between ${MIN_SHOTS} and ${MAX_SHOTS} shots, got ${raw.length}.` };
-  }
-  const shots: ValidatedShot[] = [];
-  for (const [index, item] of raw.entries()) {
-    const beatDescription = typeof item.beat_description === "string" ? item.beat_description.trim() : "";
-    const compiledPrompt = typeof item.compiled_prompt === "string" ? item.compiled_prompt.trim() : "";
-    const shotClass = typeof item.shot_class === "string" ? item.shot_class.trim() : "";
-    if (!beatDescription || !compiledPrompt) return { ok: false, error: `Shot ${index + 1} is missing beat_description or compiled_prompt.` };
-    if (!SHOT_CLASSES.has(shotClass)) return { ok: false, error: `Shot ${index + 1} has an invalid shot_class: "${shotClass}".` };
-    const humanPresenceRaw = typeof item.human_presence === "string" ? item.human_presence.trim() : "";
-    const humanPresence = HUMAN_PRESENCE.has(humanPresenceRaw) ? humanPresenceRaw : "none";
-    shots.push({ beat_description: beatDescription, compiled_prompt: compiledPrompt, shot_class: shotClass, human_presence: humanPresence });
-  }
-  return { ok: true, shots };
-}
-
-async function generateShots(system: string, user: string, timeoutMs: number) {
+async function generateShots(system: string, user: string, timeoutMs: number): Promise<string> {
   const result = await callAnthropic({
     system,
     user,
-    model: Deno.env.get("AA_STORYBOARD_AI_MODEL") ?? Deno.env.get("AA_PRODUCTION_BRIEF_AI_MODEL") ?? "claude-sonnet-4-6",
+    model: Deno.env.get("AA_STORYBOARD_AI_MODEL") ??
+      Deno.env.get("AA_PRODUCTION_BRIEF_AI_MODEL") ??
+      "claude-sonnet-4-6",
     maxTokens: 8000,
     timeoutMs,
+    rejectTruncation: true,
   });
   if (!result.ok) throw new Error(result.error);
   return result.text;
+}
+
+function rpcStatus(message: string): number {
+  return /REEL_STORYBOARD_NOT_EMPTY|REEL_PROJECT_NOT_EDITABLE|REEL_BRIEF_BINDING_INVALID/.test(message)
+    ? 409
+    : 500;
 }
 
 Deno.serve(async (req: Request) => {
@@ -108,114 +63,121 @@ Deno.serve(async (req: Request) => {
 
     const { data: operator } = await sb.from("users").select("role").eq("id", user.id).maybeSingle();
     if (!operator || !STAFF_ROLES.has(operator.role)) return fail(403, "authorization", "Staff role required.");
+    if (!isAiEnabled() || !hasAnthropicKey()) {
+      return fail(500, "configuration", "Server-side AI generation is not configured.");
+    }
 
-    if (!isAiEnabled() || !hasAnthropicKey()) return fail(500, "configuration", "Server-side AI generation is not configured.");
-
-    const videoProjectId = ((await req.json()) as { video_project_id?: string }).video_project_id?.trim() ?? "";
+    const body = (await req.json()) as { client_id?: string; video_project_id?: string };
+    const clientId = body.client_id?.trim() ?? "";
+    const videoProjectId = body.video_project_id?.trim() ?? "";
+    if (!clientId) return fail(400, "request", "client_id is required.");
     if (!videoProjectId) return fail(400, "request", "video_project_id is required.");
 
-    const project = await sb.from("video_projects").select("*").eq("id", videoProjectId).maybeSingle();
-    if (project.error || !project.data) return fail(404, "project", "Video project not found.");
-    if (!project.data.organic_master_id && !project.data.ads_master_id) {
-      return fail(409, "gate", "This project has no linked source content. Generate full storyboard requires a content brief -- add shots manually instead.");
+    const projectResult = await sb.from("video_projects").select("*").eq("id", videoProjectId).maybeSingle();
+    if (projectResult.error) return fail(500, "project", projectResult.error.message);
+    if (!projectResult.data || projectResult.data.client_id !== clientId) {
+      return fail(404, "project", "Video project not found for client_id.");
+    }
+    if (!["storyboarding", "generating"].includes(projectResult.data.status)) {
+      return fail(409, "gate", "Storyboard can only be generated before the project enters review.");
     }
 
-    const existingShots = await sb.from("video_shots").select("id").eq("video_project_id", videoProjectId);
+    const existingShots = await sb.from("video_shots").select("id").eq("video_project_id", videoProjectId).limit(1);
     if (existingShots.error) return fail(500, "shots", existingShots.error.message);
-    if (existingShots.data && existingShots.data.length > 0) {
-      return fail(409, "gate", "Project already has shots -- delete them first to generate a fresh AI storyboard.");
-    }
+    if (existingShots.data?.length) return fail(409, "gate", "Project already has shots.");
 
-    // Resolve the linked production brief exactly like handoff-video-project.
-    // Never auto-create one; unlike handoff, does NOT require it to be approved.
-    let briefId = project.data.client_production_brief_id as string | null;
-    if (!briefId) {
-      const sourceTable = project.data.organic_master_id ? "organic_master" : "ads_master";
-      const sourceRowId = project.data.organic_master_id ?? project.data.ads_master_id;
-      const matches = await sb.from("client_production_briefs").select("id")
-        .eq("client_id", project.data.client_id).eq("source_table", sourceTable).eq("source_row_id", sourceRowId).eq("asset_format", "reel_video");
-      if (matches.error) return fail(500, "resolve_brief", matches.error.message);
-      if (!matches.data || matches.data.length === 0) return fail(409, "gate", "No reel_video production brief exists for this project's source row. Create one first.");
-      if (matches.data.length > 1) return fail(409, "gate", "Multiple reel_video production briefs exist for this source row -- link video_projects.client_production_brief_id explicitly first.");
-      briefId = matches.data[0].id;
-    }
+    const resolved = await resolveApprovedReelBrief(
+      sb,
+      projectResult.data as ReelProjectRecord,
+    );
+    const project = resolved.project;
+    const brief = resolved.brief;
 
-    const brief = await sb.from("client_production_briefs").select("*").eq("id", briefId).maybeSingle();
-    if (brief.error || !brief.data) return fail(404, "brief", "Linked production brief not found.");
-    if (brief.data.asset_format !== "reel_video") return fail(409, "gate", "Linked production brief is not a reel_video brief.");
+    const brandResult = await sb.from("brand_prompt_blocks").select("*")
+      .eq("id", project.brand_prompt_block_id)
+      .maybeSingle();
+    if (brandResult.error) return fail(500, "brand_block", brandResult.error.message);
+    if (!brandResult.data) return fail(409, "brand_block", "Project brand prompt block no longer exists.");
 
-    if (!project.data.client_production_brief_id) {
-      await sb.from("video_projects").update({ client_production_brief_id: briefId }).eq("id", videoProjectId);
-    }
+    const brandDnaText = [
+      brandResult.data.grade_block && `Grade: ${brandResult.data.grade_block}`,
+      brandResult.data.lens_block && `Lens: ${brandResult.data.lens_block}`,
+      brandResult.data.mood_block && `Mood: ${brandResult.data.mood_block}`,
+      brandResult.data.motion_block && `Motion guidance: ${brandResult.data.motion_block}`,
+      brandResult.data.negative_block && `Negative requirements: ${brandResult.data.negative_block}`,
+    ].filter(Boolean).join("\n");
 
-    const brandBlock = await sb.from("brand_prompt_blocks").select("*").eq("id", project.data.brand_prompt_block_id).maybeSingle();
-    if (brandBlock.error) return fail(500, "brand_block", brandBlock.error.message);
-    const brandDnaText = brandBlock.data
-      ? [
-        brandBlock.data.grade_block && `Grade: ${brandBlock.data.grade_block}`,
-        brandBlock.data.lens_block && `Lens: ${brandBlock.data.lens_block}`,
-        brandBlock.data.mood_block && `Mood: ${brandBlock.data.mood_block}`,
-        brandBlock.data.negative_block && `Negative (avoid): ${brandBlock.data.negative_block}`,
-      ].filter(Boolean).join("\n")
-      : "[No brand DNA block configured]";
+    const targetDurationSec = project.target_duration_sec;
+    const suggestedShotCount = Math.max(
+      MIN_REEL_STORYBOARD_SHOTS,
+      Math.min(MAX_REEL_STORYBOARD_SHOTS, Math.round(targetDurationSec / 4)),
+    );
+    const system = `You are the Reel Studio storyboard compiler for a faceless-format Instagram Reel. Produce a coherent ordered B-roll storyboard. Every compiled_prompt is sent directly to a text-to-image model, so it must be complete, visual, self-contained, and include the supplied grade, lens, mood, and negative requirements. Motion guidance should inform composition and implied camera movement, but you must never invent or output a Higgsfield motion ID; provider motion is selected later by the user.
 
-    const targetDurationSec = project.data.target_duration_sec as number;
-    const suggestedShotCount = Math.max(MIN_SHOTS, Math.min(MAX_SHOTS, Math.round(targetDurationSec / 4)));
+Return JSON only, with no markdown or commentary, matching exactly:
+{"shots":[{"shot_number":1,"beat_description":"string","compiled_prompt":"string","shot_class":"metaphor|atmosphere|abstract","human_presence":"none|hands_only","render_tier":"draft","motion_type":null,"motion_strength":null}]}
 
-    const system = `You are a cinematic storyboard compiler for a faceless-format Instagram Reel (B-roll only, no on-camera human faces). You break a production brief into a sequenced list of individual video shots. Each shot's "compiled_prompt" must be a complete, self-contained, ready-to-use text-to-image prompt -- it is sent directly to an image generation model with no further editing, so it must weave in the supplied brand DNA (grade/lens/mood, and respect the negative/avoid list) itself, not just describe the scene generically. Return JSON only, no markdown fences, no commentary, matching exactly: {"shots": [{"beat_description": string, "compiled_prompt": string, "shot_class": "metaphor" | "atmosphere" | "abstract", "human_presence": "none" | "hands_only"}]}. "human_presence" must be "none" unless the shot specifically shows only hands (never a face or full person) -- this is a hard faceless-format constraint, not a stylistic choice.`;
+Rules:
+- Return ${MIN_REEL_STORYBOARD_SHOTS}-${MAX_REEL_STORYBOARD_SHOTS} shots.
+- shot_number values must be unique, ordered, and contiguous from 1 through N.
+- Every string field must be non-empty.
+- human_presence is none unless only hands are essential; never show a face or full person.
+- render_tier is always draft.
+- motion_type and motion_strength are always null for later provider-backed selection.`;
 
-    const userPrompt = `PRODUCTION BRIEF:
-${compact(brief.data.content_md, 6000)}
+    const userPrompt = `BOUND APPROVED PRODUCTION BRIEF:
+${compact(brief.content_md, 6000)}
 
-PROJECT METADATA:
-Archetype: ${project.data.archetype}
-Awareness stage: ${String(project.data.awareness_stage).replaceAll("_", " ")}
+PROJECT CONSTRAINTS:
+Project title: ${project.title}
+Archetype: ${project.archetype}
+Audience awareness: ${project.awareness_stage.replaceAll("_", " ")}
 Target duration: ${targetDurationSec}s
+Suggested shot count: approximately ${suggestedShotCount}
+Source: ${brief.source_table}/${brief.source_ref}
 
-BRAND DNA (weave into every compiled_prompt):
+BRAND PROMPT BLOCK:
 ${brandDnaText}
 
-Generate approximately ${suggestedShotCount} shots (never fewer than ${MIN_SHOTS}, never more than ${MAX_SHOTS}) that together tell this asset's story in sequence, each averaging roughly 3-5 seconds of screen time. Order them exactly as they should appear in the final video.`;
+Generate a production-ready sequence in final viewing order. Each beat should advance the Reel rather than duplicate another shot, and each shot should average roughly 3-5 seconds.`;
 
     const modelStart = Date.now();
     let text = await generateShots(system, userPrompt, FIRST_CALL_TIMEOUT_MS);
-    let validated = validateShots(extractShotsJson(text));
+    let validated = validateReelStoryboardOutput(extractReelJson(text));
     if (!validated.ok) {
       const remaining = MODEL_BUDGET_MS - (Date.now() - modelStart);
       if (remaining < MIN_RETRY_BUDGET_MS) {
-        return fail(502, "validate", `AI output was invalid and there was not enough time budget to retry safely: ${validated.error}`);
+        return fail(
+          502,
+          "validate",
+          `AI storyboard was invalid and there was not enough time to repair it: ${validated.error}`,
+        );
       }
-      text = await generateShots(`${system}\nRETRY: The previous response was invalid (${validated.error}). Return a complete, corrected replacement.`, userPrompt, Math.min(remaining - 10_000, 110_000));
-      validated = validateShots(extractShotsJson(text));
+      text = await generateShots(
+        `${system}\nREPAIR REQUIRED: The previous response was invalid (${validated.error}). Return one complete corrected replacement.`,
+        userPrompt,
+        Math.min(remaining - 10_000, 110_000),
+      );
+      validated = validateReelStoryboardOutput(extractReelJson(text));
     }
-    if (!validated.ok) return fail(502, "validate", `AI output was invalid after retry: ${validated.error}`);
+    if (!validated.ok) {
+      return fail(502, "validate", `AI storyboard remained invalid after repair: ${validated.error}`);
+    }
 
-    const rows = validated.shots.map((shot, index) => ({
-      video_project_id: videoProjectId,
-      shot_number: index + 1,
-      beat_description: shot.beat_description,
-      compiled_prompt: shot.compiled_prompt,
-      shot_class: shot.shot_class,
-      human_presence: shot.human_presence,
-      render_tier: "draft",
-      motion_type: null,
-      motion_strength: null,
-    }));
-
-    const insert = await sb.from("video_shots").insert(rows).select("*").order("shot_number", { ascending: true });
-    if (insert.error || !insert.data) return fail(500, "insert", insert.error?.message ?? "Could not create shots.");
-
-    await sb.from("activity_log").insert({
-      client_id: project.data.client_id,
-      event_type: "reel_studio_storyboard_generated",
-      plain_english_message: `AI generated a ${insert.data.length}-shot storyboard for "${project.data.title}".`,
-      object_type: "video_project",
-      object_id: videoProjectId,
-      metadata: { shot_count: insert.data.length, production_brief_id: briefId },
+    const inserted = await sb.rpc("insert_reel_storyboard_if_empty", {
+      p_video_project_id: videoProjectId,
+      p_client_id: clientId,
+      p_client_production_brief_id: brief.id,
+      p_shots: validated.value,
     });
+    if (inserted.error || !inserted.data) {
+      const message = inserted.error?.message ?? "Could not atomically insert the storyboard.";
+      return fail(rpcStatus(message), "insert", message);
+    }
 
-    return json({ ok: true, shots: insert.data });
+    return json({ ok: true, shots: inserted.data });
   } catch (error) {
+    if (error instanceof ReelStudioGateError) return fail(error.status, error.stage, error.message);
     const message = error instanceof Error ? error.message : String(error);
     return fail(error instanceof Error && error.message.includes("timed out") ? 504 : 500, "unexpected", message);
   }

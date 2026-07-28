@@ -3,7 +3,7 @@
 // downloaded assets associated with it, so deletion here is deliberately
 // restricted to the pre-generation storyboarding stage.
 import { cors, json, svc } from "../_shared/aa.ts";
-import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
+import { STAFF_ROLES } from "../_shared/staff-roles.ts";
 
 const FUNCTION_NAME = "delete-video-shot";
 
@@ -24,13 +24,30 @@ Deno.serve(async (req: Request) => {
     const { data: operator } = await sb.from("users").select("role").eq("id", user.id).maybeSingle();
     if (!operator || !STAFF_ROLES.has(operator.role)) return fail(403, "authorization", "Staff role required.");
 
-    const shotId = ((await req.json()) as { shot_id?: string }).shot_id?.trim() ?? "";
+    const body = (await req.json()) as {
+      client_id?: string;
+      video_project_id?: string;
+      shot_id?: string;
+    };
+    const clientId = body.client_id?.trim() ?? "";
+    const videoProjectId = body.video_project_id?.trim() ?? "";
+    const shotId = body.shot_id?.trim() ?? "";
+    if (!clientId) return fail(400, "request", "client_id is required.");
+    if (!videoProjectId) return fail(400, "request", "video_project_id is required.");
     if (!shotId) return fail(400, "request", "shot_id is required.");
 
-    const deleted = await sb.from("video_shots").delete().eq("id", shotId).eq("status", "pending").select("id").single();
-    if (deleted.error || !deleted.data) return fail(409, "claim", deleted.error?.message ?? "Shot is not pending, or does not exist.");
+    const deleted = await sb.rpc("delete_pending_reel_shot", {
+      p_client_id: clientId,
+      p_video_project_id: videoProjectId,
+      p_shot_id: shotId,
+    });
+    if (deleted.error || !deleted.data) {
+      const message = deleted.error?.message ?? "Could not delete the pending shot.";
+      const status = /REEL_(PROJECT_NOT_FOUND|SHOT_NOT_FOUND)/.test(message) ? 404 : 409;
+      return fail(status, "claim", message);
+    }
 
-    return json({ ok: true, id: deleted.data.id });
+    return json({ ok: true, id: deleted.data });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return fail(500, "delete", message);

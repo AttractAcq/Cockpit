@@ -2,14 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import { MarkdownPreview } from "./ExecutionFilesPanel";
-import { assignProductionBriefToContractor, checkAiBackgroundImage, createAiBackgroundPrompt, createContractor, driveAssetJob, fetchAiBackgroundGenerations, fetchAssignmentsForBrief, fetchAssetJobItems, fetchContractors, fetchEffectiveStageMap, fetchLatestAssetJobForBrief, fetchLifecycleDateContext, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, generateAiBackgroundImage, getAiBackgroundSignedUrl, isAssetJobActive, logActivity, startAssetGeneration, transitionContentCreationToAssets, updateAiBackgroundPrompt, updateProductionBrief, updateProductionBriefReviewState, uploadVisualInputImage, type EffectiveStageEntry } from "@/lib/api";
+import { assignProductionBriefToContractor, checkAiBackgroundImage, createAiBackgroundPrompt, createContractor, driveAssetJob, fetchAiBackgroundGenerations, fetchAssignmentsForBrief, fetchAssetJobItems, fetchContractors, fetchEffectiveStageMap, fetchLatestAssetJobForBrief, fetchLifecycleDateContext, fetchProductionBrief, fetchProductionBriefs, generateAiAssets, generateAiBackgroundImage, getAiBackgroundSignedUrl, isAssetJobActive, logActivity, setProductionBriefMode, startAssetGeneration, transitionContentCreationToAssets, updateAiBackgroundPrompt, updateProductionBrief, updateProductionBriefReviewState, uploadVisualInputImage, type EffectiveStageEntry } from "@/lib/api";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import { useFocusedRecord } from "@/lib/use-focused-record";
 import type { AiBackgroundGenerationRow, AiVisualDirection, AiVisualMode, AssetGenerationItemRow, AssetGenerationJobRow, AssetJobProgress, BackgroundStrength, ContractorAssignmentRow, ContractorRow, ProductionBriefRow, VisualInputUpload } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
-import { resolveMultiImageCount, MULTI_IMAGE_SOURCE_LABEL, type MultiImageCountSource } from "../../../supabase/functions/_shared/production-brief-contract";
+import { resolveMultiImageCount, MULTI_IMAGE_SOURCE_LABEL, PRODUCTION_BRIEF_CONTRACTS, type AssetFormat, type MultiImageCountSource } from "../../../supabase/functions/_shared/production-brief-contract";
+import { allowsReelStudio, PRODUCTION_MODE_LABEL, resolveBriefProductionMode, type ProductionMode } from "../../../supabase/functions/_shared/production-mode-contract";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 import { DestructiveDialog } from "./DestructiveDialog";
 import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
@@ -118,6 +119,82 @@ function AiBackgroundPanel({ brief, onUse }: { brief: ProductionBriefRow; onUse:
       {active.prompt_status === "rejected" && <Button size="sm" variant="secondary" disabled={busy} onClick={() => void act(async () => { await createAiBackgroundPrompt({ clientId: brief.client_id, productionBriefId: brief.id, sourceRef: brief.source_ref, format: brief.asset_format }); })}>Create new prompt draft</Button>}
       {active.prompt_status === "generated" && active.storage_path && <div className="space-y-2">{previewUrl && <img src={previewUrl} alt="Generated AI background preview" className="max-h-64 w-full rounded border border-line object-contain" />}<div className="break-all font-mono text-2xs text-paper-3">{active.storage_bucket}/{active.storage_path}</div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void act(async () => { const url = previewUrl ?? await getAiBackgroundSignedUrl(active); onUse(active, url); })}>Use as background for this asset</Button></div>}
     </div>}
+  </div>;
+}
+
+/**
+ * Phase 2, Workstream A §4.4/§4.5: the visible, explicit production-mode control.
+ *
+ * The mode is never inferred and never silently reinterpreted. Changing an
+ * approved brief's mode, or adopting an AI mode while the brief's own markdown
+ * still reads "Human Production Only", each require a separate confirmation which
+ * is forwarded to the server (which re-validates and writes the audit trail).
+ */
+function ProductionModeControl({ brief, onUpdated }: {
+  brief: ProductionBriefRow;
+  onUpdated: (next: ProductionBriefRow) => void;
+}) {
+  const contract = PRODUCTION_BRIEF_CONTRACTS[brief.asset_format as AssetFormat];
+  const resolution = resolveBriefProductionMode(brief);
+  const [target, setTarget] = useState<ProductionMode | "">(resolution.mode ?? "");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  useEffect(() => { setTarget(resolution.mode ?? ""); }, [resolution.mode]);
+
+  if (!contract) return null;
+  const dirty = target !== "" && target !== resolution.mode;
+
+  async function apply() {
+    if (!target || !dirty) return;
+    const approvedChange = brief.status === "approved" && resolution.mode !== null;
+    if (approvedChange && !window.confirm(`This brief is APPROVED as ${resolution.mode} production. Change it to ${target}? The change is recorded in the Activity Log and the brief's review status is not altered.`)) return;
+    setBusy(true); setNotice(null);
+    try {
+      let result;
+      try {
+        result = await setProductionBriefMode({
+          productionBriefId: brief.id, productionMode: target, expectedUpdatedAt: brief.updated_at,
+          acknowledgeApprovedChange: approvedChange,
+        });
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        // The brief text still reads human-only. Require a second, explicit
+        // confirmation rather than resolving the contradiction silently.
+        if (code !== "MODE_TEXT_CONFLICT_UNCONFIRMED") throw error;
+        if (!window.confirm(`This brief's instructions still contain a "Human Production Only" section, which contradicts ${target} production.\n\nRegenerating the brief in ${target} mode is the clean fix. Continue anyway and keep the conflicting text for now?`)) {
+          setBusy(false); return;
+        }
+        result = await setProductionBriefMode({
+          productionBriefId: brief.id, productionMode: target, expectedUpdatedAt: brief.updated_at,
+          acknowledgeApprovedChange: approvedChange, acknowledgeTextConflict: true,
+        });
+      }
+      onUpdated(result.brief);
+      setNotice({
+        error: false,
+        message: result.textConflict
+          ? `Production mode set to ${target}. The brief text still reads human-only — regenerate it in ${target} mode to remove the contradiction.`
+          : `Production mode set to ${target}.`,
+      });
+    } catch (error) { setNotice({ error: true, message: errorText(error) }); }
+    finally { setBusy(false); }
+  }
+
+  const reelStudioReady = brief.asset_format === "reel_video" && allowsReelStudio(resolution.mode) && !resolution.contradictory;
+  return <div className="shrink-0 border-b border-line px-4 py-2.5 sm:px-5">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-2xs uppercase text-paper-3">Production mode</span>
+      <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${resolution.contradictory ? "border-warn/40 bg-warn/10 text-warn" : resolution.mode ? "border-teal/20 bg-teal/10 text-teal" : "border-line text-paper-3"}`}>{resolution.mode ? PRODUCTION_MODE_LABEL[resolution.mode] : "not assigned"}</span>
+      {contract.aiPath === "reel_studio" && <span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">AI path: Reel Studio</span>}
+      {reelStudioReady && <span className="rounded border border-teal/20 bg-teal/5 px-1.5 py-0.5 text-2xs text-teal">Eligible for Reel Studio</span>}
+      <select aria-label="Production mode" value={target} onChange={(event) => setTarget(event.target.value as ProductionMode)} className="ml-auto rounded border border-line bg-ink px-2 py-1 text-xs text-paper">
+        <option value="">Choose a mode…</option>
+        {contract.supportedModes.map((mode) => <option key={mode} value={mode}>{PRODUCTION_MODE_LABEL[mode]}</option>)}
+      </select>
+      <Button size="sm" variant="secondary" disabled={!dirty || busy} onClick={() => void apply()}>{busy ? "Saving…" : "Set mode"}</Button>
+    </div>
+    {resolution.reason && <div role="alert" className="mt-2 rounded border border-warn/20 bg-warn/5 px-2.5 py-1.5 text-2xs leading-5 text-warn">{resolution.reason}</div>}
+    {notice && <div role={notice.error ? "alert" : "status"} className={`mt-2 rounded border px-2.5 py-1.5 text-2xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
   </div>;
 }
 
@@ -326,8 +403,25 @@ function ProductionModal({ brief, onClose, onAssigned, onGenerated }: {
   // production-brief-contract.ts never assigns reel_video to story_master or
   // ads_master rows). AI production for reel_video runs through Reel Studio,
   // not the old synchronous AI-image pipeline -- redirect there, pre-filled.
+  //
+  // Phase 2, Workstream A §4.4: a human-only brief may NOT be silently
+  // reinterpreted as AI. The redirect only happens once the brief's production
+  // mode explicitly permits it; otherwise the operator is told to set the mode.
+  const modeResolution = resolveBriefProductionMode(brief);
+  const reelStudioAllowed = allowsReelStudio(modeResolution.mode) && !modeResolution.contradictory;
+
   function openAiOption() {
-    if (brief.asset_format === "reel_video" && brief.source_table === "organic_master") {
+    if (brief.asset_format === "reel_video") {
+      if (brief.source_table !== "organic_master") {
+        setError("Reel Studio only produces Reels planned on an Organic content row.");
+        return;
+      }
+      if (!reelStudioAllowed) {
+        setError(modeResolution.contradictory
+          ? `${modeResolution.reason} Resolve the production mode on this brief before producing it with AI.`
+          : `This brief is set to ${modeResolution.mode ?? "no"} production. Set its production mode to AI or Hybrid before producing it in Reel Studio.`);
+        return;
+      }
       navigate(`${ROUTES.clientSection(brief.client_id, "reel_studio")}?reel_source_table=organic_master&reel_source_row_id=${brief.source_row_id}&reel_source_ref=${encodeURIComponent(brief.source_ref)}&reel_title=${encodeURIComponent(brief.title)}&reel_production_brief_id=${brief.id}`);
       onClose();
       return;
@@ -339,7 +433,7 @@ function ProductionModal({ brief, onClose, onAssigned, onGenerated }: {
     <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
       <header className="shrink-0 border-b border-line px-5 py-4"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="font-mono text-2xs text-teal">{brief.source_ref}</div><h2 className="mt-1 text-base font-medium text-paper">Produce asset</h2><p className="mt-1 text-xs text-paper-3">{generating || sending ? "The server operation will continue if this modal is closed. Reload the relevant tab to recover its result." : "Choose how this approved production brief should be fulfilled."}</p></div><button onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
       {error && <div role="alert" className="shrink-0 border-b border-neg/20 bg-neg/5 px-5 py-2 text-xs text-neg">{error}</div>}
-      <main className="min-h-0 flex-1 overflow-y-auto p-5">{step === "method" ? <div className="grid gap-3 sm:grid-cols-2"><button className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10" onClick={() => setStep("human")}><div className="text-sm font-medium text-paper">Human</div><div className="mt-2 text-xs leading-5 text-paper-3">Assign the approved markdown instructions to an active contractor and send them by email.</div></button><button className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10" onClick={() => openAiOption()}><div className="text-sm font-medium text-paper">AI</div><div className="mt-2 text-xs leading-5 text-paper-3">{brief.asset_format === "reel_video" ? "Open Reel Studio to produce this brief as an AI-generated video." : `Generate ${aiOutput.count ?? "the approved"} ${aiOutput.label} and store ${aiOutput.count === 1 ? "it" : "them"} for review.`}</div></button></div> : step === "ai" ? <div className="space-y-4"><Button size="sm" variant="ghost" onClick={() => setStep("method")}>← Production method</Button><div className="rounded-xl border border-teal/20 bg-teal/5 p-5"><h3 className="text-sm font-medium text-paper">Generate AI asset?</h3><p className="mt-2 text-xs leading-5 text-paper-2">The approved production brief will be sent as a self-contained prompt. Generated files will be stored privately and marked needs review.</p><dl className="mt-4 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="text-paper-3">Format</dt><dd className="mt-0.5 text-paper">{brief.asset_format.replaceAll("_", " ")}</dd></div><div><dt className="text-paper-3">Expected output</dt><dd className={`mt-0.5 ${aiOutput.ambiguous ? "text-warn" : "text-paper"}`}>{aiOutput.ambiguous ? "Count could not be determined" : `${aiOutput.count} ${aiOutput.label}${(aiOutput.count ?? 1) > 1 ? ", generated one by one" : ""}`}</dd></div><div><dt className="text-paper-3">Count source</dt><dd className="mt-0.5 text-paper-2">{MULTI_IMAGE_SOURCE_LABEL[aiOutput.source]}</dd></div><div><dt className="text-paper-3">Aspect ratio</dt><dd className="mt-0.5 text-paper">{aiOutput.aspectRatio}</dd></div></dl>{aiOutput.ambiguous ? <div className="mt-4 rounded-lg border border-warn/30 bg-warn/5 p-3"><div className="text-2xs font-medium text-warn">Slide/frame count could not be confidently determined from the brief.</div><label className="mt-2 flex items-center gap-2 text-xs text-paper-2">Confirm count:<input inputMode="numeric" value={confirmCount} onChange={(event) => setConfirmCount(event.target.value.replace(/[^0-9]/g, ""))} placeholder={`2–${aiOutput.maxItems}`} className="w-20 rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50" /></label><div className="mt-1 text-2xs text-paper-3">Fix the brief's Slide Count field to avoid confirming manually next time.</div></div> : null}<p className="mt-4 text-2xs leading-5 text-warn">Carousel slides and story frames generate one at a time against a saved job. Completed slides are kept; you can retry only the ones that fail. Closing this modal does not cancel the job.</p>{isMultiImage && job && <AiJobProgress job={job} items={items} noun={slideNoun} generating={generating} onResume={() => void runJob(job.id)} onRetry={() => void runJob(job.id, { retryFailed: true })} />}</div>
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">{step === "method" ? <div className="grid gap-3 sm:grid-cols-2"><button className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10" onClick={() => setStep("human")}><div className="text-sm font-medium text-paper">Human</div><div className="mt-2 text-xs leading-5 text-paper-3">Assign the approved markdown instructions to an active contractor and send them by email.</div></button><button className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10" onClick={() => openAiOption()}><div className="text-sm font-medium text-paper">AI</div><div className="mt-2 text-xs leading-5 text-paper-3">{brief.asset_format === "reel_video" ? (reelStudioAllowed ? "Open Reel Studio to produce this brief as an AI-generated video." : "Requires this brief's production mode to be AI or Hybrid. Set it above first.") : `Generate ${aiOutput.count ?? "the approved"} ${aiOutput.label} and store ${aiOutput.count === 1 ? "it" : "them"} for review.`}</div></button></div> : step === "ai" ? <div className="space-y-4"><Button size="sm" variant="ghost" onClick={() => setStep("method")}>← Production method</Button><div className="rounded-xl border border-teal/20 bg-teal/5 p-5"><h3 className="text-sm font-medium text-paper">Generate AI asset?</h3><p className="mt-2 text-xs leading-5 text-paper-2">The approved production brief will be sent as a self-contained prompt. Generated files will be stored privately and marked needs review.</p><dl className="mt-4 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="text-paper-3">Format</dt><dd className="mt-0.5 text-paper">{brief.asset_format.replaceAll("_", " ")}</dd></div><div><dt className="text-paper-3">Expected output</dt><dd className={`mt-0.5 ${aiOutput.ambiguous ? "text-warn" : "text-paper"}`}>{aiOutput.ambiguous ? "Count could not be determined" : `${aiOutput.count} ${aiOutput.label}${(aiOutput.count ?? 1) > 1 ? ", generated one by one" : ""}`}</dd></div><div><dt className="text-paper-3">Count source</dt><dd className="mt-0.5 text-paper-2">{MULTI_IMAGE_SOURCE_LABEL[aiOutput.source]}</dd></div><div><dt className="text-paper-3">Aspect ratio</dt><dd className="mt-0.5 text-paper">{aiOutput.aspectRatio}</dd></div></dl>{aiOutput.ambiguous ? <div className="mt-4 rounded-lg border border-warn/30 bg-warn/5 p-3"><div className="text-2xs font-medium text-warn">Slide/frame count could not be confidently determined from the brief.</div><label className="mt-2 flex items-center gap-2 text-xs text-paper-2">Confirm count:<input inputMode="numeric" value={confirmCount} onChange={(event) => setConfirmCount(event.target.value.replace(/[^0-9]/g, ""))} placeholder={`2–${aiOutput.maxItems}`} className="w-20 rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50" /></label><div className="mt-1 text-2xs text-paper-3">Fix the brief's Slide Count field to avoid confirming manually next time.</div></div> : null}<p className="mt-4 text-2xs leading-5 text-warn">Carousel slides and story frames generate one at a time against a saved job. Completed slides are kept; you can retry only the ones that fail. Closing this modal does not cancel the job.</p>{isMultiImage && job && <AiJobProgress job={job} items={items} noun={slideNoun} generating={generating} onResume={() => void runJob(job.id)} onRetry={() => void runJob(job.id, { retryFailed: true })} />}</div>
       <div className="rounded-xl border border-line bg-ink p-4">
         <div className="text-sm font-medium text-paper">Visual Direction</div>
         <p className="mt-1 text-2xs text-paper-3">Choose how the AI treats visuals. Defaults to text/layout only. Applies to every slide/frame for multi-image assets.</p>
@@ -420,6 +514,7 @@ export function ProductionBriefModal({ initialBrief, onClose, onUpdated, onAssig
     <div className="flex h-[94vh] max-h-[calc(100vh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:h-[90vh] sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
       <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{brief.source_ref}</span><StateBadge state={brief.status} /><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{brief.asset_format.replaceAll("_", " ")}</span></div><h2 className="mt-2 break-words text-sm font-medium text-paper">{brief.title}</h2><div className="mt-1 flex flex-wrap gap-3 font-mono text-2xs text-paper-3"><span>v{brief.version}</span><span>{brief.production_status.replaceAll("_", " ")}</span><span>{brief.production_mode ?? "mode unassigned"}</span>{assignments[0]?.contractors && <span>contractor {assignments[0].contractors.name}</span>}<span>{new Date(brief.updated_at).toLocaleString()}</span>{dirty && <span className="text-warn">unsaved changes</span>}</div></div><button onClick={close} className="text-paper-3 hover:text-paper">✕</button></div></header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 sm:px-5"><div className="flex rounded-md border border-line bg-ink p-0.5">{(["preview", "edit", "split"] as ViewMode[]).map((value) => <button key={value} onClick={() => setMode(value)} className={`rounded px-2.5 py-1 text-xs capitalize ${mode === value ? "bg-teal/15 text-teal" : "text-paper-3"}`}>{value}</button>)}</div><div className="ml-auto flex flex-wrap gap-2"><Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void reload()}>{busy === "reload" ? "Reloading…" : "Reload Brief"}</Button>{brief.status !== "approved" && <Button size="sm" variant="secondary" disabled={dirty || busy !== null} onClick={() => void review("approved")}>{busy === "approved" ? "Approving…" : "Approve Review"}</Button>}{brief.status !== "rejected" && <Button size="sm" variant="danger" disabled={dirty || busy !== null} onClick={() => void review("rejected")}>{busy === "rejected" ? "Rejecting…" : "Reject"}</Button>}<Button size="sm" variant="danger" disabled={busy !== null} title="Reject this brief, remove its generated assets, and return the ref to Content" onClick={() => setRejectRollbackOpen(true)}>Reject → Content</Button>{(mode === "edit" || mode === "split") && <><Button size="sm" variant="ghost" disabled={!dirty || busy !== null} onClick={() => setDraft(brief.content_md)}>Reset Changes</Button><Button size="sm" variant="primary" disabled={!dirty || !draft.trim() || busy !== null} onClick={() => void save()}>{busy === "save" ? "Saving…" : "Save Changes"}</Button></>}</div></div>
+      <ProductionModeControl brief={brief} onUpdated={accept} />
       {notice && <div role={notice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
       <main className="min-h-0 flex-1 overflow-hidden">{mode === "preview" && <div className="h-full overflow-y-auto p-5 sm:p-7"><MarkdownPreview content={draft} /></div>}{mode === "edit" && <div className="flex h-full min-h-0 p-4"><div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-line">{editor}</div></div>}{mode === "split" && <div className="grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-3 overflow-hidden p-3 min-[900px]:grid-cols-2 min-[900px]:grid-rows-1"><section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line"><div className="shrink-0 border-b border-line px-3 py-2 text-2xs uppercase text-paper-3">Markdown</div><div className="flex min-h-0 flex-1">{editor}</div></section><section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line"><div className="shrink-0 border-b border-line px-3 py-2 text-2xs uppercase text-paper-3">Preview</div><div className="min-h-0 flex-1 overflow-y-auto p-5"><MarkdownPreview content={draft} /></div></section></div>}</main>
       <footer className="flex shrink-0 items-center gap-3 border-t border-line px-5 py-2.5 text-xs"><span className={brief.status === "approved" ? "text-teal" : "text-warn"}>{brief.status === "approved" ? "Approved production brief." : "Review required before production."}</span>{assignments[0] && <span className="text-paper-3">Latest assignment: {assignments[0].contractors?.name ?? "contractor"} · {assignments[0].status}</span>}{brief.production_status === "produced" && onViewAssets && <Button size="sm" variant="ghost" className="ml-auto" onClick={onViewAssets}>View Assets</Button>}<Button size="sm" variant="primary" className={brief.production_status === "produced" && onViewAssets ? "" : "ml-auto"} disabled={dirty || brief.status !== "approved"} title={brief.status !== "approved" ? "Approve the production brief first" : "Choose human or AI production"} onClick={() => setProduceOpen(true)}>Produce</Button></footer>
@@ -543,7 +638,7 @@ export function ContentCreationPanel({ clientId, executionMonth, onViewAssets }:
         <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={field}>{STATUS_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
         <select aria-label="Format filter" value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)} className={field}>{FORMAT_FILTER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><p className="text-2xs text-paper-3">Grouped by canonical publish date. Approved static, carousel, and story briefs support AI image production. Reels remain human-only.</p></div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><p className="text-2xs text-paper-3">Grouped by canonical publish date. Approved static, carousel, and story briefs support AI image production. Reel briefs choose Human, AI (Reel Studio) or Hybrid production explicitly.</p></div>
     </div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {!activeBriefs.length ? (
