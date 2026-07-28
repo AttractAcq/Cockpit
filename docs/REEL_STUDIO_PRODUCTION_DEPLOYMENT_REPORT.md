@@ -39,7 +39,7 @@
 
 Nothing was reset, cleaned, stashed, amended or force-checked-out. No commit was created.
 
-> **Hygiene finding (unrelated, pre-existing):** `.claude/settings.local.json` is untracked but `.claude/` is **not** in `.gitignore`. It contains historical permission strings including an anon key for the **decommissioned** project `iwkhdqqgfjtpdhcbpftu`. `scripts/check-supabase-project.mjs` only scans *tracked* files, so it passes today — but a blanket `git add -A` would commit it and then fail that guard. **Recommend adding `.claude/` to `.gitignore`.** Not actioned here (out of scope for this task).
+> **Hygiene finding (pre-existing, now actioned):** `.claude/settings.local.json` is untracked and contains historical permission strings including an anon key for the **decommissioned** legacy Supabase project (the obsolete ref that `scripts/check-supabase-project.mjs` scans for — deliberately not reproduced here, since that guard rejects the literal string in any tracked file). The guard only scans *tracked* files, so it passed while `.claude/` was untracked — but a blanket `git add -A` would have committed it and then failed that guard. **`.claude/` has been added to `.gitignore` in this commit**, closing that exposure.
 
 ---
 
