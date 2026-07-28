@@ -95,7 +95,7 @@ call unbounded.
 
 | Setting | Secret | Default | Min | Max |
 | --- | --- | --- | --- | --- |
-| Request establishment | `AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS` | 20 000 | 5 000 | 60 000 |
+| Request establishment | `AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS` | 0 (disabled) | 5 000 | 60 000 |
 | Whole provider call | `AA_IDEATION_PROVIDER_CALL_TIMEOUT_MS` | 95 000 | 40 000 | 180 000 |
 | Total technique deadline | `AA_IDEATION_TECHNIQUE_DEADLINE_MS` | 135 000 | 45 000 | 300 000 |
 | Minimum correction budget | `AA_IDEATION_MIN_CORRECTION_BUDGET_MS` | 45 000 | 20 000 | 150 000 |
@@ -104,10 +104,21 @@ None of these secrets is required. All four are unset in production and the
 documented defaults apply.
 
 The whole-call deadline covers connection, provider response wait, and
-response-body read. The connect deadline is narrower and reports a distinct
-`ANTHROPIC_CONNECT_TIMEOUT`; both codes are typed and retryable. Settings are
-reconciled so no deadline exceeds the budget containing it: the call deadline is
-clamped to the technique deadline and the connect deadline to the call deadline.
+response-body read. Settings are reconciled so no deadline exceeds the budget
+containing it: the call deadline is clamped to the technique deadline and, when
+enabled, the connect deadline to the call deadline.
+
+**The separate request-establishment deadline defaults to disabled, and this is
+deliberate.** The Anthropic adapter is non-streaming, so the provider withholds
+response headers until the completed message is ready. Time-to-headers therefore
+equals time-to-full-response at this boundary, and the two phases cannot be
+observed separately. A 20s connect default was tried first and aborted healthy
+calls in live testing on 2026-07-28: both sourcing techniques failed with
+`ANTHROPIC_CONNECT_TIMEOUT` after 20s while generation was still legitimately in
+progress. The phase is kept, bounded and opt-in, because it is meaningful for a
+provider that does send headers early; it is off by default because this one does
+not. When enabled it reports a distinct `ANTHROPIC_CONNECT_TIMEOUT`; both timeout
+codes are typed and retryable.
 A correction call is never issued unless the remaining technique budget can
 absorb it — the same wall-clock discipline `generate-production-brief` uses
 against the ~150s edge worker kill. The three sourcing techniques call the

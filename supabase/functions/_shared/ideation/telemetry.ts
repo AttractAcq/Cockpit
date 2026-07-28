@@ -21,6 +21,7 @@ export interface IdeationProviderCallTelemetry {
   research_result_count: number;
   configured_output_tokens: number;
   configured_call_timeout_ms: number;
+  /** 0 when no separate request-establishment deadline is configured. */
   configured_connect_timeout_ms: number;
   technique_deadline_ms: number;
   elapsed_ms: number;

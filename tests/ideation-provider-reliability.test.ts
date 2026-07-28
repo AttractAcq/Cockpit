@@ -230,8 +230,13 @@ test("default provider deadlines exceed the old 35s constraint and stay bounded"
   assert.ok(runtime.call_timeout_ms > 35_000, "default whole-call deadline must clear the old 35s constraint");
   assert.equal(runtime.call_timeout_ms, IDEATION_PROVIDER_TIME_POLICY.call_timeout_ms.default);
   assert.equal(runtime.technique_deadline_ms, IDEATION_PROVIDER_TIME_POLICY.technique_deadline_ms.default);
-  assert.ok(runtime.connect_timeout_ms < runtime.call_timeout_ms, "connect deadline must be tighter than the call");
   assert.ok(runtime.call_timeout_ms <= runtime.technique_deadline_ms, "one call may never outlive the technique");
+
+  // The separate request-establishment deadline defaults to disabled. The
+  // adapter is non-streaming, so the provider withholds headers until the whole
+  // message is ready; a 20s connect default aborted healthy calls in live
+  // testing on 2026-07-28.
+  assert.equal(runtime.connect_timeout_ms, 0, "connect deadline must default to disabled");
 
   // Never unbounded, and never past the ~150s edge worker wall clock by default.
   assert.ok(Number.isFinite(runtime.technique_deadline_ms));
@@ -302,6 +307,28 @@ test("a call deadline may never exceed the technique deadline that contains it",
   assert.equal(resolution.runtime.call_timeout_ms, 45_000);
   assert.equal(resolution.runtime.connect_timeout_ms, 45_000);
   assert.equal(resolution.sources.call_timeout_ms, "coherence_clamped");
+});
+
+test("the request-establishment deadline is opt-in and explicitly disablable", () => {
+  // Disabled by default, and explicitly disablable.
+  assert.equal(withEnv({}, resolveIdeationProviderRuntime).connect_timeout_ms, 0);
+  assert.equal(
+    withEnv({ AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS: "0" }, resolveIdeationProviderRuntime).connect_timeout_ms,
+    0,
+  );
+  // When enabled it is still bounded.
+  assert.equal(
+    withEnv({ AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS: "30000" }, resolveIdeationProviderRuntime).connect_timeout_ms,
+    30_000,
+  );
+  assert.equal(
+    withEnv({ AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS: "100" }, resolveIdeationProviderRuntime).connect_timeout_ms,
+    IDEATION_PROVIDER_TIME_POLICY.connect_timeout_ms.minimum,
+  );
+  assert.equal(
+    withEnv({ AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS: "999999" }, resolveIdeationProviderRuntime).connect_timeout_ms,
+    IDEATION_PROVIDER_TIME_POLICY.connect_timeout_ms.maximum,
+  );
 });
 
 test("lease duration and heartbeat cadence safely cover the configured model deadline", () => {

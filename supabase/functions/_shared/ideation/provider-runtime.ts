@@ -17,6 +17,8 @@ export interface IdeationBoundedSetting {
   readonly default: number;
   readonly minimum: number;
   readonly maximum: number;
+  /** When present, this exact value is accepted as "feature disabled". */
+  readonly disabled_value?: number;
 }
 
 export type IdeationSettingSource =
@@ -31,15 +33,28 @@ export type IdeationSettingSource =
  * Bounded provider deadlines.
  *
  * `call_timeout_ms` is the whole-call deadline for ONE provider request:
- * connection, provider response wait, and response-body read. `connect_timeout_ms`
- * is the narrower deadline for request establishment (response headers).
+ * connection, provider response wait, and response-body read.
  * `technique_deadline_ms` bounds ALL provider calls for one technique, including
  * the single bounded correction attempt.
+ *
+ * `connect_timeout_ms` is a narrower deadline for request establishment, and it
+ * DEFAULTS TO DISABLED (0). Live testing on 2026-07-28 confirmed why: the
+ * Anthropic adapter is non-streaming, so the provider withholds response headers
+ * until the completed message is ready. Time-to-headers therefore equals
+ * time-to-full-response, and any connect deadline shorter than normal generation
+ * latency aborts healthy calls — a 20s default did exactly that, failing both
+ * sourcing techniques with ANTHROPIC_CONNECT_TIMEOUT after 20s.
+ *
+ * The separate phase is kept, bounded and opt-in, because it is meaningful for a
+ * provider that does send headers early. It is not enabled by default because
+ * this boundary cannot observe the two phases separately.
  */
 export const IDEATION_PROVIDER_TIME_POLICY = Object.freeze({
   connect_timeout_ms: Object.freeze({
     env: "AA_IDEATION_PROVIDER_CONNECT_TIMEOUT_MS",
-    default: 20_000,
+    /** 0 disables the separate request-establishment deadline. */
+    default: 0,
+    disabled_value: 0,
     minimum: 5_000,
     maximum: 60_000,
   }),
@@ -145,7 +160,13 @@ export function resolveBoundedSetting(
     return { value: setting.default, source: "invalid_fallback" };
   }
   const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    return { value: setting.default, source: "invalid_fallback" };
+  }
+  if (setting.disabled_value !== undefined && parsed === setting.disabled_value) {
+    return { value: setting.disabled_value, source: "environment" };
+  }
+  if (parsed === 0) {
     return { value: setting.default, source: "invalid_fallback" };
   }
   if (parsed < setting.minimum) {
@@ -191,7 +212,8 @@ export function resolveIdeationProviderRuntimeDetailed(): IdeationProviderRuntim
 
   const techniqueDeadlineMs = deadline.value;
   const callTimeoutMs = Math.min(call.value, techniqueDeadlineMs);
-  const connectTimeoutMs = Math.min(connect.value, callTimeoutMs);
+  // 0 means disabled: the whole-call deadline governs the entire request.
+  const connectTimeoutMs = connect.value === 0 ? 0 : Math.min(connect.value, callTimeoutMs);
   const minimumCorrectionBudgetMs = Math.min(correction.value, techniqueDeadlineMs);
   const leaseSeconds = ideationLeaseSecondsFor(techniqueDeadlineMs);
 

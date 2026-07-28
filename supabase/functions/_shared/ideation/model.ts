@@ -285,7 +285,11 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
       1_000,
       Math.min(runtime.call_timeout_ms, remainingBudgetMs - CORRECTION_TIME_RESERVE_MS),
     );
-    const connectTimeoutMs = Math.min(runtime.connect_timeout_ms, callTimeoutMs);
+    // 0 means no separate request-establishment deadline (the default — see
+    // provider-runtime.ts). The whole-call deadline then governs the request.
+    const connectTimeoutMs = runtime.connect_timeout_ms > 0
+      ? Math.min(runtime.connect_timeout_ms, callTimeoutMs)
+      : undefined;
     const callStartedAt = Date.now();
     const result = await callAnthropic({
       system: attempt === 0 ? prompts.system : `${prompts.system}\n${correctionDirective(correctionReason)}`,
@@ -317,7 +321,7 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
       research_result_count: input.research.evidenceSources.length,
       configured_output_tokens: maxTokens,
       configured_call_timeout_ms: callTimeoutMs,
-      configured_connect_timeout_ms: connectTimeoutMs,
+      configured_connect_timeout_ms: connectTimeoutMs ?? 0,
       technique_deadline_ms: runtime.technique_deadline_ms,
       elapsed_ms: Date.now() - callStartedAt,
       remaining_budget_ms: runtime.technique_deadline_ms - (Date.now() - startedAt),
