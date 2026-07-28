@@ -229,7 +229,10 @@ export type MasterTable = "organic_master" | "story_master" | "ads_master";
 export type MasterRow = OrganicMasterRow | StoryMasterRow | AdsMasterRow;
 
 export type AssetFormat = "ad_static" | "reel_video" | "story_sequence" | "carousel" | "feed_post";
-export type ProductionMode = "human" | "ai";
+// Phase 2: 'hybrid' joins the contract (see
+// supabase/functions/_shared/production-mode-contract.ts, which is the authority
+// for what each mode means and which transitions are legal).
+export type ProductionMode = "human" | "ai" | "hybrid";
 export type ProductionStatus = "brief" | "assigned_human" | "ai_ready" | "producing" | "produced" | "failed";
 
 // ── AI visual direction (Produce with AI) ────────────────────────────────────
@@ -595,6 +598,17 @@ export interface DistributionRecordRow {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Reel Studio Phase 3. Optional so reads work before the migration is applied.
+  /** The Reel Studio project this publication belongs to (Reels only). */
+  video_project_id?: string | null;
+  /** The approved final Reel version being published (Reels only). */
+  video_deliverable_id?: string | null;
+  /** Instagram media container id (creation_id) returned by Meta. */
+  external_container_id?: string | null;
+  container_status?: "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" | "PUBLISHED" | null;
+  container_created_at?: string | null;
+  container_checked_at?: string | null;
+  container_poll_count?: number;
   // Scheduled-publishing reliability fields (P1). Optional so reads work before
   // the migration is applied.
   claimed_at?: string | null;

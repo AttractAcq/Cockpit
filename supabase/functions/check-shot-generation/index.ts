@@ -107,7 +107,7 @@ Deno.serve(async (req: Request) => {
       const message = safeHiggsfieldError(result.error ?? `Higgsfield status: ${result.status}`);
       const saved = await sb
         .from("video_shots")
-        .update({ status: "failed", error: message, updated_at: checkedAt })
+        .update({ status: "failed", error: message, failure_stage: "video_render", failed_at: checkedAt, updated_at: checkedAt })
         .eq("id", shotId)
         .in("status", ["submitted", "rendering"])
         .select("*")
@@ -153,9 +153,13 @@ Deno.serve(async (req: Request) => {
       if (saved.error || !saved.data) throw new Error(saved.error?.message ?? "Could not persist the completed shot.");
       return json({ ok: true, shot: saved.data });
     } catch (error) {
+      // The remove() above guarantees no orphaned clip is left behind, so the
+      // video-download failure is fully resettable by retry-shot-video.
       if (uploaded) await sb.storage.from(BUCKET).remove([storagePath]).catch(() => {});
       const message = safeHiggsfieldError(error);
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      const failedAt = new Date().toISOString();
+      await sb.from("video_shots")
+        .update({ status: "failed", error: message, failure_stage: "video_download", failed_at: failedAt, updated_at: failedAt })
         .eq("id", shotId).in("status", ["submitted", "rendering"]);
       throw error;
     }

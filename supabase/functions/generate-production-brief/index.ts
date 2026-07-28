@@ -5,10 +5,16 @@ import { EXECUTION_FILE_COUNT } from "../_shared/execution-manifest.ts";
 import {
   missingBriefSections,
   PRODUCTION_BRIEF_CONTRACTS,
+  requiredBriefSections,
   resolveAssetFormat,
   type AssetFormat,
   type ProductionSourceTable,
 } from "../_shared/production-brief-contract.ts";
+import {
+  isProductionMode,
+  PRODUCTION_MODE_LABEL,
+  type ProductionMode,
+} from "../_shared/production-mode-contract.ts";
 
 const FUNCTION_NAME = "generate-production-brief";
 const SOURCE_TABLES = new Set<ProductionSourceTable>(["organic_master", "story_master", "ads_master"]);
@@ -75,6 +81,7 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json() as {
       client_id?: string; execution_month?: string; source_table?: string; source_row_id?: string; source_ref?: string;
+      production_mode?: string;
     };
     const clientId = body.client_id?.trim() ?? "";
     const month = body.execution_month?.trim() ?? "";
@@ -105,6 +112,23 @@ Deno.serve(async (req: Request) => {
     try { assetFormat = resolveAssetFormat(sourceTable, rowResult.data as Record<string, unknown>); }
     catch (error) { return failure(422, "resolve_format", error instanceof Error ? error.message : String(error)); }
     const contract = PRODUCTION_BRIEF_CONTRACTS[assetFormat];
+
+    // Phase 2, Workstream A: the operator may declare the production mode up
+    // front. The brief's instructions are then written FOR that mode, so an AI
+    // Reel brief never carries a "Human Production Only" block it contradicts.
+    // Omitting the field keeps the format's historical default.
+    const requestedMode = body.production_mode?.trim() ?? "";
+    if (requestedMode && !isProductionMode(requestedMode)) {
+      return failure(400, "request", "production_mode must be human, ai, or hybrid.");
+    }
+    if (requestedMode && !contract.supportedModes.includes(requestedMode as ProductionMode)) {
+      return failure(422, "request", `${requestedMode} production is not supported for ${assetFormat} briefs.`);
+    }
+    const productionMode: ProductionMode | null = requestedMode
+      ? requestedMode as ProductionMode
+      : contract.defaultMode;
+    const modeSource = requestedMode ? "explicit_operator_selection" : (contract.defaultMode ? "format_default" : "unassigned");
+    const isAiMode = productionMode === "ai" || productionMode === "hybrid";
     const contextAuthority = contexts.map((file) => `\n### ${file.file_name}\n${compact(file.content_md, 900)}`).join("\n");
     const executionAuthority = executions.map((file) => {
       const limit = file.file_number === 10 || file.file_number === 11 ? 2200 : 700;
@@ -112,7 +136,24 @@ Deno.serve(async (req: Request) => {
     }).join("\n");
     const authorityText = `${contextAuthority}\n${executionAuthority}`;
     const proofRestricted = /pre[- ]launch|external client proof (?:is )?absent|no external client proof/i.test(authorityText);
-    const requiredHeadings = contract.requiredSections.map((section) => `## ${section}`).join("\n");
+    const requiredHeadings = requiredBriefSections(assetFormat, productionMode).map((section) => `## ${section}`).join("\n");
+    // The single instruction line that used to hard-code "do not suggest AI video
+    // generation" for every reel. It now follows the declared mode instead.
+    const modeInstruction = productionMode === null
+      ? "PRODUCTION MODE: Not selected yet — describe the work without assuming who or what produces it."
+      : productionMode === "human"
+        ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.human} — a human contractor produces this asset end to end. Do not suggest AI generation.`
+        : productionMode === "ai"
+          ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.ai}${contract.aiPath === "reel_studio" ? " via Reel Studio (AI-generated cinematic B-roll shots, assembled later)" : ""} — do NOT include any human-production-only instruction. State the AI visual constraints and the human-presence limits explicitly.`
+          : `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.hybrid}${contract.aiPath === "reel_studio" ? " via Reel Studio" : ""} — state exactly which parts are AI-generated and which parts a human finishes.`;
+    const reelAiGuidance = isAiMode && assetFormat === "reel_video"
+      ? `\n\nAI REEL CONSTRAINTS — this brief will drive AI shot generation:
+- The Shot List must be produceable as separate short AI-generated B-roll clips (roughly 3-5 seconds each), not as one continuous filmed take.
+- Under "AI Visual Constraints" state what the generated imagery must and must not contain, including any brand grade/lens/mood requirements.
+- Under "Human Presence Constraints" state that the format is faceless: no identifiable faces and no full human figures; hands only where genuinely essential.
+- Under "On-Screen Text Direction" specify overlay copy separately from the spoken script, because text is added after generation.
+- Under "Final Production Notes" state what a human still verifies before publication.`
+      : "";
     const system = `You create one self-contained production brief for an Instagram-first content production workflow. Use only the approved authority supplied. Never invent client proof, testimonials, case studies, outcomes, ROI, leads, metrics, logos, scarcity, or consent. Verified proof may be used only when explicitly supported by the approved Proof Bank and Proof Master Plan. Return markdown only.`;
     const userPrompt = `Create a production-ready markdown instruction document for a human contractor or a later asset-generation function. This task creates instructions only, never the final asset.
 
@@ -122,7 +163,7 @@ SOURCE REF: ${sourceRef}
 FORMAT: ${contract.label}
 ASPECT RATIO: ${contract.aspectRatio}
 OUTPUT: ${contract.output}
-HUMAN ONLY: ${contract.humanOnly ? "Yes — do not suggest AI video generation" : "No production mode selected yet"}
+${modeInstruction}
 CALENDAR: ${JSON.stringify(calendarResult.data ?? [])}
 
 MASTER ROW:
@@ -137,11 +178,11 @@ APPROVED CONTEXT FILES:
 ${contextAuthority}
 
 APPROVED EXECUTION FILES, INCLUDING E10 PROOF AND E11 GOVERNANCE:
-${executionAuthority}`;
+${executionAuthority}${reelAiGuidance}`;
 
     const modelStart = Date.now();
     let markdown = await generateMarkdown(system, userPrompt, FIRST_CALL_TIMEOUT_MS);
-    let missing = missingBriefSections(markdown, assetFormat);
+    let missing = missingBriefSections(markdown, assetFormat, productionMode);
     if (missing.length) {
       // Only retry if the remaining wall-clock budget can safely absorb another
       // model call. Otherwise return a recoverable 502 (operator re-clicks) rather
@@ -151,7 +192,7 @@ ${executionAuthority}`;
         return failure(502, "validate_markdown", "Provider output omitted required brief sections and there was not enough time budget to retry safely. Please generate again.", { missing_sections: missing, remaining_ms: remaining });
       }
       markdown = await generateMarkdown(`${system}\nFORMAT RETRY: The previous response omitted required headings. Return a complete replacement document using every heading exactly.`, userPrompt, Math.min(remaining - 10_000, 110_000));
-      missing = missingBriefSections(markdown, assetFormat);
+      missing = missingBriefSections(markdown, assetFormat, productionMode);
     }
     if (missing.length) return failure(502, "validate_markdown", "Provider output omitted required brief sections after retry.", { missing_sections: missing });
     const proofErrors = proofViolations(markdown, proofRestricted);
@@ -162,9 +203,18 @@ ${executionAuthority}`;
     const payload = {
       client_id: clientId, execution_month: month, source_table: sourceTable, source_row_id: sourceRowId, source_ref: sourceRef,
       asset_format: assetFormat, title: `${sourceRef} — ${titleFor(rowResult.data, sourceRef)}`, content_md: markdown,
-      status: "needs_review", production_mode: contract.humanOnly ? "human" : null, production_status: "brief",
+      status: "needs_review", production_mode: productionMode, production_status: "brief",
       version: (existing?.version ?? 0) + 1, generated_by_function: FUNCTION_NAME,
-      metadata: { calendar: calendarResult.data ?? [], aspect_ratio: contract.aspectRatio, output: contract.output, human_only: contract.humanOnly, context_file_count: contexts.length, execution_file_count: executions.length },
+      metadata: {
+        calendar: calendarResult.data ?? [], aspect_ratio: contract.aspectRatio, output: contract.output,
+        // human_only now tracks the DECLARED mode instead of a fixed per-format
+        // flag, so metadata and instructions can no longer disagree.
+        human_only: productionMode === "human",
+        production_mode: productionMode, production_mode_source: modeSource,
+        ai_production_path: isAiMode ? contract.aiPath : null,
+        production_mode_text_conflict: false,
+        context_file_count: contexts.length, execution_file_count: executions.length,
+      },
       updated_at: new Date().toISOString(),
     };
     const write = existing
@@ -172,7 +222,7 @@ ${executionAuthority}`;
       : sb.from("client_production_briefs").insert(payload).select("*").single();
     const { data: brief, error: writeError } = await write;
     if (writeError || !brief) return failure(500, "save_brief", "Could not save the production brief.", writeError?.message);
-    await sb.from("activity_log").insert({ client_id: clientId, event_type: existing ? "production_brief_regenerated" : "production_brief_generated", plain_english_message: `${sourceRef} production brief ${existing ? "regenerated" : "generated"}.`, object_type: "client_production_brief", object_id: brief.id, metadata: { source_ref: sourceRef, asset_format: assetFormat, version: brief.version } });
+    await sb.from("activity_log").insert({ client_id: clientId, event_type: existing ? "production_brief_regenerated" : "production_brief_generated", plain_english_message: `${sourceRef} production brief ${existing ? "regenerated" : "generated"}.`, object_type: "client_production_brief", object_id: brief.id, metadata: { source_ref: sourceRef, asset_format: assetFormat, version: brief.version, production_mode: productionMode, production_mode_source: modeSource } });
     return json({ ok: true, function: FUNCTION_NAME, stage: "complete", brief });
   } catch (error) {
     return failure(error instanceof Error && error.message.includes("timed out") ? 504 : 500, "unexpected", error instanceof Error ? error.message : String(error));

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import { acceptPartialAssetGroup, acknowledgeAssetGroupWarning, activateAssetVersion, fetchAssetCompletenessOverrides, fetchAssetWarningAcknowledgements, fetchClientAssets, fetchEffectiveStageMap, fetchLatestAssetJobsByBrief, fetchLifecycleDateContext, fetchProductionBrief, generateAiAssets, isAssetJobActive, promoteAssetGroupToDistribution, regenerateAssetFrame, startAssetGeneration, driveAssetJob, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
-import { assetPngFilename, assetVersion, downloadAssetPng, downloadAssetsZip } from "@/lib/assetExport";
+import { assetDownloadFilename, assetVersion, downloadAsset, downloadAssetsZip } from "@/lib/assetExport";
+import { assetAspectClass, assetMediaLabel, isVideoAsset, isVideoAssetGroup } from "@/lib/assetMedia";
 import { ROUTES } from "@/lib/constants";
 import { isPassedThrough } from "@/lib/pipeline";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
@@ -41,6 +42,12 @@ interface AssetGroup {
   visual: VisualMeta;
   /** True when an uploaded visual mode was requested but no image reached the model. */
   visualMismatch: boolean;
+  /** Phase 2: every current file in the group is video (Reel Studio shot clips). */
+  isVideo: boolean;
+  /** Clip/frame count the group is expected to contain, when the source recorded one. */
+  expectedClipCount: number | null;
+  /** Reel Studio project title, when this group came from a handoff. */
+  videoProjectTitle: string | null;
 }
 
 interface VisualMeta {
@@ -124,6 +131,14 @@ function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJo
   } else {
     warnings.push(...completeness.visibleWarnings.map((warning) => warning.message));
   }
+  const isVideo = isVideoAssetGroup(rows);
+  const firstMeta = rows[0].metadata ?? {};
+  const expectedClipCount = typeof firstMeta.sequence_count === "number" && firstMeta.sequence_count > 0 ? firstMeta.sequence_count : null;
+  const videoProjectTitle = typeof firstMeta.video_project_title === "string" ? firstMeta.video_project_title : null;
+  // A Reel Studio group is complete only when every expected shot clip is present.
+  if (isVideo && expectedClipCount !== null && rows.length < expectedClipCount) {
+    warnings.push(`Only ${rows.length} of ${expectedClipCount} expected shot clips are present in this group.`);
+  }
   const visual = readVisualMeta(rows[0]);
   // Severe mismatch: an uploaded visual mode was requested but no image actually
   // reached the model. (image_input_used === null means legacy asset — no claim.)
@@ -150,6 +165,9 @@ function makeGroup(ref: string, input: ClientAssetRow[], job?: AssetGenerationJo
     versions,
     visual,
     visualMismatch,
+    isVideo,
+    expectedClipCount,
+    videoProjectTitle,
   };
 }
 
@@ -157,8 +175,45 @@ function formatLabel(format: AssetFormat): string {
   return format.replaceAll("_", " ");
 }
 
-function aspectClass(format: AssetFormat): string {
-  return format === "story_sequence" ? "aspect-[9/16]" : "aspect-[4/5]";
+/**
+ * Phase 2, Workstream D: presentation ratio comes from the ASSET (its real media
+ * kind first, then its format), not from the format alone — a Reel Studio MP4 is
+ * vertical 9:16, and must never inherit the 4:5 image assumption.
+ */
+function assetRatio(asset: Pick<ClientAssetRow, "asset_format" | "mime_type" | "storage_path">): string {
+  return assetAspectClass(asset);
+}
+
+/**
+ * Video-native preview. Never autoplays with sound, keeps the Reel's vertical
+ * presentation, and reuses the same one-hour signed URL the rest of the Assets
+ * tab uses (no extra fetch, no repeated download of the media).
+ */
+function AssetVideoPlayer({ asset, className }: { asset: ClientAssetRow; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+  if (!asset.signed_url) {
+    return <div className="flex h-full items-center justify-center px-4 text-center text-xs text-neg">Private preview unavailable. The object may be missing or its signed link could not be created.</div>;
+  }
+  if (failed) {
+    return <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-neg">
+      <span>This clip could not be played. Its signed link may have expired.</span>
+      <button className="text-teal hover:underline" onClick={() => { setFailed(false); window.dispatchEvent(new Event("aa:reload")); }}>Reload assets and try again</button>
+    </div>;
+  }
+  return <>
+    {!ready && <div className="absolute inset-0 flex items-center justify-center text-2xs text-paper-3">Loading clip…</div>}
+    <video
+      src={asset.signed_url}
+      className={className ?? "h-full w-full object-contain"}
+      controls
+      playsInline
+      preload="metadata"
+      muted={false}
+      onLoadedMetadata={() => setReady(true)}
+      onError={() => setFailed(true)}
+    />
+  </>;
 }
 
 function Confirmation({ action, group, busy, onCancel, onConfirm }: {
@@ -169,13 +224,17 @@ function Confirmation({ action, group, busy, onCancel, onConfirm }: {
   onConfirm: () => void;
 }) {
   const regenerate = action.kind === "regenerate";
-  const label = regenerate ? "Regenerate Asset" : action.kind === "needs_review" ? "Reset to Needs Review" : action.kind === "archived" ? "Archive Asset" : `${action.kind === "approved" ? "Approve" : "Reject"} Asset`;
+  // Phase 2, Workstream D §7.6: for a Reel Studio group the reviewable unit is a
+  // shot clip, not a finished Reel. The wording says so, so approving a group is
+  // never mistaken for approving an assembled Reel.
+  const noun = group.isVideo ? "Shot Clip" : "Asset";
+  const label = regenerate ? "Regenerate Asset" : action.kind === "needs_review" ? "Reset to Needs Review" : action.kind === "archived" ? `Archive ${noun}` : `${action.kind === "approved" ? "Approve" : "Reject"} ${noun}`;
   return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4" onClick={busy ? undefined : onCancel}>
     <div role="dialog" aria-modal="true" aria-label={label} className="w-full max-w-md rounded-[12px] border border-line bg-ink-200 p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
       <h3 className="text-sm font-medium text-paper">{label}?</h3>
       <p className="mt-3 text-xs leading-5 text-paper-3">{regenerate
         ? `This creates a new asset group from the same ${group.first.source_ref} production brief. The existing group and files remain stored for history.`
-        : `This updates all ${group.rows.length} file${group.rows.length === 1 ? "" : "s"} in ${group.first.source_ref} to ${action.kind.replaceAll("_", " ")}. The production brief status will not change.`}</p>
+        : `This updates all ${group.rows.length} ${group.isVideo ? `shot clip${group.rows.length === 1 ? "" : "s"}` : `file${group.rows.length === 1 ? "" : "s"}`} in ${group.first.source_ref} to ${action.kind.replaceAll("_", " ")}. The production brief status will not change.${group.isVideo ? " These are individual shot clips — approving them does not mean a finished Reel exists." : ""}`}</p>
       <div className="mt-5 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button><Button variant={action.kind === "rejected" || action.kind === "archived" ? "danger" : "primary"} disabled={busy} onClick={onConfirm}>{busy ? "Working…" : label}</Button></div>
     </div>
   </div>;
@@ -220,7 +279,8 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onDismissWa
   onAcceptPartial: () => void;
   onViewProductionBrief?: (sourceRef: string) => void;
 }) {
-  const multi = group.first.asset_format === "carousel" || group.first.asset_format === "story_sequence";
+  const multi = group.first.asset_format === "carousel" || group.first.asset_format === "story_sequence" || group.isVideo;
+  const unit = group.isVideo ? "clip" : group.first.asset_format === "carousel" ? "slide" : "frame";
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ error: boolean; message: string } | null>(null);
@@ -233,7 +293,7 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onDismissWa
     finally { setExporting(false); }
   }
   const groupZipName = `${group.first.source_ref}-${group.first.asset_format}`;
-  const noun = group.first.asset_format === "carousel" ? "slide" : "frame";
+  const noun = group.isVideo ? "clip" : group.first.asset_format === "carousel" ? "slide" : "frame";
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const [frameBusy, setFrameBusy] = useState<string | null>(null);
   const canAcceptPartial = !!group.job
@@ -258,25 +318,30 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onDismissWa
   }
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 sm:items-center" onClick={onClose}>
     <div role="dialog" aria-modal="true" aria-label={`${group.first.source_ref} asset preview`} className="flex h-[95vh] w-full max-w-7xl flex-col overflow-hidden rounded-t-[16px] border border-line bg-ink-200 sm:h-[92vh] sm:rounded-[16px]" onClick={(event) => event.stopPropagation()}>
-      <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{formatLabel(group.first.asset_format)}</span></div><h2 className="mt-2 break-words text-sm font-medium text-paper">{group.first.title ?? group.first.source_ref}</h2><div className="mt-1 flex flex-wrap gap-3 font-mono text-2xs text-paper-3"><span>{group.rows.length} {multi ? group.first.asset_format === "carousel" ? "slides" : "frames" : "image"}</span><span>{group.dimensions.join(", ")}</span><span>{group.first.generation_provider} / {group.first.generation_model}</span><span>{new Date(group.first.created_at).toLocaleString()}</span></div></div><button aria-label="Close asset preview" onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
-      <div className="flex shrink-0 flex-wrap gap-2 border-b border-line px-4 py-2.5 sm:px-5"><Button size="sm" variant="secondary" disabled={busy || group.status === "approved" || !group.completeness.canApproveCompleteness || group.visualMismatch} title={group.generating ? "Generation is still in progress. Wait for it to finish or accept a partial group before reviewing." : group.incomplete ? `Incomplete group — expected ${group.expectedCount}, found ${group.rows.length}. Accept the partial group before approving.` : group.visualMismatch ? "Requested visual mode used an uploaded image, but the model did not use it. Regenerate before approving." : undefined} onClick={() => onAction("approved")}>Approve Asset</Button><Button size="sm" variant="danger" disabled={busy || group.status === "rejected"} onClick={() => onAction("rejected")}>Reject Asset</Button>{(group.status === "approved" || group.status === "rejected" || group.status === "mixed") && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("needs_review")}>Reset to Needs Review</Button>}{group.status === "rejected" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archived")}>Archive</Button>}<Button size="sm" variant="danger" disabled={busy || group.generating} title="Reject this asset group, delete its current files, and return the brief to Content Briefs" onClick={() => setRollbackOpen(true)}>Reject → Briefs</Button>{group.completeness.isAcceptedPartial ? <span className="self-center rounded border border-teal/20 bg-teal/10 px-2 py-1 text-2xs text-teal">Accepted {group.completeness.acceptedOutputCount} of {group.completeness.originalExpectedCount}</span> : canAcceptPartial ? <Button size="sm" variant="ghost" disabled={busy} onClick={onAcceptPartial}>Accept {group.rows.length}-frame group</Button> : null}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || group.generating || group.completeness.isAcceptedPartial || group.first.asset_format === "reel_video"} title={group.generating ? "Generation is still in progress." : group.completeness.isAcceptedPartial ? "Accepted partial groups require an explicit future retry/revoke flow before regeneration." : undefined} onClick={() => onAction("regenerate")}>Regenerate Asset</Button></div>{rollbackOpen && <DestructiveDialog target={{ operation_type: "reject_asset", asset_group_ref: group.first.asset_group_ref }} title={`Reject ${group.first.source_ref} → Content Briefs`} confirmWord={group.first.source_ref} onClose={() => setRollbackOpen(false)} onDone={() => { window.dispatchEvent(new Event("aa:reload")); }} />}
+      <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{formatLabel(group.first.asset_format)}</span></div><h2 className="mt-2 break-words text-sm font-medium text-paper">{group.first.title ?? group.first.source_ref}</h2><div className="mt-1 flex flex-wrap gap-3 font-mono text-2xs text-paper-3"><span>{group.rows.length} {group.isVideo ? `shot clip${group.rows.length === 1 ? "" : "s"}${group.expectedClipCount ? ` of ${group.expectedClipCount}` : ""}` : multi ? group.first.asset_format === "carousel" ? "slides" : "frames" : "image"}</span>{group.videoProjectTitle && <span>project {group.videoProjectTitle}</span>}<span>{group.dimensions.join(", ")}</span><span>{group.first.generation_provider} / {group.first.generation_model}</span><span>{new Date(group.first.created_at).toLocaleString()}</span></div></div><button aria-label="Close asset preview" onClick={onClose} className="text-paper-3 hover:text-paper">✕</button></div></header>
+      <div className="flex shrink-0 flex-wrap gap-2 border-b border-line px-4 py-2.5 sm:px-5"><Button size="sm" variant="secondary" disabled={busy || group.status === "approved" || !group.completeness.canApproveCompleteness || group.visualMismatch} title={group.generating ? "Generation is still in progress. Wait for it to finish or accept a partial group before reviewing." : group.incomplete ? `Incomplete group — expected ${group.expectedCount}, found ${group.rows.length}. Accept the partial group before approving.` : group.visualMismatch ? "Requested visual mode used an uploaded image, but the model did not use it. Regenerate before approving." : undefined} onClick={() => onAction("approved")}>{group.isVideo ? "Approve Shot Clips" : "Approve Asset"}</Button><Button size="sm" variant="danger" disabled={busy || group.status === "rejected"} onClick={() => onAction("rejected")}>{group.isVideo ? "Reject Shot Clips" : "Reject Asset"}</Button>{(group.status === "approved" || group.status === "rejected" || group.status === "mixed") && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("needs_review")}>Reset to Needs Review</Button>}{group.status === "rejected" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archived")}>Archive</Button>}<Button size="sm" variant="danger" disabled={busy || group.generating} title="Reject this asset group, delete its current files, and return the brief to Content Briefs" onClick={() => setRollbackOpen(true)}>Reject → Briefs</Button>{group.completeness.isAcceptedPartial ? <span className="self-center rounded border border-teal/20 bg-teal/10 px-2 py-1 text-2xs text-teal">Accepted {group.completeness.acceptedOutputCount} of {group.completeness.originalExpectedCount}</span> : canAcceptPartial ? <Button size="sm" variant="ghost" disabled={busy} onClick={onAcceptPartial}>Accept {group.rows.length}-frame group</Button> : null}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || group.generating || group.completeness.isAcceptedPartial || group.first.asset_format === "reel_video"} title={group.generating ? "Generation is still in progress." : group.completeness.isAcceptedPartial ? "Accepted partial groups require an explicit future retry/revoke flow before regeneration." : undefined} onClick={() => onAction("regenerate")}>Regenerate Asset</Button></div>{rollbackOpen && <DestructiveDialog target={{ operation_type: "reject_asset", asset_group_ref: group.first.asset_group_ref }} title={`Reject ${group.first.source_ref} → Content Briefs`} confirmWord={group.first.source_ref} onClose={() => setRollbackOpen(false)} onDone={() => { window.dispatchEvent(new Event("aa:reload")); }} />}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 sm:px-5">
-        <span className="text-2xs uppercase text-paper-3">Export</span>
-        <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void runExport(group.rows.length > 1 ? "Group ZIP" : "PNG", () => downloadAssetsZip(group.rows, groupZipName))}>{exporting ? "Exporting…" : group.rows.length > 1 ? `Download group ZIP (${group.rows.length})` : "Download PNG"}</Button>
-        {group.rows.length > 1 && <Button size="sm" variant="ghost" disabled={exporting || selectedRows.length === 0} onClick={() => void runExport(selectedRows.length > 1 ? "Selected ZIP" : "PNG", () => downloadAssetsZip(selectedRows, `${group.first.source_ref}-selected`))}>Download selected ({selectedRows.length})</Button>}
+        <span className="text-2xs uppercase text-paper-3">{group.isVideo ? "Download" : "Export"}</span>
+        <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void runExport(group.rows.length > 1 ? "Group ZIP" : assetMediaLabel(group.first), () => downloadAssetsZip(group.rows, groupZipName))}>{exporting ? "Downloading…" : group.rows.length > 1 ? `Download ${group.isVideo ? "all clips" : "group ZIP"} (${group.rows.length})` : `Download ${assetMediaLabel(group.first)}`}</Button>
+        {group.rows.length > 1 && <Button size="sm" variant="ghost" disabled={exporting || selectedRows.length === 0} onClick={() => void runExport(selectedRows.length > 1 ? "Selected ZIP" : assetMediaLabel(group.first), () => downloadAssetsZip(selectedRows, `${group.first.source_ref}-selected`))}>Download selected ({selectedRows.length})</Button>}
         {group.rows.length > 1 && <button className="text-2xs text-teal hover:underline" onClick={() => setSelected(selected.size === group.rows.length ? new Set() : new Set(group.rows.map((row) => row.id)))}>{selected.size === group.rows.length ? "Clear selection" : "Select all"}</button>}
-        <span className="ml-auto font-mono text-2xs text-paper-3">{"{source_ref}-{n}-v{version}.png"}</span>
+        <span className="ml-auto font-mono text-2xs text-paper-3">{group.isVideo ? "{source_ref}-{n}-v{version}.mp4 · original file, never re-encoded" : "{source_ref}-{n}-v{version}.png"}</span>
       </div>
       {exportNotice && <div role={exportNotice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${exportNotice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{exportNotice.message}</div>}
       {notice && <div role={notice.error ? "alert" : "status"} className={`shrink-0 border-b px-5 py-2 text-xs ${notice.error ? "border-neg/20 bg-neg/5 text-neg" : "border-teal/20 bg-teal/5 text-teal"}`}>{notice.message}</div>}
+      {group.first.asset_format === "reel_video" && <div className="shrink-0 border-b border-line bg-ink px-5 py-2 text-2xs leading-5 text-paper-3">
+        <span className="text-paper">Production package.</span> These are the individual Reel Studio shot clips in clip order — the material an external editor combines into the finished Reel. They are not publishable on their own. Download the clips here, then upload the finished MP4 to the Reel Studio project's Final Reel section.
+      </div>}
       {!!group.warnings.length && <div className="shrink-0 border-b border-warn/20 bg-warn/5 px-5 py-2 text-xs text-warn"><div>{group.warnings.join(" ")}</div>{!group.completeness.isAcceptedPartial && !!group.completeness.allWarnings.length && <div className="mt-2 flex flex-wrap gap-2">{group.completeness.allWarnings.map((warning) => <Button key={warning.fingerprint} size="sm" variant="ghost" disabled={busy || warning.dismissed} onClick={() => onDismissWarning(warning.code, warning.fingerprint)}>{warning.dismissed ? "Warning dismissed" : "Dismiss warning"}</Button>)}{group.generating && <span className="self-center text-2xs text-paper-3">Continue generation / no action required</span>}<span className="self-center text-2xs text-paper-3">Retrying missing frames will be added in a later workflow.</span></div>}</div>}
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-        <div className={multi ? "flex snap-x gap-4 overflow-x-auto pb-4" : "mx-auto max-w-3xl"}>{group.rows.map((asset) => <figure key={asset.id} className={`${multi ? "w-[min(72vw,360px)] shrink-0 snap-start" : "w-full"}`} title={assetPngFilename(asset)}>
-          <div className={`relative flex ${aspectClass(asset.asset_format)} items-center justify-center overflow-hidden rounded-lg border border-line bg-black/30`}>{group.rows.length > 1 && <label className="absolute left-2 top-2 z-10 flex items-center rounded bg-black/60 p-1"><input type="checkbox" aria-label={`Select ${asset.source_ref} ${asset.sequence_index}`} checked={selected.has(asset.id)} onChange={() => toggleSelect(asset.id)} className="accent-teal" /></label>}{asset.signed_url ? <img src={asset.signed_url} alt={`${asset.source_ref} ${asset.sequence_index}`} className="h-full w-full object-contain" /> : <div className="px-5 text-center text-xs text-neg">Private preview unavailable. The object may be missing or its signed URL could not be created.</div>}</div>
-          <figcaption className="mt-2 flex items-center justify-between gap-2 text-2xs text-paper-3"><span>{multi ? `${asset.asset_format === "carousel" ? "Slide" : "Frame"} ${asset.sequence_index}` : `${asset.width}×${asset.height}`} · v{assetVersion(asset)}</span><span className="flex items-center gap-3"><button disabled={exporting} className="text-teal hover:underline disabled:opacity-50" onClick={() => void runExport("PNG", () => downloadAssetPng(asset))}>PNG</button>{asset.signed_url && <a href={asset.signed_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">Open full ↗</a>}</span></figcaption>
+        <div className={multi ? "flex snap-x gap-4 overflow-x-auto pb-4" : "mx-auto max-w-3xl"}>{group.rows.map((asset) => <figure key={asset.id} className={`${multi ? "w-[min(72vw,360px)] shrink-0 snap-start" : "w-full"}`} title={assetDownloadFilename(asset)}>
+          <div className={`relative flex ${assetRatio(asset)} items-center justify-center overflow-hidden rounded-lg border border-line bg-black/30`}>{group.rows.length > 1 && <label className="absolute left-2 top-2 z-10 flex items-center rounded bg-black/60 p-1"><input type="checkbox" aria-label={`Select ${asset.source_ref} ${asset.sequence_index}`} checked={selected.has(asset.id)} onChange={() => toggleSelect(asset.id)} className="accent-teal" /></label>}{isVideoAsset(asset)
+            ? <AssetVideoPlayer asset={asset} />
+            : asset.signed_url ? <img src={asset.signed_url} alt={`${asset.source_ref} ${asset.sequence_index}`} className="h-full w-full object-contain" /> : <div className="px-5 text-center text-xs text-neg">Private preview unavailable. The object may be missing or its signed URL could not be created.</div>}</div>
+          <figcaption className="mt-2 flex items-center justify-between gap-2 text-2xs text-paper-3"><span>{group.isVideo ? `Shot ${asset.sequence_index}${group.expectedClipCount ? ` of ${group.expectedClipCount}` : ""}` : multi ? `${asset.asset_format === "carousel" ? "Slide" : "Frame"} ${asset.sequence_index}` : `${asset.width}×${asset.height}`} · v{assetVersion(asset)}{group.isVideo ? ` · ${asset.status.replaceAll("_", " ")}` : ""}</span><span className="flex items-center gap-3"><button disabled={exporting} className="text-teal hover:underline disabled:opacity-50" onClick={() => void runExport(assetMediaLabel(asset), () => downloadAsset(asset))}>{assetMediaLabel(asset)}</button>{asset.signed_url && <a href={asset.signed_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">{isVideoAsset(asset) ? "Open full video ↗" : "Open full ↗"}</a>}</span></figcaption>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {(() => { const list = group.versions.get(asset.sequence_index) ?? []; return list.length > 1 ? list.map((version) => <button key={version.id} type="button" disabled={frameBusy !== null || version.is_current !== false} title={`v${assetVersion(version)} · ${version.status.replaceAll("_", " ")}${version.is_current !== false ? " · current" : ""}`} onClick={() => void makeCurrent(version)} className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${version.is_current !== false ? "border-teal/40 bg-teal/10 text-teal" : "border-line text-paper-3 hover:border-teal/30"}`}>v{assetVersion(version)}{version.is_current !== false ? " ✓" : ""}</button>) : null; })()}
-            <button type="button" disabled={frameBusy !== null || group.generating || group.first.asset_format === "reel_video"} title={group.generating ? "Generation is still in progress." : "Regenerate this frame as a new version"} onClick={() => void regenerateFrame(asset)} className="ml-auto rounded border border-line px-1.5 py-0.5 text-2xs text-teal hover:border-teal/30 disabled:opacity-50">{frameBusy === asset.id ? "Regenerating…" : `Regenerate ${noun}`}</button>
+            {group.first.asset_format !== "reel_video" && <button type="button" disabled={frameBusy !== null || group.generating} title={group.generating ? "Generation is still in progress." : "Regenerate this frame as a new version"} onClick={() => void regenerateFrame(asset)} className="ml-auto rounded border border-line px-1.5 py-0.5 text-2xs text-teal hover:border-teal/30 disabled:opacity-50">{frameBusy === asset.id ? "Regenerating…" : `Regenerate ${noun}`}</button>}
           </div>
         </figure>)}</div>
         <section className="mt-5 grid gap-3 rounded-lg border border-line bg-ink p-4 text-xs sm:grid-cols-2">{group.visual.mode && <div className="sm:col-span-2 rounded border border-line bg-ink-200 p-3"><div className="text-2xs uppercase text-paper-3">Visual Direction</div><div className="mt-1.5 grid gap-1.5 sm:grid-cols-2"><div className="text-paper-3">Visual mode: <span className="text-paper">{visualModeLabel(group.visual.mode)}</span></div>{group.visual.backgroundStrength && <div className="text-paper-3">Background strength: <span className="text-paper capitalize">{group.visual.backgroundStrength}</span></div>}{(group.visual.inputImageFilename || group.visual.inputImagePath) && <div className="sm:col-span-2 break-all text-paper-3">Input image: <span className="font-mono text-paper">{group.visual.inputImageFilename ?? group.visual.inputImagePath}</span></div>}{UPLOADED_VISUAL_MODES.has(group.visual.mode) && <div className="text-paper-3">Image input used by model: <span className={group.visual.imageInputUsed === false ? "text-neg" : "text-paper"}>{group.visual.imageInputUsed === null ? "unknown" : group.visual.imageInputUsed ? "Yes" : "No"}</span></div>}{group.visual.visualInstructions && <div className="sm:col-span-2 text-paper-3">Instructions: <span className="text-paper">{group.visual.visualInstructions}</span></div>}</div></div>}<div><div className="text-2xs uppercase text-paper-3">Production</div><div className="mt-1 text-paper">{group.mode} · {group.first.generation_provider} / {group.first.generation_model}</div></div><div><div className="text-2xs uppercase text-paper-3">Completeness</div><div className="mt-1 text-paper">{group.completeness.isAcceptedPartial ? `Accepted ${group.completeness.acceptedOutputCount} of ${group.completeness.originalExpectedCount}` : `${group.completeness.actualCurrentCount} of ${group.completeness.originalExpectedCount ?? "?"}`}</div>{group.completeness.missingIndexes.length > 0 && <div className="mt-1 text-paper-3">Missing: <span className="font-mono">{group.completeness.missingIndexes.join(", ")}</span></div>}{group.job && <div className="mt-1 text-paper-3">Job: <span className="font-mono">{group.job.status}</span></div>}{group.completeness.activeOverride && <div className="mt-1 text-paper-3">Reason: <span className="text-paper">{group.completeness.activeOverride.override_reason}</span></div>}</div><div><div className="text-2xs uppercase text-paper-3">Dimensions</div><div className="mt-1 text-paper">{group.dimensions.join(", ")} · {group.first.mime_type}</div></div><div><div className="text-2xs uppercase text-paper-3">Production brief</div><div className="mt-1 break-all font-mono text-paper">{group.first.production_brief_id}</div>{onViewProductionBrief && <button className="mt-2 text-teal hover:underline" onClick={() => onViewProductionBrief(group.first.source_ref)}>Open in Content Briefs →</button>}</div><div><div className="text-2xs uppercase text-paper-3">Source master</div><div className="mt-1 text-paper">{group.first.production_brief?.source_table ?? "Master source"} · {group.first.source_ref}</div>{group.first.production_brief?.source_row_id && <div className="mt-1 break-all font-mono text-2xs text-paper-3">{group.first.production_brief.source_row_id}</div>}</div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Storage path</div><div className="mt-1 break-all font-mono text-2xs text-paper">{group.first.storage_bucket}/{group.first.storage_path}</div></div><div className="sm:col-span-2"><div className="text-2xs uppercase text-paper-3">Generation prompt · {group.first.prompt_md.length.toLocaleString()} characters</div><pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-ink-200 p-3 font-mono text-2xs leading-5 text-paper-2">{group.first.prompt_md.slice(0, 2400)}{group.first.prompt_md.length > 2400 ? "\n…" : ""}</pre></div></section>
@@ -395,6 +460,7 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
         // ref does not re-snapshot or clobber a scheduled/published record.
         // Best-effort; the status write already committed and presence keeps
         // visibility correct even if this fails.
+        let distributionBlocked: string | null = null;
         if (pending.kind === "approved" && executionMonth) {
           const entry = stageMap.get(pendingGroup.first.source_ref);
           if (!entry || !isPassedThrough(entry.stage, "assets")) {
@@ -405,12 +471,30 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
                 title: pendingGroup.first.title, assetFormat: pendingGroup.first.asset_format,
                 assetRows: rows.map((row) => ({ id: row.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index, mime_type: row.mime_type, width: row.width, height: row.height, status: row.status })),
               });
-            } catch { /* non-fatal */ }
+            } catch (promotionError) {
+              // Phase 2, Workstream E: an unsupported media type (a Reel Studio
+              // MP4) is refused a distribution draft on purpose, and the operator
+              // is told why rather than being left with a silent no-op. Any other
+              // promotion failure stays non-fatal as before — the approval itself
+              // already committed.
+              const code = (promotionError as { code?: string }).code ?? "";
+              if (code.startsWith("UNSUPPORTED_DISTRIBUTION:")) {
+                distributionBlocked = promotionError instanceof Error ? promotionError.message : String(promotionError);
+              }
+            }
           }
           await load();
           window.dispatchEvent(new Event("aa:reload"));
         }
-        setNotice({ error: false, message: `All ${rows.length} group file${rows.length === 1 ? "" : "s"} marked ${pending.kind.replaceAll("_", " ")}.${pending.kind === "approved" && executionMonth ? " Moved to Distribution." : ""}` });
+        const reviewNoun = pendingGroup.isVideo ? `shot clip${rows.length === 1 ? "" : "s"}` : `group file${rows.length === 1 ? "" : "s"}`;
+        setNotice({
+          error: false,
+          message: `All ${rows.length} ${reviewNoun} marked ${pending.kind.replaceAll("_", " ")}.${
+            pending.kind === "approved" && executionMonth
+              ? distributionBlocked ? ` Not queued for distribution: ${distributionBlocked}` : " Moved to Distribution."
+              : ""
+          }`,
+        });
       }
       setPending(null);
     } catch (value) { setNotice({ error: true, message: errorText(value) }); setPending(null); }
@@ -467,7 +551,9 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
     </div>
     {error && <div role="alert" className="mb-3 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {!groups.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No generated assets yet.</div><div className="mt-2 text-xs text-paper-3">Open an approved production brief in Content Briefs and choose Produce → AI.</div></div> : !activeGroups.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No asset groups are active in review.</div><div className="mt-2 text-xs text-paper-3">Approved groups have moved to Distribution — see Archived / Passed Through.</div></div> : !filtered.length ? <div className="rounded-[10px] border border-dashed border-line p-10 text-center"><div className="text-sm text-paper">No asset groups match these filters.</div><button className="mt-2 text-xs text-teal hover:underline" onClick={() => { setSearch(""); setFormat("all"); setStatus("all"); setSource("all"); setDateFrom(""); setDateTo(""); }}>Clear filters</button></div> : <div className="flex flex-col gap-4">{groupedByDate.map((section) => <LifecycleDateSection key={section.key} group={section} statusSummary={`${section.records.filter((group) => group.generating).length} generating · ${section.records.filter((group) => group.incomplete).length} incomplete`}>
-      <div className="grid gap-3 lg:grid-cols-2">{section.records.map((group) => { const plannedDate = resolveCanonicalPublishDate(group.first, "asset", lifecycleContext).date; const contentType = resolveLifecycleContentType(group.first); return <article key={group.ref} className="flex min-w-0 flex-col rounded-[10px] border border-line bg-ink-200 p-4"><div className="flex items-start gap-3"><div className={`w-20 shrink-0 overflow-hidden rounded border border-line ${aspectClass(group.first.asset_format)} bg-black/20`}>{group.first.signed_url ? <img src={group.first.signed_url} alt={group.first.title ?? group.first.source_ref} className="h-full w-full object-cover"/> : <div className="flex h-full items-center justify-center p-2 text-center text-2xs text-neg">Preview unavailable</div>}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span></div><h3 className="mt-2 break-words text-xs text-paper">{group.first.title ?? formatLabel(group.first.asset_format)}</h3><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3"><span>{contentType.label}</span><span>{group.mode}</span><span>{group.rows.length} {group.rows.length === 1 ? "file" : "files"}</span><span>group {group.ref}</span><span>planned {plannedDate ?? "date unavailable"}</span></div></div></div>{!!group.warnings.length && <div className="mt-3 rounded border border-warn/20 bg-warn/5 px-2 py-1.5 text-2xs text-warn">{group.warnings.join(" ")}</div>}<div className="mt-3 flex justify-end"><Button size="sm" variant="secondary" onClick={() => { setOpenRef(group.ref); setNotice(null); }}>View</Button></div></article>; })}</div>
+      <div className="grid gap-3 lg:grid-cols-2">{section.records.map((group) => { const plannedDate = resolveCanonicalPublishDate(group.first, "asset", lifecycleContext).date; const contentType = resolveLifecycleContentType(group.first); return <article key={group.ref} className="flex min-w-0 flex-col rounded-[10px] border border-line bg-ink-200 p-4"><div className="flex items-start gap-3"><div className={`relative w-20 shrink-0 overflow-hidden rounded border border-line ${assetRatio(group.first)} bg-black/20`}>{group.isVideo
+            ? (group.first.signed_url ? <video src={group.first.signed_url} className="h-full w-full object-cover" preload="metadata" muted playsInline /> : <div className="flex h-full items-center justify-center p-2 text-center text-2xs text-neg">Preview unavailable</div>)
+            : group.first.signed_url ? <img src={group.first.signed_url} alt={group.first.title ?? group.first.source_ref} className="h-full w-full object-cover"/> : <div className="flex h-full items-center justify-center p-2 text-center text-2xs text-neg">Preview unavailable</div>}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-2xs text-teal">{group.first.source_ref}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[group.status]}`}>{group.status.replaceAll("_", " ")}</span></div><h3 className="mt-2 break-words text-xs text-paper">{group.first.title ?? formatLabel(group.first.asset_format)}</h3><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3"><span>{contentType.label}</span><span>{group.mode}</span><span>{group.isVideo ? `${group.rows.length}${group.expectedClipCount ? `/${group.expectedClipCount}` : ""} shot clip${group.rows.length === 1 ? "" : "s"}` : `${group.rows.length} ${group.rows.length === 1 ? "file" : "files"}`}</span><span>group {group.ref}</span><span>planned {plannedDate ?? "date unavailable"}</span></div></div></div>{!!group.warnings.length && <div className="mt-3 rounded border border-warn/20 bg-warn/5 px-2 py-1.5 text-2xs text-warn">{group.warnings.join(" ")}</div>}<div className="mt-3 flex justify-end"><Button size="sm" variant="secondary" onClick={() => { setOpenRef(group.ref); setNotice(null); }}>View</Button></div></article>; })}</div>
     </LifecycleDateSection>)}</div>}
     {openGroup && <AssetPreviewModal group={openGroup} busy={busy} notice={notice} onClose={() => { if (!busy) { setOpenRef(null); setNotice(null); } }} onAction={(kind) => setPending({ kind, groupRef: openGroup.ref })} onDismissWarning={(warningCode, warningFingerprint) => void dismissWarning(openGroup, warningCode, warningFingerprint)} onAcceptPartial={() => setPartialAccept(openGroup)} onViewProductionBrief={onViewProductionBrief} />}
     {pending && pendingGroup && <Confirmation action={pending} group={pendingGroup} busy={busy} onCancel={() => setPending(null)} onConfirm={() => void confirmAction()} />}

@@ -1,12 +1,18 @@
-// Client-side PNG/ZIP export for generated image assets.
+// Client-side export for generated assets.
 //
 // Safety: never exposes private storage paths — media is fetched through a fresh
-// signed URL (re-signed at click time, not a possibly-stale one). Non-PNG sources
-// (jpeg/webp) are converted to PNG via the browser canvas API (no encoder is
-// hand-rolled). ZIP packaging uses jszip. Filenames follow
-// {source_ref}-{sequence_index}-v{version}.png and preserve sequence order.
+// signed URL (re-signed at click time, not a possibly-stale one).
+//
+// Phase 2 (Workstream D): the pipeline is media-aware. IMAGES keep the existing
+// behaviour exactly — non-PNG sources (jpeg/webp) are converted to PNG via the
+// browser canvas API and named {source_ref}-{n}-v{version}.png. VIDEOS are never
+// routed through canvas and never converted: their original bytes are downloaded
+// as-is with their real extension, because a canvas round-trip would silently
+// destroy an MP4. Media kind comes from src/lib/assetMedia.ts (MIME first), never
+// from asset_format. ZIP packaging uses jszip and preserves sequence order.
 import JSZip from "jszip";
 import { signDistributionMedia } from "./api";
+import { assetMediaKind, assetOriginalExtension } from "./assetMedia";
 import type { ClientAssetRow } from "@/types/phase";
 
 function sanitize(value: string): string {
@@ -20,8 +26,22 @@ export function assetVersion(asset: Pick<ClientAssetRow, "version" | "metadata">
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 1;
 }
 
+function assetBaseName(asset: ClientAssetRow): string {
+  return `${sanitize(asset.source_ref)}-${String(asset.sequence_index).padStart(2, "0")}-v${assetVersion(asset)}`;
+}
+
 export function assetPngFilename(asset: ClientAssetRow): string {
-  return `${sanitize(asset.source_ref)}-${String(asset.sequence_index).padStart(2, "0")}-v${assetVersion(asset)}.png`;
+  return `${assetBaseName(asset)}.png`;
+}
+
+/** Safe, descriptive filename that preserves a video's real container extension. */
+export function assetOriginalFilename(asset: ClientAssetRow): string {
+  return `${assetBaseName(asset)}.${assetOriginalExtension(asset)}`;
+}
+
+/** The filename an export will actually produce for this asset. */
+export function assetDownloadFilename(asset: ClientAssetRow): string {
+  return assetMediaKind(asset) === "image" ? assetPngFilename(asset) : assetOriginalFilename(asset);
 }
 
 async function convertToPng(blob: Blob, label: string): Promise<Blob> {
@@ -41,16 +61,30 @@ async function convertToPng(blob: Blob, label: string): Promise<Blob> {
   } finally { bitmap.close(); }
 }
 
-/** Fetch one asset via a fresh signed URL and return its bytes as a PNG blob. */
-async function assetPngBlob(asset: ClientAssetRow): Promise<Blob> {
+/** Fetch one asset's raw bytes via a fresh signed URL. No conversion. */
+async function assetRawBlob(asset: ClientAssetRow): Promise<Blob> {
   const label = `${asset.source_ref} #${asset.sequence_index}`;
   const url = await signDistributionMedia(asset.storage_bucket, asset.storage_path);
   if (!url) throw new Error(`Could not create a signed link for ${label}; the stored object may be missing.`);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed for ${label} (HTTP ${res.status}); the object may be missing.`);
-  const blob = await res.blob();
+  return res.blob();
+}
+
+/** Fetch one asset via a fresh signed URL and return its bytes as a PNG blob. */
+async function assetPngBlob(asset: ClientAssetRow): Promise<Blob> {
+  const label = `${asset.source_ref} #${asset.sequence_index}`;
+  const blob = await assetRawBlob(asset);
   if (blob.type === "image/png" || (blob.type === "" && asset.mime_type === "image/png")) return blob;
   return convertToPng(blob, label);
+}
+
+/**
+ * Bytes for export: images become PNG (unchanged behaviour), video and anything
+ * else is returned untouched so the original file is preserved exactly.
+ */
+async function assetExportBlob(asset: ClientAssetRow): Promise<Blob> {
+  return assetMediaKind(asset) === "image" ? assetPngBlob(asset) : assetRawBlob(asset);
 }
 
 function triggerDownload(blob: Blob, filename: string): void {
@@ -64,29 +98,43 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** Download a single asset as PNG. */
+/** Download a single IMAGE asset as PNG. */
 export async function downloadAssetPng(asset: ClientAssetRow): Promise<void> {
   triggerDownload(await assetPngBlob(asset), assetPngFilename(asset));
 }
 
 /**
- * Download several assets. One asset → a direct PNG; multiple → a ZIP with
- * sequence-ordered, human-readable filenames. Objects that cannot be fetched are
- * skipped and reported (the ZIP still downloads with what succeeded).
+ * Download a single asset's ORIGINAL file. This is the only download path used
+ * for video: the stored MP4 is delivered byte-for-byte, never re-encoded.
+ */
+export async function downloadAssetOriginal(asset: ClientAssetRow): Promise<void> {
+  triggerDownload(await assetRawBlob(asset), assetOriginalFilename(asset));
+}
+
+/** Download one asset using the correct path for its media kind. */
+export async function downloadAsset(asset: ClientAssetRow): Promise<void> {
+  return assetMediaKind(asset) === "image" ? downloadAssetPng(asset) : downloadAssetOriginal(asset);
+}
+
+/**
+ * Download several assets. One asset → a direct file (PNG for images, the
+ * original container for video); multiple → a ZIP with sequence-ordered,
+ * human-readable filenames. Objects that cannot be fetched are skipped and
+ * reported (the ZIP still downloads with what succeeded).
  */
 export async function downloadAssetsZip(assets: ClientAssetRow[], zipBaseName: string): Promise<void> {
   const ordered = [...assets].sort((a, b) => a.sequence_index - b.sequence_index);
   if (ordered.length === 0) throw new Error("No assets were selected to export.");
-  if (ordered.length === 1) return downloadAssetPng(ordered[0]);
+  if (ordered.length === 1) return downloadAsset(ordered[0]);
 
   const zip = new JSZip();
   const used = new Set<string>();
   const errors: string[] = [];
   for (const asset of ordered) {
     try {
-      const blob = await assetPngBlob(asset);
-      let name = assetPngFilename(asset);
-      if (used.has(name)) name = name.replace(/\.png$/, `-${asset.id.slice(0, 6)}.png`); // defensive de-dup
+      const blob = await assetExportBlob(asset);
+      let name = assetDownloadFilename(asset);
+      if (used.has(name)) name = name.replace(/(\.[a-z0-9]+)$/i, `-${asset.id.slice(0, 6)}$1`); // defensive de-dup
       used.add(name);
       zip.file(name, blob);
     } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }

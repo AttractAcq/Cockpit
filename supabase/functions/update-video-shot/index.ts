@@ -1,14 +1,19 @@
-// Reel Studio Phase C: edits a shot's storyboard fields. Only allowed while
-// the shot is still 'pending' -- once generation has started (Phase B's
-// submit-shot-still-image claims it), the shot is immutable here (fails
-// closed with 409) so a concurrent edit can never race a Higgsfield submission.
+// Reel Studio Phase C: edits a shot's storyboard fields. Structural fields
+// (beat_description/compiled_prompt/shot_class/human_presence/render_tier/
+// shot_number) are only editable while the shot is still 'pending' -- once
+// generation has started (Phase B's submit-shot-still-image claims it), those
+// fields are immutable here (fails closed with 409) so a concurrent edit can
+// never race a Higgsfield submission. motion_type/motion_strength are the one
+// exception: they're also editable while 'still_complete', since motion is a
+// manual step performed after the still exists (matching the still-complete
+// UI gate that requires a motion before "Generate video" appears) -- a
+// motion-only patch never races a submission because a still_complete shot
+// hasn't been claimed by submit-shot-generation yet.
 import { cors, json, svc } from "../_shared/aa.ts";
-import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
+import { STAFF_ROLES } from "../_shared/staff-roles.ts";
+import { validatePendingReelShot } from "../_shared/reel-studio-contract.ts";
 
 const FUNCTION_NAME = "update-video-shot";
-const SHOT_CLASSES = new Set(["metaphor", "atmosphere", "abstract"]);
-const HUMAN_PRESENCE = new Set(["none", "hands_only"]);
-const RENDER_TIERS = new Set(["draft", "final"]);
 
 const fail = (status: number, stage: string, message: string) =>
   json({ ok: false, function: FUNCTION_NAME, stage, message }, status);
@@ -43,45 +48,58 @@ Deno.serve(async (req: Request) => {
     const shotId = body.shot_id?.trim() ?? "";
     if (!shotId) return fail(400, "request", "shot_id is required.");
 
+    const current = await sb.from("video_shots").select("*").eq("id", shotId).maybeSingle();
+    if (current.error) return fail(500, "shot", current.error.message);
+    if (!current.data) return fail(404, "shot", "Shot not found.");
+
+    const suppliedFields = [
+      body.shot_number !== undefined,
+      body.beat_description !== undefined,
+      body.compiled_prompt !== undefined,
+      body.shot_class !== undefined,
+      body.human_presence !== undefined,
+      body.motion_type !== undefined,
+      body.motion_strength !== undefined,
+      body.render_tier !== undefined,
+    ];
+    if (!suppliedFields.some(Boolean)) return fail(400, "request", "No editable fields provided.");
+
+    const merged = validatePendingReelShot({
+      shot_number: body.shot_number ?? current.data.shot_number,
+      beat_description: body.beat_description ?? current.data.beat_description,
+      compiled_prompt: body.compiled_prompt ?? current.data.compiled_prompt,
+      shot_class: body.shot_class ?? current.data.shot_class,
+      human_presence: body.human_presence ?? current.data.human_presence,
+      render_tier: body.render_tier ?? current.data.render_tier,
+      motion_type: body.motion_type !== undefined ? body.motion_type : current.data.motion_type,
+      motion_strength: body.motion_strength !== undefined ? body.motion_strength : current.data.motion_strength,
+    }, { requireExplicitFields: true });
+    if (!merged.ok) return fail(400, "request", merged.error);
+
     const patch: Record<string, unknown> = {};
-    if (body.shot_number !== undefined) {
-      if (typeof body.shot_number !== "number" || body.shot_number <= 0) return fail(400, "request", "shot_number must be a positive integer.");
-      patch.shot_number = body.shot_number;
-    }
-    if (body.beat_description !== undefined) {
-      const value = body.beat_description.trim();
-      if (!value) return fail(400, "request", "beat_description cannot be empty.");
-      patch.beat_description = value;
-    }
-    if (body.compiled_prompt !== undefined) {
-      const value = body.compiled_prompt.trim();
-      if (!value) return fail(400, "request", "compiled_prompt cannot be empty.");
-      patch.compiled_prompt = value;
-    }
-    if (body.shot_class !== undefined) {
-      if (!SHOT_CLASSES.has(body.shot_class)) return fail(400, "request", "shot_class must be metaphor, atmosphere, or abstract.");
-      patch.shot_class = body.shot_class;
-    }
-    if (body.human_presence !== undefined) {
-      if (!HUMAN_PRESENCE.has(body.human_presence)) return fail(400, "request", "human_presence must be none or hands_only.");
-      patch.human_presence = body.human_presence;
-    }
-    if (body.render_tier !== undefined) {
-      if (!RENDER_TIERS.has(body.render_tier)) return fail(400, "request", "render_tier must be draft or final.");
-      patch.render_tier = body.render_tier;
-    }
-    if (body.motion_type !== undefined) patch.motion_type = body.motion_type?.trim() || null;
-    if (body.motion_strength !== undefined) {
-      if (body.motion_strength !== null && (typeof body.motion_strength !== "number" || body.motion_strength < 0 || body.motion_strength > 1)) {
-        return fail(400, "request", "motion_strength must be between 0 and 1.");
-      }
-      patch.motion_strength = body.motion_strength;
-    }
-    if (Object.keys(patch).length === 0) return fail(400, "request", "No editable fields provided.");
+    if (body.shot_number !== undefined) patch.shot_number = merged.value.shot_number;
+    if (body.beat_description !== undefined) patch.beat_description = merged.value.beat_description;
+    if (body.compiled_prompt !== undefined) patch.compiled_prompt = merged.value.compiled_prompt;
+    if (body.shot_class !== undefined) patch.shot_class = merged.value.shot_class;
+    if (body.human_presence !== undefined) patch.human_presence = merged.value.human_presence;
+    if (body.render_tier !== undefined) patch.render_tier = merged.value.render_tier;
+    if (body.motion_type !== undefined) patch.motion_type = merged.value.motion_type;
+    if (body.motion_strength !== undefined) patch.motion_strength = merged.value.motion_strength;
     patch.updated_at = new Date().toISOString();
 
-    const updated = await sb.from("video_shots").update(patch).eq("id", shotId).eq("status", "pending").select("*").single();
-    if (updated.error || !updated.data) return fail(409, "claim", updated.error?.message ?? "Shot is not pending, or does not exist.");
+    const STRUCTURAL_FIELDS = ["shot_number", "beat_description", "compiled_prompt", "shot_class", "human_presence", "render_tier"];
+    const isStructuralEdit = STRUCTURAL_FIELDS.some((field) => field in patch);
+    const allowedStatuses = isStructuralEdit ? ["pending"] : ["pending", "still_complete"];
+
+    const updated = await sb.from("video_shots").update(patch)
+      .eq("id", shotId)
+      .eq("updated_at", current.data.updated_at)
+      .in("status", allowedStatuses)
+      .select("*")
+      .single();
+    if (updated.error || !updated.data) {
+      return fail(409, "claim", updated.error?.message ?? "Shot changed or is no longer in an editable status.");
+    }
 
     return json({ ok: true, shot: updated.data });
   } catch (error) {

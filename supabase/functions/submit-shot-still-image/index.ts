@@ -8,7 +8,8 @@
 // HIGGSFIELD_MODEL_STILL to be configured as Supabase secrets. Fails closed
 // with a clear "configuration" error until they are set.
 import { cors, json, svc } from "../_shared/aa.ts";
-import { STAFF_ROLES } from "../_shared/ai-asset-generation.ts";
+import { STAFF_ROLES } from "../_shared/staff-roles.ts";
+import { validatePendingReelShot } from "../_shared/reel-studio-contract.ts";
 import {
   readHiggsfieldCredential,
   readHiggsfieldStillModelId,
@@ -39,6 +40,12 @@ Deno.serve(async (req: Request) => {
     shotId = ((await req.json()) as { shot_id?: string }).shot_id?.trim() ?? "";
     if (!shotId) return fail(400, "request", "shot_id is required.");
 
+    const current = await sb.from("video_shots").select("*").eq("id", shotId).eq("status", "pending").maybeSingle();
+    if (current.error) return fail(500, "shot", current.error.message);
+    if (!current.data) return fail(409, "claim", "Shot is not pending, or does not exist.");
+    const planning = validatePendingReelShot(current.data, { requireExplicitFields: true });
+    if (!planning.ok) return fail(409, "validation", `Shot is not ready for image generation: ${planning.error}`);
+
     const credential = readHiggsfieldCredential();
     if (!credential) return fail(503, "configuration", "HIGGSFIELD_API_KEY and HIGGSFIELD_API_SECRET are not configured.");
 
@@ -49,9 +56,10 @@ Deno.serve(async (req: Request) => {
     const claimedAt = new Date().toISOString();
     const claimed = await sb
       .from("video_shots")
-      .update({ status: "still_submitted", error: null, updated_at: claimedAt })
+      .update({ status: "still_submitted", error: null, failure_stage: null, failed_at: null, last_still_attempt_at: claimedAt, updated_at: claimedAt })
       .eq("id", shotId)
       .eq("status", "pending")
+      .eq("updated_at", current.data.updated_at)
       .select("*")
       .single();
     if (claimed.error || !claimed.data) {
@@ -82,8 +90,12 @@ Deno.serve(async (req: Request) => {
       if (saved.error || !saved.data) throw new Error(saved.error?.message ?? "Could not persist the Higgsfield still-image submission.");
       return json({ ok: true, shot: saved.data });
     } catch (error) {
+      // Phase 2: record WHICH phase failed so recovery knows a fresh still job is
+      // the safe action (retry-shot-still-image), not a video retry.
       const message = safeHiggsfieldError(error);
-      await sb.from("video_shots").update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      const failedAt = new Date().toISOString();
+      await sb.from("video_shots")
+        .update({ status: "failed", error: message, failure_stage: "still_submit", failed_at: failedAt, updated_at: failedAt })
         .eq("id", shotId).eq("status", "still_submitted");
       throw error;
     }

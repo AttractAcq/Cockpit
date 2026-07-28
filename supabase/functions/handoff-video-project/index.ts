@@ -10,6 +10,7 @@
 // rendered clip.
 import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES, cleanPathPart } from "../_shared/ai-asset-generation.ts";
+import { resolveReelSourceEligibility } from "../_shared/reel-studio-eligibility.ts";
 
 const FUNCTION_NAME = "handoff-video-project";
 const VIDEO_BUCKET = "video-assets";
@@ -67,6 +68,23 @@ Deno.serve(async (req: Request) => {
     if (brief.data.status !== "approved") return fail(409, "gate", "Linked production brief must be approved before handoff.");
     if (brief.data.asset_format !== "reel_video") return fail(409, "gate", "Linked production brief is not a reel_video brief.");
 
+    // Phase 2, Workstream A/B: handoff writes AI-produced assets against this
+    // brief, so the brief must actually be an AI/hybrid brief. A human-only brief
+    // can never be finalised as AI-produced without a deliberate mode change.
+    {
+      const sourceTable = project.data.organic_master_id ? "organic_master" : "ads_master";
+      const sourceRowId = project.data.organic_master_id ?? project.data.ads_master_id;
+      const sourceRow = await sb.from(sourceTable).select("*").eq("id", sourceRowId).maybeSingle();
+      if (sourceRow.error) return fail(500, "source", sourceRow.error.message);
+      const eligibility = resolveReelSourceEligibility({
+        sourceTable,
+        sourceRow: (sourceRow.data as Record<string, unknown> | null) ?? null,
+        brief: brief.data,
+        briefCandidateCount: 1,
+      });
+      if (!eligibility.eligible) return fail(409, "eligibility", eligibility.reason);
+    }
+
     if (!project.data.client_production_brief_id) {
       await sb.from("video_projects").update({ client_production_brief_id: briefId }).eq("id", videoProjectId);
     }
@@ -94,6 +112,9 @@ Deno.serve(async (req: Request) => {
         metadata: {
           video_project_id: videoProjectId, shot_id: shot.id, shot_number: shot.shot_number,
           duration_sec: shot.duration_sec, render_tier: shot.render_tier, motion_type: shot.motion_type,
+          // Phase 2, Workstream D: lets the Assets group show clip order and
+          // whether every expected clip is present without a generation job.
+          video_project_title: project.data.title, sequence_count: shots.data.length,
         },
       }).select("id").single();
       if (assetError || !asset) throw new Error(`Asset row insert failed for shot ${shot.shot_number}: ${assetError?.message ?? "no row returned"}`);

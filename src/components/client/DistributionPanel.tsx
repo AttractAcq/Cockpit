@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
 import {
   cancelDistributionRecord,
+  fetchDeliverablesByIds,
   fetchDistributionRecords,
+  fetchVideoProjectsByIds,
   fetchClientDistributionAccounts,
   fetchEffectiveStageMap,
   fetchLifecycleDateContext,
@@ -23,6 +25,31 @@ import { zonedWallClockToUtcIso } from "@/lib/schedule-time";
 import { groupLifecycleRecordsByDate, resolveCanonicalPublishDate, resolveLifecycleContentType, type DateDirection, type LifecycleDateContext } from "@/lib/lifecycle-date";
 import { useFocusedRecord } from "@/lib/use-focused-record";
 import { errorCategory, hasExternalEvidence, normalizeDestinationDisplay, STATUS_GUIDANCE, validateStoryRecord } from "@/lib/distribution-operator";
+import { resolveRecordPublishCapability } from "../../../supabase/functions/_shared/publish-capability";
+import type { ReelPublicationContext } from "../../../supabase/functions/_shared/final-reel-contract";
+import type { VideoProjectDeliverableRow, VideoProjectRow } from "@/types/reel-studio";
+
+/**
+ * Phase 3: build the final-Reel context a Reels capability decision needs. Without
+ * it the resolver fails closed (a record with no deliverable is, by definition,
+ * shot clips). The backend re-proves all of this — this is for accurate UI state.
+ */
+function buildReelContext(
+  record: DistributionRecordRow,
+  deliverables: Map<string, VideoProjectDeliverableRow>,
+  projects: Map<string, VideoProjectRow>,
+): ReelPublicationContext | null {
+  const isReel = record.asset_format === "reel_video"
+    || (record.publish_settings as Partial<DistributionPublishSettings>)?.content_type?.toUpperCase() === "REELS";
+  if (!isReel) return null;
+  const deliverable = record.video_deliverable_id ? deliverables.get(record.video_deliverable_id) ?? null : null;
+  const project = record.video_project_id ? projects.get(record.video_project_id) ?? null : null;
+  return {
+    deliverable,
+    project: project ? { id: project.id, client_id: project.client_id } : null,
+    recordClientId: record.client_id,
+  };
+}
 import type { ClientDistributionAccount, DistributionPublishPayload, DistributionPublishSettings, DistributionRecordRow, PublishAttemptRow, PublishStatus } from "@/types/phase";
 import { PassedThroughDrawer } from "./PassedThroughDrawer";
 import { LifecycleDateSection, LifecycleDirectionToggle } from "@/components/shared/LifecycleDateSection";
@@ -111,8 +138,9 @@ function seedEditor(record: DistributionRecordRow): EditorState {
   };
 }
 
-function PublishRecordModal({ record, onClose, onUpdated }: {
+function PublishRecordModal({ record, reelContext, onClose, onUpdated }: {
   record: DistributionRecordRow;
+  reelContext: ReelPublicationContext | null;
   onClose: () => void;
   onUpdated: (next: DistributionRecordRow) => void;
 }) {
@@ -170,6 +198,21 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
   const hasLegacyDestination = Boolean((record.destination ?? settings.destination ?? "").trim() || ((settings.meta as Record<string, unknown> | undefined)?.ig_user_id));
   const legacyUnmatched = hasLegacyDestination && !accountsLoading && !selectedAccount;
 
+  // Phase 2, Workstream E: the SAME capability resolver the server, the worker
+  // and the SQL trigger use. The record's live editor values are considered, so
+  // typing REELS into Content type blocks the flow immediately rather than
+  // failing at the server.
+  const capability = resolveRecordPublishCapability({
+    platform: editor.platform, asset_format: record.asset_format,
+    publish_settings: { ...settings, platform: editor.platform, content_type: editor.contentType },
+    publish_payload: { ...payload, media },
+  }, reelContext);
+  const unsupported = !capability.supported;
+  // Meta transcodes Reels asynchronously, so a Reel is never published inside one
+  // request. It is scheduled, and the shared worker advances the container →
+  // processing → publish lifecycle. "Publish now" therefore schedules immediately.
+  const isReel = editor.contentType.trim().toUpperCase() === "REELS" || record.asset_format === "reel_video";
+
   const checklistComplete = editor.checklist.every(Boolean);
   const isStory = storyValidation.isStory || editor.contentType.trim().toUpperCase() === "STORIES";
   const invalidStory = isStory && media.length !== 1;
@@ -199,8 +242,24 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
 
   async function publishNow() {
     if (!checklistComplete || !selectedAccount) return;
+    if (unsupported) { setNotice({ error: true, message: capability.reason }); return; }
     if (invalidStory) { setNotice({ error: true, message: storyGuardMessage! }); return; }
     if (videoStory) { setNotice({ error: true, message: "Video Story publishing is not yet supported." }); return; }
+    if (isReel) {
+      // Schedule for immediate pickup rather than pretending to publish inline.
+      if (!window.confirm(`Publish ${record.source_ref} to ${selectedDestination} as soon as possible?\n\nInstagram processes Reel video asynchronously, so the shared worker creates the media container, waits for Instagram to finish processing, then publishes. Nothing is faked and nothing publishes twice.`)) return;
+      setBusy("publish"); setNotice(null); setMissing(null);
+      try {
+        const saved = await scheduleDistributionRecord(record.id, {
+          scheduledPublishAt: new Date().toISOString(), timezone: tz, plannedPublishDate: record.planned_publish_date ?? null,
+          publishPayload: buildPayload(), publishSettings: buildSettings(), destination: selectedDestination,
+        });
+        onUpdated(saved);
+        setNotice({ error: false, message: "Queued for immediate publication. The worker creates the Instagram container and publishes it once processing completes." });
+      } catch (error) { setNotice({ error: true, message: errorText(error) }); }
+      finally { setBusy(null); }
+      return;
+    }
     if (!window.confirm(`Publish ${record.source_ref}${frame ? ` (${frame})` : ""} to ${selectedDestination} on ${editor.platform} now? This attempts a real publish via Meta.`)) return;
     setBusy("publish"); setNotice(null); setMissing(null);
     try {
@@ -223,6 +282,9 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
 
   async function schedule() {
     if (!checklistComplete || !selectedAccount) return;
+    // Never let an operator schedule a job the worker will refuse. The server and
+    // the DB trigger enforce this independently.
+    if (unsupported) { setNotice({ error: true, message: capability.reason }); return; }
     if (invalidStory) { setNotice({ error: true, message: storyGuardMessage! }); return; }
     if (!date || !time) { setNotice({ error: true, message: "Choose a publish date and time." }); return; }
     let scheduledIso: string;
@@ -260,7 +322,7 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
       <div className="sm:col-span-2">
         <div className="flex items-center gap-2 text-2xs uppercase text-paper-3">Media ({media.length} file{media.length === 1 ? "" : "s"}) · from client-assets (not editable){frame && <span className="rounded border border-teal/30 bg-teal/5 px-1.5 py-0.5 normal-case text-teal">{frame}</span>}{isStory && <span className="rounded border border-line px-1.5 py-0.5 normal-case text-paper-3">Story</span>}</div>
         <div className="mt-2 flex gap-3">
-          <div className={`w-24 shrink-0 overflow-hidden rounded border border-line bg-black/20 ${isStory ? "aspect-[9/16]" : "aspect-[4/5]"}`}>{preview ? <img src={preview} alt={`${record.source_ref} preview`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center p-1 text-center text-2xs text-paper-3">no preview</div>}</div>
+          <div className={`w-24 shrink-0 overflow-hidden rounded border border-line bg-black/20 ${isStory || isReel ? "aspect-[9/16]" : "aspect-[4/5]"}`}>{!preview ? <div className="flex h-full items-center justify-center p-1 text-center text-2xs text-paper-3">no preview</div> : isReel ? <video src={preview} className="h-full w-full object-cover" controls playsInline preload="metadata" /> : <img src={preview} alt={`${record.source_ref} preview`} className="h-full w-full object-cover" />}</div>
           <ul className="min-w-0 flex-1 space-y-1">{media.map((item, index) => <li key={index} className="break-all font-mono text-2xs text-paper-3">{item.storage_bucket}/{item.storage_path} · {item.width}×{item.height} · {item.mime_type}</li>)}</ul>
         </div>
         {isStory && <div className="mt-2 rounded border border-warn/20 bg-warn/5 px-2.5 py-1.5 text-2xs text-warn">Story caption is planning-only — Meta does not render this caption on an image Story. One frame publishes per record; multi-frame Stories are separate records published in sequence order.</div>}
@@ -286,8 +348,9 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
         {step === "mode" ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            <button disabled={invalidStory || record.permanent_failure} className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setStep("publish_now")}><div className="text-sm font-medium text-paper">Publish Now</div><div className="mt-2 text-xs leading-5 text-paper-3">{record.permanent_failure ? "Fix the underlying issue, then use Schedule again. Permanent failures cannot be retried here." : "Review the payload and attempt a real Meta publish immediately."}</div></button>
-            <button disabled={invalidStory} className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setStep("schedule")}><div className="text-sm font-medium text-paper">{record.permanent_failure ? "Schedule again" : "Schedule"}</div><div className="mt-2 text-xs leading-5 text-paper-3">Set a date/time; the shared worker publishes it when due. Nothing publishes now.</div></button>
+            {unsupported && <div role="alert" className="sm:col-span-2 rounded-lg border border-warn/40 bg-warn/10 p-4 text-xs leading-5 text-warn"><div className="font-medium">Publishing is not available for this record.</div><div className="mt-1">{capability.reason}</div><div className="mt-1 text-2xs text-paper-3">This record stays readable and its history is preserved. Nothing is deleted and nothing is published.</div></div>}
+            <button disabled={unsupported || invalidStory || record.permanent_failure} className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setStep("publish_now")}><div className="text-sm font-medium text-paper">{isReel ? "Publish As Soon As Possible" : "Publish Now"}</div><div className="mt-2 text-xs leading-5 text-paper-3">{record.permanent_failure ? "Fix the underlying issue, then use Schedule again. Permanent failures cannot be retried here." : isReel ? "Queue this Reel for immediate publication. Instagram processes Reel video asynchronously, so the shared worker completes it." : "Review the payload and attempt a real Meta publish immediately."}</div></button>
+            <button disabled={unsupported || invalidStory} className="rounded-xl border border-teal/30 bg-teal/5 p-5 text-left hover:bg-teal/10 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setStep("schedule")}><div className="text-sm font-medium text-paper">{record.permanent_failure ? "Schedule again" : "Schedule"}</div><div className="mt-2 text-xs leading-5 text-paper-3">Set a date/time; the shared worker publishes it when due. Nothing publishes now.</div></button>
             {invalidStory && <div className="sm:col-span-2 rounded border border-neg/40 bg-neg/10 p-3 text-xs text-neg">{storyGuardMessage}</div>}
           </div>
         ) : step === "publish_now" ? (
@@ -303,8 +366,8 @@ function PublishRecordModal({ record, onClose, onUpdated }: {
           </div>
         )}
       </main>
-      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${videoStory || invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{!selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : videoStory ? "Video Story publishing is not yet supported" : checklistComplete ? (isStory ? "Publishes this one Story frame. Real publish — never faked." : "Real publish — never faked. Missing config fails safely.") : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!selectedAccount || !checklistComplete || busy !== null || videoStory || invalidStory} title={invalidStory ? storyGuardMessage ?? undefined : videoStory ? "Video Story publishing is not yet supported" : undefined} onClick={() => void publishNow()}>{busy === "publish" ? "Publishing…" : isStory ? "Publish Story" : "Publish"}</Button></footer>}
-      {step === "schedule" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{!selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : checklistComplete ? "Saved as scheduled — not published now." : "Complete the safety checklist to enable scheduling."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={!selectedAccount || !checklistComplete || busy !== null || invalidStory} onClick={() => void schedule()}>{busy === "schedule" ? "Scheduling…" : record.permanent_failure ? "Schedule Again" : "Schedule Post"}</Button></footer>}
+      {step === "publish_now" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${unsupported || videoStory || invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{unsupported ? capability.reason : !selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : videoStory ? "Video Story publishing is not yet supported" : checklistComplete ? (isStory ? "Publishes this one Story frame. Real publish — never faked." : isReel ? "Queued for the worker. Real publish — never faked." : "Real publish — never faked. Missing config fails safely.") : "Complete the safety checklist to enable publishing."}</span><Button size="sm" variant="primary" className="ml-auto" disabled={unsupported || !selectedAccount || !checklistComplete || busy !== null || videoStory || invalidStory} title={unsupported ? capability.reason : invalidStory ? storyGuardMessage ?? undefined : videoStory ? "Video Story publishing is not yet supported" : undefined} onClick={() => void publishNow()}>{busy === "publish" ? (isReel ? "Queueing…" : "Publishing…") : isStory ? "Publish Story" : isReel ? "Queue Reel" : "Publish"}</Button></footer>}
+      {step === "schedule" && <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3"><span className={`text-2xs ${unsupported || invalidStory || !selectedAccount ? "text-neg" : "text-paper-3"}`}>{unsupported ? capability.reason : !selectedAccount ? "Select a saved distribution account." : invalidStory ? storyGuardMessage : checklistComplete ? "Saved as scheduled — not published now." : "Complete the safety checklist to enable scheduling."}</span><Button size="sm" variant="primary" className="ml-auto" title={unsupported ? capability.reason : undefined} disabled={unsupported || !selectedAccount || !checklistComplete || busy !== null || invalidStory} onClick={() => void schedule()}>{busy === "schedule" ? "Scheduling…" : record.permanent_failure ? "Schedule Again" : "Schedule Post"}</Button></footer>}
     </div>
   </div>;
 }
@@ -360,12 +423,28 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   const [error, setError] = useState<string | null>(null);
   const [dateDirection, setDateDirection] = useState<DateDirection>("asc");
   const [lifecycleContext, setLifecycleContext] = useState<LifecycleDateContext>({});
+  // Phase 3: the final-Reel rows a Reels capability decision depends on.
+  const [deliverables, setDeliverables] = useState<Map<string, VideoProjectDeliverableRow>>(new Map());
+  const [videoProjects, setVideoProjects] = useState<Map<string, VideoProjectRow>>(new Map());
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const [nextRecords, stages, dateContext] = await Promise.all([fetchDistributionRecords(clientId, executionMonth), fetchEffectiveStageMap(clientId, executionMonth), fetchLifecycleDateContext(clientId, executionMonth)]);
       setRecords(nextRecords); setStageMap(stages); setLifecycleContext(dateContext);
+      // Reel records are the only ones that need this; everything else skips it.
+      const deliverableIds = nextRecords.map((record) => record.video_deliverable_id ?? "").filter(Boolean);
+      const projectIds = nextRecords.map((record) => record.video_project_id ?? "").filter(Boolean);
+      if (deliverableIds.length || projectIds.length) {
+        const [rows, projects] = await Promise.all([
+          fetchDeliverablesByIds(deliverableIds).catch(() => [] as VideoProjectDeliverableRow[]),
+          fetchVideoProjectsByIds(projectIds).catch(() => [] as VideoProjectRow[]),
+        ]);
+        setDeliverables(new Map(rows.map((row) => [row.id, row])));
+        setVideoProjects(new Map(projects.map((row) => [row.id, row])));
+      } else {
+        setDeliverables(new Map()); setVideoProjects(new Map());
+      }
     } catch (value) { setError(errorText(value)); }
     finally { setLoading(false); }
   }, [clientId, executionMonth]);
@@ -450,6 +529,9 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
           const timezone = recordTimezone(record);
           const igUserId = ((record.publish_settings as Partial<DistributionPublishSettings>).meta as Record<string, unknown> | undefined)?.ig_user_id;
           const canCancel = ["ready", "scheduled", "failed", "needs_reconciliation"].includes(record.publish_status);
+          // Phase 2, Workstream E: unsupported records stay visible and their
+          // history is preserved, but they never offer a publishing entry point.
+          const capability = resolveRecordPublishCapability(record, buildReelContext(record, deliverables, videoProjects));
           return (
           <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
             <span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span>
@@ -476,17 +558,18 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
               {record.last_error && <div className="mt-1 text-2xs text-neg">{record.last_error}</div>}
               {record.permanent_failure && <div className="mt-2 rounded border border-neg/40 bg-neg/10 p-2 text-2xs text-neg"><div className="font-medium">Permanent failure</div><div className="mt-1">Error category: {category ?? "not recorded"} · External evidence: {evidence ? "yes" : "no"}</div><div className="mt-1">{evidence ? "External publication evidence exists. Do not retry. Use reconciliation review." : "This can be recovered by scheduling again after the underlying issue is fixed. Retry may be blocked for permanent failures unless override support is added."}</div></div>}
               {record.publish_status === "needs_reconciliation" && <div className="mt-1 text-2xs text-neg">External Instagram state is uncertain — verify on Instagram before resolving. Do not blind-retry.</div>}
+              {!capability.supported && <div className="mt-2 rounded border border-warn/40 bg-warn/10 p-2 text-2xs leading-5 text-warn"><div className="font-medium">Blocked — publishing not available</div><div className="mt-1">{capability.reason}</div><div className="mt-1 text-paper-3">This record and its attempt history are kept. It is never queued and the worker will not retry it.</div></div>}
             </div>
             <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${STATUS_STYLE[record.publish_status]}`}>{record.publish_status}</span>
             {onViewAssets && <Button size="sm" variant="ghost" onClick={onViewAssets}>Asset</Button>}
             <Button size="sm" variant="ghost" onClick={() => setAttemptRecord(record)}>Attempts</Button>
-            {record.publish_status === "failed" && !record.permanent_failure && <Button size="sm" variant="ghost" title="Retry is for non-permanent retryable failures" onClick={() => void retry(record)}>Retry retryable failure</Button>}
+            {record.publish_status === "failed" && !record.permanent_failure && capability.supported && <Button size="sm" variant="ghost" title="Retry is for non-permanent retryable failures" onClick={() => void retry(record)}>Retry retryable failure</Button>}
             {record.publish_status === "needs_reconciliation" && <>
               <Button size="sm" variant="ghost" title="Reconcile ambiguous external state" onClick={() => void reconcile(record, "confirm_published")}>Reconcile: it posted</Button>
               <Button size="sm" variant="ghost" title="Use only after confirming no external post exists" onClick={() => void reconcile(record, "reset_scheduled")}>Reconcile: no post</Button>
             </>}
             {canCancel && <Button size="sm" variant="ghost" title="Removes this item from active operation; historical evidence is retained" onClick={() => void cancel(record)}>Cancel operation</Button>}
-            <Button size="sm" variant="primary" disabled={record.publish_status === "publishing" || record.publish_status === "needs_reconciliation" || record.publish_status === "cancelled" || !story.valid} title={!story.valid ? story.message ?? undefined : undefined} onClick={() => setOpen(record)}>{record.permanent_failure && !evidence ? "Schedule again" : "Publish Record"}</Button>
+            <Button size="sm" variant="primary" disabled={!capability.supported || record.publish_status === "publishing" || record.publish_status === "needs_reconciliation" || record.publish_status === "cancelled" || !story.valid} title={!capability.supported ? capability.reason : !story.valid ? story.message ?? undefined : undefined} onClick={() => setOpen(record)}>{!capability.supported ? "Publishing unavailable" : record.permanent_failure && !evidence ? "Schedule again" : "Publish Record"}</Button>
           </article>
           );
         })}
@@ -495,7 +578,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
       </div>
     )}
     </div>
-    {open && <PublishRecordModal record={open} onClose={() => setOpen(null)} onUpdated={accept} />}
+    {open && <PublishRecordModal record={open} reelContext={buildReelContext(open, deliverables, videoProjects)} onClose={() => setOpen(null)} onUpdated={accept} />}
     {attemptRecord && <AttemptHistoryDrawer record={attemptRecord} onClose={() => setAttemptRecord(null)} />}
     {drawerOpen && <PassedThroughDrawer tabStage="distribution" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}
   </div>;

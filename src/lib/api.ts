@@ -24,9 +24,10 @@ import { decodeIdeationFailureBody } from "./ideation-failure";
 import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
+import { resolvePublishCapability } from "../../supabase/functions/_shared/publish-capability";
 import type { PulseMetric } from "@/types";
-import type { AiBackgroundGenerationRow, ClientDistributionAccount } from "@/types/phase";
-import type { BrandPromptBlockRow, HiggsfieldMotion, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
+import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
+import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
   IdeationCandidate,
   IdeationOverview,
@@ -1280,6 +1281,8 @@ export interface GenerateProductionBriefInput {
   sourceTable: MasterTable;
   sourceRowId: string;
   sourceRef: string;
+  /** Phase 2: declare the production mode up front so the brief is written for it. */
+  productionMode?: ProductionMode;
 }
 
 export async function generateProductionBrief(input: GenerateProductionBriefInput): Promise<ProductionBriefRow> {
@@ -1289,9 +1292,43 @@ export async function generateProductionBrief(input: GenerateProductionBriefInpu
     source_table: input.sourceTable,
     source_row_id: input.sourceRowId,
     source_ref: input.sourceRef,
+    // Phase 2: when supplied, the brief's instructions are written FOR this mode
+    // (an AI Reel brief no longer carries a Human Production Only block).
+    ...(input.productionMode ? { production_mode: input.productionMode } : {}),
   });
   if (!result.ok || !result.brief) throw new Error(result.message ?? "generate-production-brief returned no brief.");
   return result.brief;
+}
+
+/**
+ * Phase 2, Workstream A: the ONLY client path that changes a brief's production
+ * mode. The server re-validates the transition, requires explicit acknowledgement
+ * before overwriting approved authority or adopting an AI mode over human-only
+ * text, and writes the audit trail.
+ */
+export async function setProductionBriefMode(input: {
+  productionBriefId: string;
+  productionMode: ProductionMode;
+  expectedUpdatedAt: string;
+  acknowledgeApprovedChange?: boolean;
+  acknowledgeTextConflict?: boolean;
+}): Promise<{ brief: ProductionBriefRow; textConflict: boolean; unchanged: boolean }> {
+  const result = await invokeFn<{
+    ok: boolean; brief?: ProductionBriefRow; message?: string; code?: string;
+    text_conflict?: boolean; unchanged?: boolean;
+  }>("set-production-brief-mode", {
+    production_brief_id: input.productionBriefId,
+    production_mode: input.productionMode,
+    expected_updated_at: input.expectedUpdatedAt,
+    acknowledge_approved_change: input.acknowledgeApprovedChange ?? false,
+    acknowledge_text_conflict: input.acknowledgeTextConflict ?? false,
+  });
+  if (!result.ok || !result.brief) {
+    const error = new Error(result.message ?? "set-production-brief-mode failed.") as Error & { code?: string };
+    error.code = result.code;
+    throw error;
+  }
+  return { brief: result.brief, textConflict: result.text_conflict ?? false, unchanged: result.unchanged ?? false };
 }
 
 export async function fetchProductionBriefs(clientId: string, executionMonth: string): Promise<ProductionBriefRow[]> {
@@ -1484,7 +1521,11 @@ export interface GenerateAiAssetsOptions {
 }
 
 export async function generateAiAssets(brief: ProductionBriefRow, options: GenerateAiAssetsOptions = {}): Promise<AiAssetGenerationResult> {
-  if (brief.asset_format === "reel_video") throw new Error("AI video generation is not supported. Reels are human-only.");
+  // Reels never run through the synchronous AI-IMAGE pipeline. Their AI path is
+  // Reel Studio (see supabase/functions/_shared/production-brief-contract.ts →
+  // aiPath). This guard is unchanged in effect; only its wording is corrected so
+  // it no longer claims Reels are human-only.
+  if (brief.asset_format === "reel_video") throw new Error("Reels are not produced by the AI image pipeline. Produce this brief in Reel Studio instead.");
   const functionName = AI_ASSET_FUNCTIONS[brief.asset_format];
   if (!functionName) throw new Error(`No AI asset function is configured for ${brief.asset_format}.`);
   const visual = options.visual;
@@ -2328,6 +2369,20 @@ export async function promoteAssetGroupToDistribution(input: {
   const defaults = distributionDefaults(input.assetFormat);
   const isStory = defaults.contentType === "STORIES";
   const sortedRows = [...input.assetRows].sort((a, b) => a.sequence_index - b.sequence_index);
+
+  // Phase 2, Workstream E: never manufacture a distribution draft the publisher
+  // can never execute. A Reel Studio MP4 group is approved and archived normally,
+  // but it does not enter the publishing queue as though it were schedulable.
+  // Existing records are untouched — this only stops NEW unsupported drafts.
+  const capability = resolvePublishCapability({
+    platform: "instagram", assetFormat: input.assetFormat, contentType: defaults.contentType,
+    mediaMimeTypes: sortedRows.map((row) => row.mime_type),
+  });
+  if (!capability.supported) {
+    const blocked = new Error(capability.reason) as Error & { code?: string };
+    blocked.code = `UNSUPPORTED_DISTRIBUTION:${capability.code}`;
+    throw blocked;
+  }
   const mapMedia = (row: typeof sortedRows[number]) => ({
     storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index,
     mime_type: row.mime_type, width: row.width, height: row.height,
@@ -3108,6 +3163,7 @@ export async function createVideoProject(input: {
   awarenessStage: string;
   targetDurationSec: number;
   brandPromptBlockId?: string;
+  clientProductionBriefId?: string;
 }): Promise<VideoProjectRow> {
   const result = await invokeFn<{ ok: boolean; project?: VideoProjectRow; message?: string }>("create-video-project", {
     client_id: input.clientId,
@@ -3118,6 +3174,7 @@ export async function createVideoProject(input: {
     awareness_stage: input.awarenessStage,
     target_duration_sec: input.targetDurationSec,
     brand_prompt_block_id: input.brandPromptBlockId,
+    client_production_brief_id: input.clientProductionBriefId,
   });
   if (!result.ok || !result.project) throw new Error(result.message ?? "create-video-project returned no project.");
   return result.project;
@@ -3143,50 +3200,37 @@ export async function handoffVideoProject(videoProjectId: string): Promise<{ pro
   };
 }
 
-export async function generateVideoStoryboard(videoProjectId: string): Promise<VideoShotRow[]> {
+export async function generateVideoStoryboard(clientId: string, videoProjectId: string): Promise<VideoShotRow[]> {
   const result = await invokeFn<{ ok: boolean; shots?: VideoShotRow[]; message?: string }>("generate-video-storyboard", {
+    client_id: clientId,
     video_project_id: videoProjectId,
   });
   if (!result.ok || !result.shots) throw new Error(result.message ?? "generate-video-storyboard returned no shots.");
   return result.shots;
 }
 
-export async function createVideoShot(input: {
-  videoProjectId: string;
-  shotNumber: number;
-  beatDescription: string;
-  compiledPrompt: string;
-  shotClass: string;
-  humanPresence?: string;
-  motionType?: string | null;
-  motionStrength?: number | null;
-  renderTier?: string;
-}): Promise<VideoShotRow> {
+export async function createVideoShot(
+  input: { videoProjectId: string } & PendingVideoShotInput,
+): Promise<VideoShotRow> {
   const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("create-video-shot", {
     video_project_id: input.videoProjectId,
     shot_number: input.shotNumber,
     beat_description: input.beatDescription,
     compiled_prompt: input.compiledPrompt,
     shot_class: input.shotClass,
-    human_presence: input.humanPresence ?? "none",
-    motion_type: input.motionType ?? undefined,
-    motion_strength: input.motionStrength ?? undefined,
-    render_tier: input.renderTier ?? "draft",
+    human_presence: input.humanPresence,
+    motion_type: input.motionType,
+    motion_strength: input.motionStrength,
+    render_tier: input.renderTier,
   });
   if (!result.ok || !result.shot) throw new Error(result.message ?? "create-video-shot returned no shot.");
   return result.shot;
 }
 
-export async function updateVideoShot(shotId: string, patch: Partial<{
-  shotNumber: number;
-  beatDescription: string;
-  compiledPrompt: string;
-  shotClass: string;
-  humanPresence: string;
-  motionType: string | null;
-  motionStrength: number | null;
-  renderTier: string;
-}>): Promise<VideoShotRow> {
+export async function updateVideoShot(
+  shotId: string,
+  patch: Partial<PendingVideoShotInput>,
+): Promise<VideoShotRow> {
   const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("update-video-shot", {
     shot_id: shotId,
     shot_number: patch.shotNumber,
@@ -3202,9 +3246,33 @@ export async function updateVideoShot(shotId: string, patch: Partial<{
   return result.shot;
 }
 
-export async function deleteVideoShot(shotId: string): Promise<void> {
-  const result = await invokeFn<{ ok: boolean; message?: string }>("delete-video-shot", { shot_id: shotId });
+export async function deleteVideoShot(input: {
+  clientId: string;
+  videoProjectId: string;
+  shotId: string;
+}): Promise<void> {
+  const result = await invokeFn<{ ok: boolean; message?: string }>("delete-video-shot", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    shot_id: input.shotId,
+  });
   if (!result.ok) throw new Error(result.message ?? "delete-video-shot failed.");
+}
+
+export async function regenerateVideoShot(input: {
+  clientId: string;
+  videoProjectId: string;
+  shotId: string;
+  expectedUpdatedAt: string;
+}): Promise<VideoShotRow> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("regenerate-video-shot", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    shot_id: input.shotId,
+    expected_updated_at: input.expectedUpdatedAt,
+  });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "regenerate-video-shot returned no shot.");
+  return result.shot;
 }
 
 export async function fetchHiggsfieldMotions(): Promise<HiggsfieldMotion[]> {
@@ -3235,6 +3303,255 @@ export async function checkShotVideo(shotId: string): Promise<VideoShotRow> {
   const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string }>("check-shot-generation", { shot_id: shotId });
   if (!result.ok || !result.shot) throw new Error(result.message ?? "check-shot-generation failed.");
   return result.shot;
+}
+
+/**
+ * Phase 2, Workstream C: recover a shot whose still-image phase failed. This is
+ * NOT `regenerateVideoShot` (which rewrites a pending shot's planning text). It
+ * clears the failed provider job only; the caller then runs `generateShotStill`.
+ */
+export async function retryShotStillImage(input: {
+  clientId: string; videoProjectId: string; shotId: string; expectedUpdatedAt: string;
+}): Promise<{ shot: VideoShotRow; message: string; preserved: string | null }> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string; preserved?: string | null }>("retry-shot-still-image", {
+    client_id: input.clientId, video_project_id: input.videoProjectId,
+    shot_id: input.shotId, expected_updated_at: input.expectedUpdatedAt,
+  });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "retry-shot-still-image failed.");
+  return { shot: result.shot, message: result.message ?? "Image job reset.", preserved: result.preserved ?? null };
+}
+
+/**
+ * Phase 2, Workstream C: recover a shot whose video phase failed WITHOUT
+ * discarding its rendered still. Motion is preserved unless deliberately changed.
+ */
+export async function retryShotVideo(input: {
+  clientId: string; videoProjectId: string; shotId: string; expectedUpdatedAt: string;
+  motionType?: string | null; motionStrength?: number | null;
+}): Promise<{ shot: VideoShotRow; message: string; preserved: string | null }> {
+  const result = await invokeFn<{ ok: boolean; shot?: VideoShotRow; message?: string; preserved?: string | null }>("retry-shot-video", {
+    client_id: input.clientId, video_project_id: input.videoProjectId,
+    shot_id: input.shotId, expected_updated_at: input.expectedUpdatedAt,
+    motion_type: input.motionType ?? null, motion_strength: input.motionStrength ?? null,
+  });
+  if (!result.ok || !result.shot) throw new Error(result.message ?? "retry-shot-video failed.");
+  return { shot: result.shot, message: result.message ?? "Video job reset.", preserved: result.preserved ?? null };
+}
+
+/**
+ * Every reel_video production brief attached to one content row. Used by Reel
+ * Studio to resolve (and then bind) the exact brief a source-linked project must
+ * be produced from, and to report ambiguity honestly instead of guessing.
+ */
+export async function fetchReelVideoBriefsForSource(input: {
+  clientId: string; sourceTable: "organic_master" | "ads_master"; sourceRowId: string;
+}): Promise<ProductionBriefRow[]> {
+  const { data, error } = await supabase.from("client_production_briefs").select("*")
+    .eq("client_id", input.clientId).eq("source_table", input.sourceTable)
+    .eq("source_row_id", input.sourceRowId).eq("asset_format", "reel_video")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProductionBriefRow[];
+}
+
+/** One master row by id — used to resolve a Reel Studio source's content type. */
+export async function fetchMasterRowById(
+  sourceTable: "organic_master" | "ads_master",
+  sourceRowId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase.from(sourceTable).select("*").eq("id", sourceRowId).maybeSingle();
+  if (error) throw error;
+  return (data as Record<string, unknown> | null) ?? null;
+}
+
+// ── REEL STUDIO PHASE 3: the final edited Reel ──────────────────────────────
+// Cockpit does not assemble the Reel. An external editor combines the shot clips
+// with voiceover, captions, music and transitions; the finished MP4 is uploaded
+// back here, versioned, reviewed, approved, distributed and published.
+
+/** Every uploaded final-Reel version for a project, newest first. */
+export async function fetchFinalReelDeliverables(videoProjectId: string): Promise<VideoProjectDeliverableRow[]> {
+  const { data, error } = await supabase.from("video_project_deliverables").select("*")
+    .eq("video_project_id", videoProjectId).order("version", { ascending: false });
+  if (error) throw error;
+  // A `reserved` row is an upload slot whose object never arrived — it is not a
+  // version an operator should ever see.
+  return (data ?? []).filter((row) => (row as VideoProjectDeliverableRow).upload_state === "uploaded") as VideoProjectDeliverableRow[];
+}
+
+export async function getFinalReelSignedUrl(deliverable: Pick<VideoProjectDeliverableRow, "storage_bucket" | "storage_path">): Promise<string | null> {
+  return signDistributionMedia(deliverable.storage_bucket, deliverable.storage_path);
+}
+
+export interface FinalReelUploadResult {
+  deliverable: VideoProjectDeliverableRow;
+  specWarnings: string[];
+  mediaMetadataSource: string;
+}
+
+/**
+ * Read a local MP4's intrinsic dimensions/duration in the browser. Advisory only:
+ * the Deno edge runtime cannot decode video, so these are persisted as
+ * `client_reported`. Anything that cannot be read stays unknown — never invented.
+ */
+async function probeLocalVideo(file: File): Promise<{ width: number | null; height: number | null; durationSec: number | null }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    const done = (value: { width: number | null; height: number | null; durationSec: number | null }) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    const timer = setTimeout(() => done({ width: null, height: null, durationSec: null }), 10_000);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      clearTimeout(timer);
+      done({
+        width: video.videoWidth || null,
+        height: video.videoHeight || null,
+        durationSec: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null,
+      });
+    };
+    video.onerror = () => { clearTimeout(timer); done({ width: null, height: null, durationSec: null }); };
+    video.src = url;
+  });
+}
+
+/**
+ * Upload a final edited Reel. Three server-controlled steps:
+ *   1. `create-final-reel-upload` validates eligibility, reserves the version and
+ *      its server-built path, and returns a single-use signed upload URL.
+ *   2. The browser PUTs the bytes straight to that path (never a path it chose).
+ *   3. `complete-final-reel-upload` confirms the object landed and promotes it to
+ *      the project's current version inside one transaction.
+ */
+export async function uploadFinalReel(input: {
+  clientId: string;
+  videoProjectId: string;
+  file: File;
+  acknowledgeReplaceApproved?: boolean;
+}): Promise<FinalReelUploadResult> {
+  const created = await invokeFn<{
+    ok: boolean; message?: string; code?: string;
+    deliverable?: VideoProjectDeliverableRow;
+    upload?: { bucket: string; path: string; token: string; signed_url: string };
+  }>("create-final-reel-upload", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    filename: input.file.name,
+    mime_type: input.file.type,
+    file_size_bytes: input.file.size,
+    acknowledge_replace_approved: input.acknowledgeReplaceApproved ?? false,
+  });
+  if (!created.ok || !created.deliverable || !created.upload) {
+    const error = new Error(created.message ?? "create-final-reel-upload failed.") as Error & { code?: string };
+    error.code = created.code;
+    throw error;
+  }
+
+  const { error: uploadError } = await supabase.storage
+    .from(created.upload.bucket)
+    .uploadToSignedUrl(created.upload.path, created.upload.token, input.file, {
+      contentType: "video/mp4",
+    });
+  if (uploadError) throw new Error(`Final Reel upload failed: ${uploadError.message}`);
+
+  const probed = await probeLocalVideo(input.file).catch(() => ({ width: null, height: null, durationSec: null }));
+  const completed = await invokeFn<{
+    ok: boolean; message?: string; code?: string;
+    deliverable?: VideoProjectDeliverableRow; spec_warnings?: string[]; media_metadata_source?: string;
+  }>("complete-final-reel-upload", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    deliverable_id: created.deliverable.id,
+    reported_width: probed.width,
+    reported_height: probed.height,
+    reported_duration_sec: probed.durationSec,
+  });
+  if (!completed.ok || !completed.deliverable) {
+    const error = new Error(completed.message ?? "complete-final-reel-upload failed.") as Error & { code?: string };
+    error.code = completed.code;
+    throw error;
+  }
+  return {
+    deliverable: completed.deliverable,
+    specWarnings: completed.spec_warnings ?? [],
+    mediaMetadataSource: completed.media_metadata_source ?? "unknown",
+  };
+}
+
+/** Approve the current final Reel, or return it to the editor for revision. */
+export async function reviewFinalReel(input: {
+  clientId: string;
+  videoProjectId: string;
+  deliverableId: string;
+  expectedUpdatedAt: string;
+  action: "approve" | "request_revision";
+  feedback?: string;
+}): Promise<{ deliverable: VideoProjectDeliverableRow; message: string }> {
+  const result = await invokeFn<{ ok: boolean; deliverable?: VideoProjectDeliverableRow; message?: string; code?: string }>("review-final-reel", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    deliverable_id: input.deliverableId,
+    expected_updated_at: input.expectedUpdatedAt,
+    action: input.action,
+    feedback: input.feedback ?? null,
+  });
+  if (!result.ok || !result.deliverable) {
+    const error = new Error(result.message ?? "review-final-reel failed.") as Error & { code?: string };
+    error.code = result.code;
+    throw error;
+  }
+  return { deliverable: result.deliverable, message: result.message ?? "Review recorded." };
+}
+
+/** Create the one distribution draft for an approved, current final Reel. */
+export async function createReelDistributionDraft(input: {
+  clientId: string;
+  videoProjectId: string;
+  caption?: string;
+  plannedPublishDate?: string | null;
+  shareToFeed?: boolean;
+}): Promise<{ record: DistributionRecordRow; message: string }> {
+  const result = await invokeFn<{ ok: boolean; record?: DistributionRecordRow; message?: string; code?: string }>("create-reel-distribution-draft", {
+    client_id: input.clientId,
+    video_project_id: input.videoProjectId,
+    caption: input.caption ?? "",
+    planned_publish_date: input.plannedPublishDate ?? null,
+    share_to_feed: input.shareToFeed !== false,
+  });
+  if (!result.ok || !result.record) {
+    const error = new Error(result.message ?? "create-reel-distribution-draft failed.") as Error & { code?: string };
+    error.code = result.code;
+    throw error;
+  }
+  return { record: result.record, message: result.message ?? "Distribution draft created." };
+}
+
+/** Batch-load deliverables referenced by distribution records (Reels capability). */
+export async function fetchDeliverablesByIds(ids: string[]): Promise<VideoProjectDeliverableRow[]> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return [];
+  const { data, error } = await supabase.from("video_project_deliverables").select("*").in("id", unique);
+  if (error) throw error;
+  return (data ?? []) as VideoProjectDeliverableRow[];
+}
+
+/** Batch-load the projects those deliverables belong to. */
+export async function fetchVideoProjectsByIds(ids: string[]): Promise<VideoProjectRow[]> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return [];
+  const { data, error } = await supabase.from("video_projects").select("*").in("id", unique);
+  if (error) throw error;
+  return (data ?? []) as VideoProjectRow[];
+}
+
+/** Distribution records for one Reel Studio project (publication feedback). */
+export async function fetchDistributionRecordsForVideoProject(videoProjectId: string): Promise<DistributionRecordRow[]> {
+  const { data, error } = await supabase.from(DISTRIBUTION_TABLE).select("*")
+    .eq("video_project_id", videoProjectId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as DistributionRecordRow[];
 }
 
 export async function getVideoShotSignedUrls(shot: VideoShotRow): Promise<{ stillUrl: string | null; clipUrl: string | null }> {
