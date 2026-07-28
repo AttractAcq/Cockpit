@@ -84,7 +84,7 @@ brief, or add storyboard, shot, render, distribution, or Calendar instructions.
 
 Return exactly one compact JSON object and no surrounding prose.`;
 
-export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["non-empty supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"asset_type":"reel|carousel|static|story","working_title":"specific title","hook":"specific opening","core_message":"one supported message","psychological_angle":"persona-fit rationale","cta":"honest next action","evidence_references":[{"evidence_type":"exact_quote|paraphrase|derived_claim","source_ids":["exact source_id"],"source_ref":"exact source_ref","source_url":"exact source_url","claim":"exact candidate field supported by this reference","quoted_text":"required only for exact_quote and copied verbatim","support_span":"required for paraphrase and copied verbatim from the bounded excerpt","support_note":"concise explanation of how support_span supports claim","reasoning_note":"required for derived_claim"}]}]}`;
+export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["non-empty supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"asset_type":"reel|carousel|static|story","working_title":"specific title","hook":"specific opening","core_message":"one supported message","psychological_angle":"persona-fit rationale","cta":"honest next action","evidence_references":[{"evidence_type":"exact_quote|paraphrase|derived_claim","source_ids":["exact source_id"],"source_ref":"exact source_ref","source_url":"exact source_url","claim":"character-for-character copy of one of THIS candidate's five field values","quoted_text":"required only for exact_quote and copied verbatim","support_span":"required for paraphrase and copied verbatim from the bounded excerpt","support_note":"concise explanation of how support_span supports claim","reasoning_note":"required for derived_claim"}]}]}`;
 
 export const IDEATION_USER_PROMPT_TEMPLATE = `CLIENT
 {{CLIENT_NAME}}
@@ -117,14 +117,23 @@ reference must copy source_id, source_ref, and source_url exactly from it:
 Return:
 {{OUTPUT_CONTRACT}}
 
-Every persisted candidate field (working_title, hook, core_message,
-psychological_angle, and cta) must appear exactly in at least one evidence
-reference claim. For
-exact_quote, copy quoted_text verbatim. For paraphrase, copy support_span verbatim
-from the cited bounded excerpt and explain its support in support_note; never use
-quotation marks or quoted_text. For derived_claim, cite one or more source_ids and
-provide reasoning_note. Produce exactly {{CANDIDATE_COUNT}} candidates.
-Keep every field concise.`;
+EVIDENCE CLAIM RULE — read this twice, it is the most common failure.
+"claim" is never a description, summary, paraphrase, or explanation of a field.
+Each "claim" must be a character-for-character copy of one of THIS candidate's
+five field values: working_title, hook, core_message, psychological_angle, or
+cta. Copy the value exactly as you wrote it above — identical wording, spacing,
+punctuation, and casing. Put every explanation in support_note or reasoning_note,
+never in "claim".
+
+Give each candidate at least five evidence references, so that all five of its
+field values appear verbatim as the "claim" of at least one reference.
+
+For exact_quote, copy quoted_text verbatim from the cited bounded excerpt. For
+paraphrase, copy support_span verbatim from the cited bounded excerpt and explain
+its support in support_note; never use quotation marks or quoted_text. For
+derived_claim, cite one or more source_ids and provide reasoning_note.
+
+Produce exactly {{CANDIDATE_COUNT}} candidates. Keep every field concise.`;
 
 export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
   hierarchy_version: "aa.ideation.trust-hierarchy.v1",
@@ -149,10 +158,20 @@ export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
 // return, be validated, and be reported before the deadline is reached.
 const CORRECTION_TIME_RESERVE_MS = 5_000;
 
-function correctionDirective(reason: "none" | "format" | "truncation"): string {
-  return reason === "truncation"
-    ? "TRUNCATION RETRY: The previous response hit the output limit before it was complete. Return the whole JSON object within the limit and keep every field concise. Do not drop required evidence references."
-    : "FORMAT RETRY: Return valid JSON matching the requested schema and grounded evidence registry.";
+function correctionDirective(
+  reason: "none" | "format" | "truncation",
+  validationError: string | null,
+): string {
+  if (reason === "truncation") {
+    return "TRUNCATION RETRY: The previous response hit the output limit before it was complete. Return the whole JSON object within the limit and keep every field concise. Do not drop required evidence references.";
+  }
+  // The validator's message names the contract clause that was violated and
+  // carries no authority or candidate content, so it is safe to hand back.
+  return [
+    "FORMAT RETRY: The previous response was rejected. Return valid JSON matching the requested schema and grounded evidence registry.",
+    validationError ? `Rejection reason: ${validationError}` : "",
+    'Re-check the EVIDENCE CLAIM RULE: every "claim" must be a character-for-character copy of one of that candidate\'s five field values, never a description of it.',
+  ].filter(Boolean).join("\n");
 }
 
 function uniqueEvidenceSources(sources: IdeationEvidenceSource[]): IdeationEvidenceSource[] {
@@ -262,6 +281,7 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
   const startedAt = Date.now();
   let maxTokens = baseOutputTokens;
   let correctionReason: "none" | "format" | "truncation" = "none";
+  let lastValidationError: string | null = null;
   let retried = false;
   let lastFailure: { code: string; error: string; retryable: boolean } | null = null;
 
@@ -292,7 +312,9 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
       : undefined;
     const callStartedAt = Date.now();
     const result = await callAnthropic({
-      system: attempt === 0 ? prompts.system : `${prompts.system}\n${correctionDirective(correctionReason)}`,
+      system: attempt === 0
+        ? prompts.system
+        : `${prompts.system}\n${correctionDirective(correctionReason, lastValidationError)}`,
       user: prompts.user,
       model,
       maxTokens,
@@ -359,6 +381,7 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
     if (attempt === 0) {
       retried = true;
       correctionReason = "format";
+      lastValidationError = validated!.error;
       continue;
     }
     return {
