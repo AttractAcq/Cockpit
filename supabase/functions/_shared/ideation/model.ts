@@ -84,7 +84,7 @@ brief, or add storyboard, shot, render, distribution, or Calendar instructions.
 
 Return exactly one compact JSON object and no surrounding prose.`;
 
-export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["non-empty supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"asset_type":"reel|carousel|static|story","working_title":"specific title","hook":"specific opening","core_message":"one supported message","psychological_angle":"persona-fit rationale","cta":"honest next action","evidence_references":[{"evidence_type":"exact_quote|paraphrase|derived_claim","source_ids":["exact source_id"],"source_ref":"exact source_ref","source_url":"exact source_url","claim":"character-for-character copy of one of THIS candidate's five field values","quoted_text":"required only for exact_quote and copied verbatim","support_span":"required for paraphrase and copied verbatim from the bounded excerpt","support_note":"concise explanation of how support_span supports claim","reasoning_note":"required for derived_claim"}]}]}`;
+export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["non-empty supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"asset_type":"reel|carousel|static|story","working_title":"specific title","hook":"specific opening","core_message":"one supported message","psychological_angle":"persona-fit rationale","cta":"honest next action","evidence_references":[{"evidence_type":"paraphrase","source_ids":["exactly one exact source_id"],"source_ref":"exact source_ref","source_url":"exact source_url","claim":"character-for-character copy of one of THIS candidate's five field values","support_span":"one sentence copied verbatim from that source_id's bounded excerpt","support_note":"one short plain sentence linking support_span to claim"}]}]}`;
 
 export const IDEATION_USER_PROMPT_TEMPLATE = `CLIENT
 {{CLIENT_NAME}}
@@ -122,8 +122,7 @@ EVIDENCE CLAIM RULE — read this twice, it is the most common failure.
 Each "claim" must be a character-for-character copy of one of THIS candidate's
 five field values: working_title, hook, core_message, psychological_angle, or
 cta. Copy the value exactly as you wrote it above — identical wording, spacing,
-punctuation, and casing. Put every explanation in support_note or reasoning_note,
-never in "claim".
+punctuation, and casing. Put every explanation in support_note, never in "claim".
 
 Give each candidate at least five evidence references, so that all five of its
 field values appear verbatim as the "claim" of at least one reference.
@@ -139,15 +138,17 @@ contain. Build each field this way:
 A field whose wording shares no substantive vocabulary with the sentence you cite
 will be rejected.
 
-Prefer evidence_type "paraphrase". Copy the chosen sentence verbatim into
-support_span, exactly as it appears in the bounded excerpt, and explain the
-support in support_note; never use quotation marks or quoted_text for a
-paraphrase.
-
-Use "exact_quote" only when quoted_text is a character-for-character substring of
-one single cited bounded excerpt. If you are not copying literally, use
-"paraphrase" instead. Use "derived_claim" only when the field follows from one or
-more cited sources; cite them and explain in reasoning_note.
+EVIDENCE REFERENCE SHAPE — use this shape for every reference, with no variation.
+- "evidence_type" is always exactly "paraphrase". Never emit "exact_quote" or
+  "derived_claim".
+- "source_ids" contains exactly one source_id, and "source_ref"/"source_url" are
+  that same source's values, copied exactly.
+- "support_span" is one whole sentence copied verbatim from THAT source_id's
+  bounded excerpt. Copy it character for character. Never edit, shorten,
+  re-punctuate, or join sentences from different sources.
+- "support_note" is one short plain sentence saying how the span supports the
+  claim. It must stay inside what the span says.
+- Never include "quoted_text". Never include "reasoning_note".
 
 Do not write superlatives ("best", "fastest", "number one"), absolutes
 ("always", "never", "every", "all", "nobody"), guarantees, certainty ("will",
@@ -191,7 +192,7 @@ function correctionDirective(
   return [
     "FORMAT RETRY: The previous response was rejected. Return valid JSON matching the requested schema and grounded evidence registry.",
     validationError ? `Rejection reason: ${validationError}` : "",
-    'Re-check the EVIDENCE CLAIM RULE: every "claim" must be a character-for-character copy of one of that candidate\'s five field values, never a description of it.',
+    'Re-check the rules: every "claim" is a character-for-character copy of one of that candidate\'s five field values; every reference uses evidence_type "paraphrase" with exactly one source_id, a verbatim one-sentence support_span from that source, a support_note, and no quoted_text or reasoning_note.',
   ].filter(Boolean).join("\n");
 }
 
