@@ -80,6 +80,56 @@ Validate bearer token
 Technique 5 is `no_source` and Technique 6 is `inactive` in PR 1. Their zero-slot
 states are explicit and do not invoke Anthropic.
 
+## 4b. Current live status — Stage 1 is NOT yet operational
+
+As of 2026-07-28, the provider reliability work in section 4a is complete,
+deployed, and verified live. Stage 1 itself is still blocked, by a different
+failure class that the timeout and truncation were previously masking.
+
+**Resolved and verified.** Across five consecutive live cycles on the internal
+Attract Acquisition client, `ANTHROPIC_TIMEOUT` and `ANTHROPIC_TRUNCATED` did not
+recur once. Every provider call now completes and reaches grounding validation,
+in roughly 70-90 seconds per cycle for two concurrent sourcing techniques.
+
+**Remaining blocker: grounding-contract compliance.** Zero candidates persist.
+Every technique is now rejected with a non-retryable `MODEL_OUTPUT_INVALID` from
+`validateIdeationCandidateOutput`. Four prompt iterations moved the rejection
+forward through the contract but did not converge:
+
+| Cycle | Rejection |
+| --- | --- |
+| `865c4fcc` | Evidence claim must exactly match one persisted candidate field |
+| `f2f2a430` | Claim lacks proposition-level lexical support / exact quotation altered |
+| `81dae095` | Exact quotation support_note invalid / paraphrase support_span altered |
+| `8075776e` | Paraphrase support_span altered / claim lacks proposition-level support |
+
+**Diagnosed root cause — a structural mismatch, not a prompt defect.** The
+grounding validator splits cited evidence into sentences and requires a
+`support_span` copied verbatim from a bounded excerpt, plus proposition-level
+lexical overlap between the candidate field and that span. The approved Context
+Files are bullet-and-table markdown, not prose. Measured over the exact 4 000
+character bounded excerpts that reach the prompt:
+
+| Context file | Prose sentence breaks | Bullet lines | Heading lines |
+| --- | --- | --- | --- |
+| 02 Avatar and Buyer Psychology | 1 | 46 | 9 |
+| 09 Content System | 3 | 32 | 11 |
+| 00 Master Client Context | 6 | 26 | 9 |
+| 14 Automation and AI Instructions | 6 | 33 | 10 |
+| 01 Business Context | 7 | 33 | 10 |
+
+File 02 is the primary pain-language authority for
+`review-mined-pain-language` and contains a single sentence break across its
+whole bounded excerpt. There is effectively no prose sentence to copy as a
+`support_span`, so the model reconstructs one from bullet fragments and the
+verbatim substring check correctly rejects it.
+
+**Not fixed here, deliberately.** Closing this gap requires one of: teaching the
+validator to treat a bullet or table row as a citable span; or re-authoring the
+approved Context Files as prose. The first changes evidence grounding and the
+second mutates human-approved authority. Both are out of scope for a provider
+reliability patch and need explicit sign-off.
+
 ## 4a. Provider time and output budgets
 
 Stage 1.1 replaced a single fixed 35-second correction deadline and a fixed
