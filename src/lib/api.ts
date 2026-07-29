@@ -27,7 +27,7 @@ import { calculatePerformanceScore, generateInsightCandidates } from "./performa
 import { resolvePublishCapability } from "../../supabase/functions/_shared/publish-capability";
 import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
-import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
+import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, ReelContinuityPlan, ReelStoryStrategy, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
   IdeationCandidate,
   IdeationOverview,
@@ -3200,13 +3200,37 @@ export async function handoffVideoProject(videoProjectId: string): Promise<{ pro
   };
 }
 
-export async function generateVideoStoryboard(clientId: string, videoProjectId: string): Promise<VideoShotRow[]> {
-  const result = await invokeFn<{ ok: boolean; shots?: VideoShotRow[]; message?: string }>("generate-video-storyboard", {
+/**
+ * Generate a full storyboard. The edge function plans the story spine and the
+ * visual continuity plan before any shot exists, critiques the sequence, and
+ * inserts everything in one transaction — so a successful call returns the
+ * spine alongside the shots, and the panel can show the story before any image
+ * is generated.
+ */
+export async function generateVideoStoryboard(
+  clientId: string,
+  videoProjectId: string,
+): Promise<{
+  shots: VideoShotRow[];
+  strategy: ReelStoryStrategy | null;
+  continuity: ReelContinuityPlan | null;
+}> {
+  const result = await invokeFn<{
+    ok: boolean;
+    shots?: VideoShotRow[];
+    strategy?: ReelStoryStrategy;
+    continuity?: ReelContinuityPlan;
+    message?: string;
+  }>("generate-video-storyboard", {
     client_id: clientId,
     video_project_id: videoProjectId,
   });
   if (!result.ok || !result.shots) throw new Error(result.message ?? "generate-video-storyboard returned no shots.");
-  return result.shots;
+  return {
+    shots: result.shots,
+    strategy: result.strategy ?? null,
+    continuity: result.continuity ?? null,
+  };
 }
 
 export async function createVideoShot(

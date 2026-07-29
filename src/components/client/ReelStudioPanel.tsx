@@ -51,6 +51,8 @@ import type {
   BrandPromptBlockRow,
   HiggsfieldMotion,
   HumanPresence,
+  ReelContinuityPlan,
+  ReelStoryStrategy,
   RenderTier,
   ShotClass,
   VideoArchetype,
@@ -59,6 +61,63 @@ import type {
   VideoProjectStatus,
   VideoShotRow,
 } from "@/types/reel-studio";
+import { REEL_STORY_ROLE_LABELS } from "@/types/reel-studio";
+
+/**
+ * The story spine, shown above the shot list so a disjointed sequence is
+ * obvious before any image is generated. Read-only: the spine is system-
+ * generated authority, and editing it here would silently desynchronise it from
+ * the shots it produced.
+ */
+function StoryboardSummary({
+  strategy,
+  continuity,
+  shots,
+}: {
+  strategy: ReelStoryStrategy;
+  continuity: ReelContinuityPlan | null;
+  shots: VideoShotRow[];
+}) {
+  const [open, setOpen] = useState(true);
+  const roles = shots.map((shot) => shot.story_role).filter(Boolean) as Array<keyof typeof REEL_STORY_ROLE_LABELS>;
+
+  return <div className="shrink-0 rounded-[10px] border border-teal/20 bg-teal/5 px-4 py-3">
+    <div className="flex flex-wrap items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-2xs uppercase tracking-wide text-teal">Story</p>
+        <p className="mt-1 text-xs leading-5 text-paper">{strategy.core_message}</p>
+      </div>
+      <Button size="sm" variant="ghost" onClick={() => setOpen((value) => !value)}>{open ? "Hide detail" : "Show detail"}</Button>
+    </div>
+    {roles.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-1">
+      {roles.map((role, index) => <span key={`${role}-${index}`} className="flex items-center gap-1">
+        <span className="rounded border border-teal/30 bg-ink px-1.5 py-0.5 text-2xs text-teal">{REEL_STORY_ROLE_LABELS[role]}</span>
+        {index < roles.length - 1 && <span className="text-2xs text-paper-3">→</span>}
+      </span>)}
+    </div>}
+    {open && <dl className="mt-3 grid gap-x-6 gap-y-2 text-2xs leading-5 sm:grid-cols-2">
+      <div><dt className="text-paper-3">Viewer</dt><dd className="text-paper">{strategy.viewer}</dd></div>
+      <div><dt className="text-paper-3">Objective</dt><dd className="text-paper">{strategy.objective}</dd></div>
+      <div><dt className="text-paper-3">Hook strategy</dt><dd className="text-paper">{strategy.hook_strategy}</dd></div>
+      <div><dt className="text-paper-3">Central tension</dt><dd className="text-paper">{strategy.central_tension}</dd></div>
+      <div><dt className="text-paper-3">Proof or payoff</dt><dd className="text-paper">{strategy.proof_or_payoff}</dd></div>
+      <div><dt className="text-paper-3">Recurring motif</dt><dd className="text-paper">{strategy.recurring_visual_motif}</dd></div>
+      <div><dt className="text-paper-3">Opening image</dt><dd className="text-paper">{strategy.opening_image_purpose}</dd></div>
+      <div><dt className="text-paper-3">Ending image</dt><dd className="text-paper">{strategy.ending_image_purpose}</dd></div>
+      <div><dt className="text-paper-3">Emotional progression</dt><dd className="text-paper">{strategy.emotional_progression.join(" → ")}</dd></div>
+      <div><dt className="text-paper-3">Visual progression</dt><dd className="text-paper">{strategy.visual_progression.join(" → ")}</dd></div>
+      <div className="sm:col-span-2"><dt className="text-paper-3">Final takeaway</dt><dd className="text-paper">{strategy.cta_or_final_takeaway}</dd></div>
+      {strategy.continuity_rules.length > 0 && <div className="sm:col-span-2">
+        <dt className="text-paper-3">Continuity rules</dt>
+        <dd className="text-paper"><ul className="list-disc pl-4">{strategy.continuity_rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul></dd>
+      </div>}
+      {continuity && <div className="sm:col-span-2">
+        <dt className="text-paper-3">Visual world</dt>
+        <dd className="text-paper">{continuity.visual_world} · {continuity.palette_bible} · {continuity.lens_bible}</dd>
+      </div>}
+    </dl>}
+  </div>;
+}
 
 const ARCHETYPES: VideoArchetype[] = ["A1", "A2", "A3", "A4", "A5"];
 const AWARENESS_STAGES: AwarenessStage[] = ["unaware", "problem_aware", "solution_aware", "product_aware", "most_aware"];
@@ -370,8 +429,14 @@ function ShotRow({ shot, planningAllowed, motions, motionsLoading, onChanged, on
   return <div className="border-b border-line px-4 py-3.5 last:border-b-0">
     <div className="flex flex-wrap items-start gap-3">
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">Shot {shot.shot_number}</span><ShotStatusBadge status={shot.status} />{failure.failed && <span className="rounded border border-neg/20 bg-neg/10 px-1.5 py-0.5 text-2xs text-neg">{failure.phase === "video" ? "video stage" : "image stage"}</span>}<span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{shot.shot_class}</span><span className="text-2xs font-mono text-paper-3">{shot.human_presence}</span><span className="text-2xs font-mono text-paper-3">{shot.render_tier}</span></div>
+        <div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">Shot {shot.shot_number}</span>{shot.story_role && <span className="rounded border border-teal/30 bg-teal/10 px-1.5 py-0.5 text-2xs text-teal">{REEL_STORY_ROLE_LABELS[shot.story_role]}</span>}<ShotStatusBadge status={shot.status} />{failure.failed && <span className="rounded border border-neg/20 bg-neg/10 px-1.5 py-0.5 text-2xs text-neg">{failure.phase === "video" ? "video stage" : "image stage"}</span>}<span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{shot.shot_class}</span><span className="text-2xs font-mono text-paper-3">{shot.human_presence}</span><span className="text-2xs font-mono text-paper-3">{shot.render_tier}</span></div>
         <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-paper">{shot.beat_description}</p>
+        {shot.message_supported && <p className="mt-1 text-2xs leading-4 text-paper-3"><span className="text-paper-3">Carries:</span> <span className="text-paper">{shot.message_supported}</span></p>}
+        {(shot.transition_from_previous || shot.transition_to_next) && <p className="mt-0.5 text-2xs leading-4 text-paper-3">
+          {shot.transition_from_previous && <><span>From previous:</span> <span className="text-paper">{shot.transition_from_previous}</span></>}
+          {shot.transition_from_previous && shot.transition_to_next && <span className="px-1">·</span>}
+          {shot.transition_to_next && <><span>Sets up:</span> <span className="text-paper">{shot.transition_to_next}</span></>}
+        </p>}
         {urls.stillUrl && <a href={urls.stillUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-2xs text-teal underline">View still</a>}
         {urls.clipUrl && <a href={urls.clipUrl} target="_blank" rel="noreferrer" className="ml-3 inline-block text-2xs text-teal underline">View clip</a>}
         {failure.failed && showError && <FailureDetail shot={shot} />}
@@ -740,6 +805,10 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
   const [shotModal, setShotModal] = useState<{ shot: VideoShotRow | null } | null>(null);
   const [handoffInfo, setHandoffInfo] = useState<string | null>(null);
   const [storyboardBusy, setStoryboardBusy] = useState(false);
+  const [spine, setSpine] = useState<{
+    strategy: ReelStoryStrategy | null;
+    continuity: ReelContinuityPlan | null;
+  }>({ strategy: project.story_strategy ?? null, continuity: project.continuity_plan ?? null });
 
   const applyShots = useCallback((next: VideoShotRow[]) => {
     const ordered = [...next].sort((a, b) => a.shot_number - b.shot_number);
@@ -781,7 +850,14 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
   async function generateStoryboard() {
     if (!window.confirm("Generate a full AI storyboard for this project's linked content brief?")) return;
     setStoryboardBusy(true); setError(null);
-    try { applyShots(await generateVideoStoryboard(project.client_id, project.id)); }
+    try {
+      const result = await generateVideoStoryboard(project.client_id, project.id);
+      applyShots(result.shots);
+      // The spine is persisted on the project, but the project row in memory
+      // predates this call — show the freshly returned plan rather than a stale
+      // null until the panel is next reloaded.
+      setSpine({ strategy: result.strategy, continuity: result.continuity });
+    }
     catch (value) { setError(errorText(value)); }
     finally { setStoryboardBusy(false); }
   }
@@ -821,6 +897,7 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {motionsError && <div role="alert" className="rounded border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn">Motion catalogue unavailable: {motionsError}. Storyboard planning and image generation are unaffected; motion must load before video generation.</div>}
     {handoffInfo && <div role="status" className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{handoffInfo}</div>}
+    {spine.strategy && <StoryboardSummary strategy={spine.strategy} continuity={spine.continuity} shots={shots} />}
     <div className="flex shrink-0 gap-2">
       {canPlan && <Button size="sm" variant="primary" onClick={() => setShotModal({ shot: null })}>Add shot</Button>}
       {canPlan && shots.length === 0 && (project.organic_master_id || project.ads_master_id) &&

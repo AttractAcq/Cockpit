@@ -42,6 +42,99 @@ export interface VideoProjectRow {
    * before the Phase 3 migration is applied.
    */
   current_deliverable_id?: string | null;
+
+  // ── Sequence-first storyboard fields ────────────────────────────────────
+  // All optional and nullable: storyboards generated before the sequence-first
+  // generator have none of these, and must keep rendering unchanged.
+  /** The story spine generated before any shot existed. */
+  story_strategy?: ReelStoryStrategy | null;
+  /** Project-level visual bible every shot prompt compiles from. */
+  continuity_plan?: ReelContinuityPlan | null;
+  /** Which approved authority produced this storyboard. */
+  storyboard_provenance?: ReelStoryboardProvenance | null;
+  storyboard_prompt_version?: string | null;
+  storyboard_model?: string | null;
+  storyboard_generated_at?: string | null;
+}
+
+/** The narrative job a shot performs in the sequence. */
+export type ReelStoryRole =
+  | "hook"
+  | "problem"
+  | "escalation"
+  | "insight"
+  | "proof"
+  | "transformation"
+  | "payoff"
+  | "cta";
+
+export const REEL_STORY_ROLE_LABELS: Record<ReelStoryRole, string> = {
+  hook: "Hook",
+  problem: "Problem",
+  escalation: "Escalation",
+  insight: "Insight",
+  proof: "Proof",
+  transformation: "Transformation",
+  payoff: "Payoff",
+  cta: "CTA",
+};
+
+export interface ReelStoryStrategy {
+  core_message: string;
+  viewer: string;
+  viewer_starting_state: string;
+  viewer_ending_state: string;
+  objective: string;
+  hook_strategy: string;
+  central_tension: string;
+  proof_or_payoff: string;
+  emotional_progression: string[];
+  visual_progression: string[];
+  recurring_visual_motif: string;
+  continuity_rules: string[];
+  opening_image_purpose: string;
+  ending_image_purpose: string;
+  cta_or_final_takeaway: string;
+  target_duration_seconds: number;
+  planned_shot_count: number;
+}
+
+export interface ReelContinuityPlan {
+  visual_world: string;
+  location_bible: string;
+  subject_bible: string;
+  palette_bible: string;
+  lighting_bible: string;
+  lens_bible: string;
+  recurring_objects: string[];
+  screen_direction: string;
+  continuity_constraints: string[];
+  global_negative_prompt: string;
+}
+
+/**
+ * Safe diagnostic metadata: which approved information produced a storyboard.
+ * Deliberately carries identifiers and counts, never hidden prompt text.
+ */
+export interface ReelStoryboardProvenance {
+  context_pack_version?: string;
+  production_brief_id?: string;
+  source_master_id?: string;
+  source_table?: string;
+  context_file_ids?: string[];
+  context_file_names?: string[];
+  execution_file_ids?: string[];
+  execution_file_names?: string[];
+  brand_prompt_block_id?: string;
+  brand_prompt_block_version?: number;
+  storyboard_model?: string;
+  storyboard_prompt_version?: string;
+  prompt_compiler_version?: string;
+  critique_ran?: boolean;
+  repaired_after_critique?: boolean;
+  generated_at?: string;
+  trimmed_sections?: string[];
+  dropped_sections?: string[];
 }
 
 // ── Phase 3: the final edited Reel produced by an external editor ───────────
@@ -138,6 +231,20 @@ export interface VideoShotRow {
   video_attempt_count: number;
   last_still_attempt_at: string | null;
   last_video_attempt_at: string | null;
+
+  // ── Narrative fields ────────────────────────────────────────────────────
+  // Optional and nullable: shots created before the sequence-first generator,
+  // and shots added manually, carry none of these.
+  /** What job this shot does in the story. Null on pre-sequence shots. */
+  story_role?: ReelStoryRole | null;
+  narrative_beat?: string | null;
+  /** The single message this shot carries — no two shots may share one. */
+  message_supported?: string | null;
+  transition_from_previous?: string | null;
+  transition_to_next?: string | null;
+  /** Continuity anchors repeated into this shot's compiled prompt. */
+  visual_continuity?: string[] | null;
+  emotional_intent?: string | null;
 }
 
 export interface PendingVideoShotInput {

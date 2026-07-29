@@ -169,8 +169,19 @@ test("project API and backend carry and validate the exact production brief ID",
 
 test("storyboard validates before one atomic insert and returns inserted rows", async () => {
   const handler = await file("supabase/functions/generate-video-storyboard/index.ts");
-  assert.ok(handler.indexOf("validateReelStoryboardOutput") < handler.indexOf('sb.rpc("insert_reel_storyboard_if_empty"'));
-  assert.ok(handler.includes("return json({ ok: true, shots: inserted.data });"));
+  const insertAt = handler.indexOf('sb.rpc("insert_reel_storyboard_if_empty"');
+  assert.ok(insertAt > 0, "the storyboard must still be inserted through the atomic RPC");
+
+  // Flow validation and the critique pass both have to complete before the
+  // insert — a technically valid but disjointed sequence must never be written.
+  const flowAt = handler.indexOf("validateStoryboardFlow");
+  const critiqueAt = handler.indexOf("validateReelStoryboardCritique");
+  assert.ok(flowAt > 0 && flowAt < insertAt, "flow validation must precede the insert");
+  assert.ok(critiqueAt > 0 && critiqueAt < insertAt, "the critique pass must precede the insert");
+
+  // The response returns the rows the database actually inserted, not the
+  // locally-built objects.
+  assert.match(handler, /return json\(\{\s*ok: true,\s*shots: inserted\.data/);
   assert.doesNotMatch(handler, /submit-shot-still-image|submitShotStill/);
 });
 
