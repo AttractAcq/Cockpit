@@ -12,6 +12,15 @@
 //   automations  : status/last_run_at → Automation shape
 import { EdgeFunctionInvocationError, supabase, invokeFn } from "./supabase";
 import { decodeIdeationScoringFailureBody } from "./ideation-scoring-failure";
+import { decodeIdeationProposalFailureBody } from "./ideation-proposal-failure";
+import type {
+  IdeationCalendarProposal,
+  IdeationProposalInvocationFailure,
+  IdeationProposalOverview,
+  IdeationProposalRequest,
+  IdeationProposalResponse,
+  IdeationProposalSlot,
+} from "../types/ideation-proposal";
 import type {
   IdeationCandidateScore,
   IdeationScoringInvocationFailure,
@@ -3635,4 +3644,61 @@ export function decodeIdeationScoringInvocationFailure(
   if (!(error instanceof EdgeFunctionInvocationError)) return null;
   if (error.functionName !== "score-ideation-candidates") return null;
   return decodeIdeationScoringFailureBody(error.responseBody, error.message);
+}
+
+export async function fetchIdeationProposalOverview(
+  clientId: string,
+  cycleIds: string[],
+  signal?: AbortSignal,
+): Promise<IdeationProposalOverview> {
+  if (cycleIds.length === 0) return { proposals: [], slots: [] };
+  const proposalsQuery = supabase
+    .from("client_ideation_calendar_proposals")
+    .select("*")
+    .eq("client_id", clientId)
+    .in("ideation_cycle_id", cycleIds)
+    .order("created_at", { ascending: false });
+  const { data: proposalData, error: proposalError } =
+    await (signal ? proposalsQuery.abortSignal(signal) : proposalsQuery);
+  if (proposalError) throw proposalError;
+  const proposals = (proposalData ?? []) as IdeationCalendarProposal[];
+  if (!proposals.length) return { proposals: [], slots: [] };
+
+  const slotsQuery = supabase
+    .from("client_ideation_calendar_proposal_slots")
+    .select("*")
+    .in("proposal_id", proposals.map((proposal) => proposal.id))
+    .order("proposed_date", { ascending: true })
+    .order("date_slot_ordinal", { ascending: true });
+  const { data: slotData, error: slotError } =
+    await (signal ? slotsQuery.abortSignal(signal) : slotsQuery);
+  if (slotError) throw slotError;
+  return { proposals, slots: (slotData ?? []) as IdeationProposalSlot[] };
+}
+
+export async function invokeIdeationProposal(
+  input: IdeationProposalRequest,
+): Promise<IdeationProposalResponse> {
+  // invokeFn throws EdgeFunctionInvocationError for every non-2xx response, so
+  // this returns only the successful discriminated shape.
+  return await invokeFn<IdeationProposalResponse>("create-ideation-calendar-proposal", {
+    action: input.action,
+    client_id: input.client_id,
+    ideation_cycle_id: input.ideation_cycle_id,
+    scoring_run_id: input.scoring_run_id,
+    proposal_id: input.proposal_id,
+    regenerate_from_proposal_id: input.regenerate_from_proposal_id,
+    expected_edit_revision: input.expected_edit_revision,
+    from_slot_key: input.from_slot_key,
+    to_slot_key: input.to_slot_key,
+    candidate_id: input.candidate_id,
+  });
+}
+
+export function decodeIdeationProposalInvocationFailure(
+  error: unknown,
+): IdeationProposalInvocationFailure | null {
+  if (!(error instanceof EdgeFunctionInvocationError)) return null;
+  if (error.functionName !== "create-ideation-calendar-proposal") return null;
+  return decodeIdeationProposalFailureBody(error.responseBody, error.message);
 }

@@ -1014,11 +1014,29 @@ async function sourceFiles(directory: URL): Promise<URL[]> {
 }
 
 test("complete transitive Ideation runtime and RPC migration contain no prohibited downstream tables", async () => {
+  // Scoped to the Stage 1 generation runtime. The scoring/ and proposal/
+  // subdirectories are the Stage 2 and Stage 3 runtimes: run-ideation does not
+  // import them (asserted below), and each has its own dedicated write-boundary
+  // test. Stage 3 legitimately READS calendar_cells for conflict detection, so
+  // folding it in here would assert the wrong contract.
+  const stage1SharedFiles = (await sourceFiles(
+    new URL("../supabase/functions/_shared/ideation/", import.meta.url),
+  )).filter((url) => !/\/ideation\/(scoring|proposal)\//.test(url.pathname));
+  const runIdeationFiles = await sourceFiles(
+    new URL("../supabase/functions/run-ideation/", import.meta.url),
+  );
   const runtimeFiles = [
-    ...await sourceFiles(new URL("../supabase/functions/run-ideation/", import.meta.url)),
-    ...await sourceFiles(new URL("../supabase/functions/_shared/ideation/", import.meta.url)),
+    ...runIdeationFiles,
+    ...stage1SharedFiles,
     new URL("../supabase/functions/_shared/client-authority.ts", import.meta.url),
   ];
+
+  // The Stage 1 runtime must not reach the later stages' modules at all.
+  const runIdeationSource = (await Promise.all(
+    runIdeationFiles.map((url) => readFile(url, "utf8")),
+  )).join("\n");
+  assert.equal(/ideation\/scoring\//.test(runIdeationSource), false, "run-ideation must not import Stage 2 modules");
+  assert.equal(/ideation\/proposal\//.test(runIdeationSource), false, "run-ideation must not import Stage 3 modules");
   const migrationUrl = new URL("../supabase/migrations/20260725000032_ideation_pr1_foundations.sql", import.meta.url);
   const source = (await Promise.all([...runtimeFiles, migrationUrl].map((url) => readFile(url, "utf8")))).join("\n");
   for (const table of [

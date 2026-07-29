@@ -9,13 +9,13 @@ Architecture authority: `docs/AA_PHASE_1_PHASE_2_FROZEN_BASELINE.md`
 | --- | --- | --- |
 | 1 | Operational candidate generation | Accepted baseline, commit `a84eba3`. This document. |
 | 2 | Score and sort generated candidates | Built — see `docs/AA_IDEATION_STAGE_2_SCORING.md`. |
-| 3 | Create and approve a proposed Calendar | Next build, not started. |
+| 3 | Create and approve a proposed Calendar | Built — see `docs/AA_IDEATION_STAGE_3_PROPOSED_CALENDAR.md`. |
 | 4 | Commit approved content into Calendar and `organic_master` | Not started. |
 | 5 | Full end-to-end verification | Not started. |
 
 The stages are not reordered or redesigned. The full Ideation system is **not**
-complete: Stages 3, 4, and 5 remain unimplemented, and no Stage 2 scoring has run
-against production candidates.
+complete: Stages 4 and 5 remain unimplemented. No Stage 2 scoring and no Stage 3
+proposal has run against production candidates.
 
 **IDEATION-D1 — Markdown evidence-span compatibility** remains open and deferred
 (section 4b). It must be resolved no later than Stage 5, together with the first

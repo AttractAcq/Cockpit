@@ -8,7 +8,7 @@ Active specification for Stage 2 of the locked five-stage Ideation build.
 | --- | --- | --- |
 | 1 | Operational candidate generation | Accepted baseline (commit `a84eba3`) |
 | 2 | Score and sort generated candidates | **This document** |
-| 3 | Create and approve a proposed Calendar | Next build, not started |
+| 3 | Create and approve a proposed Calendar | Built — see `docs/AA_IDEATION_STAGE_3_PROPOSED_CALENDAR.md` |
 | 4 | Commit approved content into Calendar and `organic_master` | Not started |
 | 5 | Full end-to-end verification | Not started |
 
@@ -309,5 +309,6 @@ domains.
 
 ## Next build
 
-**Stage 3 — Create and approve a proposed Calendar.** Do not begin it without
-explicit sign-off. The full Ideation system is **not** complete.
+**Stage 4 — Commit approved content into Calendar and `organic_master`.** Stage 3
+is built; do not begin Stage 4 without explicit sign-off. The full Ideation
+system is **not** complete.

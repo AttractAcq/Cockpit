@@ -5,7 +5,16 @@ export type IdeationMutationKind =
   | "retry"
   | "score"
   | "retry-score"
-  | "rescore";
+  | "rescore"
+  // Stage 3 proposal mutations. Each is a distinct kind so a duplicate click on
+  // one action cannot block an unrelated one, while a client change still
+  // invalidates every in-flight proposal token at once.
+  | "propose"
+  | "retry-proposal"
+  | "regenerate-proposal"
+  | "edit-proposal"
+  | "refresh-conflicts"
+  | "approve-proposal";
 
 export interface IdeationMutationToken {
   readonly clientId: string;
