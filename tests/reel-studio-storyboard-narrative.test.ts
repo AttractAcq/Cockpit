@@ -559,7 +559,10 @@ test("every compiled prompt carries the global visual bible and the negatives", 
   assert.match(prompt, /Avoid:/);
   assert.match(prompt, /no readable text/);
   assert.match(prompt, /no daylight/, "the plan's global negative prompt must be present");
-  assert.match(prompt, /No faces, no fake signage/, "the brand negative must be present");
+  // Negatives are merged per constraint rather than concatenated verbatim, so
+  // assert the constraints themselves rather than the source punctuation.
+  assert.match(prompt, /no faces/i, "the brand negative's face constraint must be present");
+  assert.match(prompt, /no fake signage/i, "the brand negative's signage constraint must be present");
 });
 
 test("every compiled prompt carries shot-specific subject, action and composition", () => {
@@ -611,6 +614,82 @@ test("compiled prompts stay inside the practical prompt budget", () => {
   });
   assert.ok(prompt.length <= MAX_COMPILED_PROMPT_CHARS, `prompt was ${prompt.length} chars`);
   assert.match(prompt, /Avoid:/, "the negatives must survive budgeting");
+});
+
+test("budget trimming sheds detail, never the global visual bible", () => {
+  // Regression: the first live generation failed because trimming dropped
+  // clauses from the end, and palette/lens/9:16 were ordered last — so a
+  // verbose continuity plan silently removed the very context the compiler
+  // exists to guarantee. The bible is now protected; only detail is shed.
+  const verbose: ReelContinuityPlan = {
+    ...CONTINUITY,
+    visual_world: "w".repeat(900),
+    location_bible: "l".repeat(900),
+    subject_bible: "s".repeat(900),
+    palette_bible: "Near-black #0A0E0D with a single teal #00E5C3 accent and warm paper white.",
+    lighting_bible: "Single hard key from upper left with deep unfilled falloff.",
+    lens_bible: "35mm macro, shallow depth of field, slight barrel distortion.",
+    screen_direction: "d".repeat(900),
+    continuity_constraints: ["c".repeat(900), "c2".repeat(400)],
+    global_negative_prompt: "no daylight, no office interiors",
+  };
+  const prompt = compileShotPrompt({
+    direction: DIRECTION,
+    continuity: verbose,
+    shotContinuity: ["a stack of index cards"],
+    humanPresence: "none",
+    brandNegative: BRAND.negative_block,
+  });
+
+  assert.ok(
+    compiledPromptCarriesGlobalContext(prompt, verbose),
+    "the global-context guard must pass even under heavy trimming",
+  );
+  assert.match(prompt, /Palette:/);
+  assert.match(prompt, /Lens:/);
+  assert.match(prompt, /9:16/);
+  assert.match(prompt, /Recurring elements that must stay identical/);
+  assert.match(prompt, /No people, no faces/);
+  assert.match(prompt, /Avoid:/);
+  assert.ok(prompt.length <= MAX_COMPILED_PROMPT_CHARS, `prompt was ${prompt.length} chars`);
+});
+
+test("bible fields are bounded without leaving a dangling fragment", () => {
+  // The first live generation produced "...highlights are." — a clause cut
+  // mid-thought, which reads to an image model as an unfinished instruction.
+  const prompt = compileShotPrompt({
+    direction: DIRECTION,
+    continuity: {
+      ...CONTINUITY,
+      lighting_bible:
+        "Dusk overcast ambient at a very low level, letting shadows sink to near-black across the whole frame. A single teal practical edge light behaves as the motivated source that finds and reveals objects; highlights are soft-edged and falloff is rapid.",
+    },
+    shotContinuity: ["a stack of index cards"],
+    humanPresence: "none",
+    brandNegative: null,
+  });
+  const lighting = /Lighting bible: ([^.]*(?:\.[^ ])?[^.]*)\./.exec(prompt)?.[1] ?? "";
+  assert.doesNotMatch(lighting, /\b(?:are|is|and|or|with|the|of|to)$/i, `dangling clause: "${lighting}"`);
+});
+
+test("near-duplicate negatives from brand and continuity are merged, not repeated", () => {
+  const prompt = compileShotPrompt({
+    direction: DIRECTION,
+    continuity: {
+      ...CONTINUITY,
+      global_negative_prompt: "no faces, no readable fake signage or logos, no text baked into footage, no daylight",
+    },
+    shotContinuity: [],
+    humanPresence: "none",
+    // Brand negative restates the continuity plan's constraints almost verbatim.
+    brandNegative: "No faces, no readable fake signage or logos, no text baked into footage",
+  });
+  const avoid = prompt.slice(prompt.indexOf("Avoid:"));
+  const faces = (avoid.match(/no faces/gi) ?? []).length;
+  assert.equal(faces, 1, `"no faces" should appear once, found ${faces}`);
+  const signage = (avoid.match(/readable fake signage/gi) ?? []).length;
+  assert.equal(signage, 1, `signage constraint should appear once, found ${signage}`);
+  assert.match(avoid, /no daylight/, "unique constraints must survive the merge");
 });
 
 test("prompts containing unfilled placeholders are rejected", () => {

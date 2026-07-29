@@ -18,7 +18,14 @@ import type { ReelContinuityPlan } from "./reel-studio-story-contract.ts";
 export const PROMPT_COMPILER_VERSION = "reel-prompt-compiler@1.0.0";
 
 /** Upper bound on a compiled prompt. Beyond this, image models reweight badly. */
-export const MAX_COMPILED_PROMPT_CHARS = 1800;
+export const MAX_COMPILED_PROMPT_CHARS = 2000;
+
+/**
+ * Per-field cap on continuity-bible text. A model that writes a 600-character
+ * `location_bible` must not be able to crowd the palette and lens out of every
+ * prompt in the sequence.
+ */
+const MAX_BIBLE_FIELD_CHARS = 220;
 
 export interface ReelShotDirection {
   subject: string;
@@ -100,17 +107,83 @@ function dedupePhrases(phrases: string[]): string[] {
 }
 
 /**
- * Trim a list of clauses so the whole prompt fits the budget, dropping from the
- * end (least load-bearing) rather than cutting mid-clause.
+ * Negative lists arrive from three sources (structural, brand, continuity plan)
+ * that routinely restate each other — "no faces, no fake signage…" appearing
+ * almost verbatim in two of them. Exact-match dedupe does not catch that, so
+ * negatives are split into individual constraints and deduped per constraint.
+ * This recovers prompt weight that near-duplicates would otherwise waste.
  */
-function fitClauses(head: string, clauses: string[], tail: string, limit: number): string {
-  let kept = [...clauses];
+function mergeNegatives(sources: string[]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const source of sources) {
+    for (const raw of source.split(/[;,]/)) {
+      const clean = raw.trim().replace(/^[.\s]+|[.\s]+$/g, "");
+      if (!clean) continue;
+      // Normalise so "No faces" and "no faces" collapse to one constraint.
+      const key = clean.toLowerCase().replace(/^no\s+/, "").replace(/\s+/g, " ");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(clean.toLowerCase().startsWith("no ") ? clean : `no ${clean}`);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Bound one bible field so a verbose plan cannot dominate every prompt.
+ *
+ * Cuts at a sentence boundary where possible, and otherwise at a clause
+ * boundary — never mid-clause. Trailing conjunctions and copulas are stripped
+ * so the result cannot end on a dangling fragment like "…highlights are",
+ * which reads to an image model as an unfinished instruction.
+ */
+function bounded(value: string): string {
+  const clean = value.trim();
+  if (clean.length <= MAX_BIBLE_FIELD_CHARS) return clean;
+
+  const window = clean.slice(0, MAX_BIBLE_FIELD_CHARS);
+  const sentence = Math.max(window.lastIndexOf(". "), window.lastIndexOf("; "));
+  const cut = sentence > MAX_BIBLE_FIELD_CHARS * 0.4
+    ? window.slice(0, sentence)
+    : window.slice(0, Math.max(window.lastIndexOf(", "), window.lastIndexOf(" ")));
+
+  // Drop a trailing dangling word so the clause reads as complete.
+  return cut
+    .replace(/[\s,;:—-]+$/, "")
+    .replace(/\s+(?:and|or|but|with|the|a|an|is|are|was|were|of|to|in|on|for|as|that|which|while)$/i, "")
+    .trim();
+}
+
+/**
+ * Assemble the prompt within budget.
+ *
+ * `protectedClauses` are the global visual bible — palette, lens, lighting,
+ * continuity anchors, human presence, aspect ratio. They are what makes six
+ * independent image calls look like one sequence, so they are never dropped;
+ * only `optional` clauses are shed, from the end, when the budget is tight.
+ *
+ * Getting this order wrong is not a cosmetic bug: an earlier version listed the
+ * palette and lens last, so trimming silently removed exactly the context the
+ * compiler exists to guarantee.
+ */
+function fitClauses(
+  head: string,
+  protectedClauses: string[],
+  optional: string[],
+  tail: string,
+  limit: number,
+): string {
+  let kept = [...optional];
   while (kept.length > 0) {
-    const candidate = [head, ...kept, tail].filter(Boolean).join(" ");
+    const candidate = [head, ...kept, ...protectedClauses, tail].filter(Boolean).join(" ");
     if (candidate.length <= limit) return candidate;
     kept = kept.slice(0, -1);
   }
-  return [head, tail].filter(Boolean).join(" ");
+  // Head + bible + negatives only. If that still exceeds the budget the bible
+  // is kept anyway — an over-long prompt degrades gracefully, a prompt missing
+  // its continuity does not.
+  return [head, ...protectedClauses, tail].filter(Boolean).join(" ");
 }
 
 /**
@@ -136,33 +209,41 @@ export function compileShotPrompt(input: CompilePromptInput): string {
   const continuityAnchors = dedupePhrases([
     ...input.shotContinuity,
     ...c.recurring_objects,
-  ]).slice(0, 6);
+  ]).slice(0, 6).map(bounded);
 
-  const body = dedupePhrases([
+  const punctuate = (clauses: string[]) =>
+    dedupePhrases(clauses).map((clause) => (clause.endsWith(".") ? clause : `${clause}.`));
+
+  // Never dropped: this is the sequence's visual identity.
+  const protectedClauses = punctuate([
+    `Recurring elements that must stay identical across every shot: ${continuityAnchors.join("; ")}`,
+    `Palette: ${bounded(c.palette_bible)}`,
+    `Lighting bible: ${bounded(c.lighting_bible)}`,
+    `Lens: ${bounded(c.lens_bible)}`,
+    humanClause,
+    "Vertical 9:16 frame, photographic, cinematic production quality.",
+  ]);
+
+  // Shed from the end when the budget is tight, least load-bearing last.
+  const optional = punctuate([
     d.depth_and_focus,
     d.lighting,
     `Visual idea: ${d.visual_metaphor}`,
-    `World: ${c.visual_world}`,
-    `Location: ${c.location_bible}`,
-    `Recurring elements that must stay identical across every shot: ${continuityAnchors.join("; ")}`,
-    `Subject treatment: ${c.subject_bible}`,
-    `Palette: ${c.palette_bible}`,
-    `Lighting bible: ${c.lighting_bible}`,
-    `Lens: ${c.lens_bible}`,
-    `Screen direction: ${c.screen_direction}`,
-    ...c.continuity_constraints.slice(0, 3),
-    humanClause,
-    "Vertical 9:16 frame, photographic, cinematic production quality.",
-  ]).map((clause) => (clause.endsWith(".") ? clause : `${clause}.`));
+    `World: ${bounded(c.visual_world)}`,
+    `Location: ${bounded(c.location_bible)}`,
+    `Subject treatment: ${bounded(c.subject_bible)}`,
+    `Screen direction: ${bounded(c.screen_direction)}`,
+    ...c.continuity_constraints.slice(0, 3).map(bounded),
+  ]);
 
-  const negatives = dedupePhrases([
+  const negatives = mergeNegatives([
     ...STRUCTURAL_NEGATIVES,
     ...(input.brandNegative ? [input.brandNegative] : []),
     c.global_negative_prompt,
   ]);
   const tail = `Avoid: ${negatives.join("; ")}.`;
 
-  return fitClauses(head, body, tail, MAX_COMPILED_PROMPT_CHARS);
+  return fitClauses(head, protectedClauses, optional, tail, MAX_COMPILED_PROMPT_CHARS);
 }
 
 /**
