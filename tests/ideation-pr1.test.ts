@@ -672,6 +672,7 @@ test("prompt trust hierarchy follows Execution constraints and rejects external 
   } satisfies TechniqueResearch;
   const prompts = await buildIdeationPrompts({
     clientName: "Client",
+    techniqueSlug: "review-mined-pain-language",
     techniqueName: "Review-Mined Pain Language",
     techniqueFocus: "Use supported pain language.",
     research,

@@ -165,6 +165,7 @@ function research(sources: IdeationEvidenceSource[]): TechniqueResearch {
 function promptInput(overrides: Partial<Parameters<typeof buildIdeationPrompts>[0]> = {}) {
   return {
     clientName: "Attract Acquisition",
+    techniqueSlug: "review-mined-pain-language",
     techniqueName: "Review-Mined Pain Language",
     techniqueFocus: "Pain language, objections, and supported phrasing.",
     research: research([contextSource]),
@@ -202,31 +203,28 @@ function widestUnitId(): string {
 }
 
 function groundedCandidate() {
-  const fields = {
-    asset_type: "reel",
-    working_title: "From hidden proof to visible authority",
-    hook: "Your strongest proof should not stay hidden.",
-    core_message: "Show the strongest proof that stays hidden.",
-    psychological_angle: "Buyers feel invisible.",
-    cta: "Review hidden proof and visible authority.",
-  };
+  // Claim-first contract: facts live in grounded_propositions; the five fields
+  // reference them. Creative fields no longer need source vocabulary.
+  const unit = widestUnitId();
+  const proposition = "Buyers feel invisible when their strongest proof stays hidden";
   return {
-    ...fields,
-    evidence_references: [
-      fields.working_title,
-      fields.hook,
-      fields.core_message,
-      fields.psychological_angle,
-      fields.cta,
-    ].map((claim) => ({
-      evidence_type: "paraphrase",
-      support_unit_id: widestUnitId(),
+    candidate_index: 1,
+    asset_type: "reel",
+    grounded_propositions: [{
+      proposition_id: "P1",
+      text: proposition,
+      evidence_mode: "paraphrase",
+      support_unit_ids: [unit],
       source_ids: [contextSource.source_id],
       source_ref: contextSource.source_ref,
       source_url: contextSource.source_url,
-      support_note: "Supported by the cited support unit.",
-      claim,
-    })),
+      support_note: "The unit states this.",
+    }],
+    working_title: { text: "The hidden proof problem", proposition_ids: ["P1"] },
+    hook: { text: "Your strongest proof is hidden. Here is why that matters.", proposition_ids: ["P1"] },
+    core_message: { text: proposition, proposition_ids: ["P1"] },
+    psychological_angle: { code: "proof_visibility", proposition_ids: ["P1"] },
+    cta: { text: "Look at what your proof is doing right now", proposition_ids: ["P1"] },
   };
 }
 

@@ -369,14 +369,32 @@ function makeHarness(options: HarnessOptions = {}): Harness {
           desired_outcomes: ["visible proof"],
           content_opportunities: ["show hidden proof"],
         },
+        // Claim-first shape, as generateTechniqueCandidates now returns it.
+        // The handler adapts this to the unchanged persisted candidate shape.
         candidates: assetTypes.map((assetType) => ({
           asset_type: assetType,
           working_title: "Show hidden proof",
           hook: "Proof stays hidden",
           core_message: "Make hidden proof visible",
-          psychological_angle: "Visible proof",
+          psychological_angle: "Proof visibility",
+          psychological_angle_code: "proof_visibility",
           cta: "Review hidden proof",
-          evidence_references: [],
+          angle_source: "model" as const,
+          field_propositions: {
+            working_title: ["P1"], hook: ["P1"], core_message: ["P1"],
+            psychological_angle: ["P1"], cta: ["P1"],
+          },
+          propositions: [{
+            proposition_id: "P1",
+            text: "Proof stays hidden",
+            evidence_mode: "paraphrase" as const,
+            source_ids: ["context:c1:v1"],
+            source_ref: "02_Avatar_And_Buyer_Psychology.md",
+            source_url: "aa-authority://client/client-1/context/c1",
+            support_unit_ids: ["su_0000000000000001"],
+            support_span: "Proof stays hidden",
+            support_note: "The unit states this.",
+          }],
         })),
       };
     },

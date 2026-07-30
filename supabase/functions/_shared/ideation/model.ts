@@ -27,9 +27,17 @@ import {
 import { logIdeationProviderCall } from "./telemetry.ts";
 import {
   extractIdeationJson,
-  validateIdeationCandidateOutput,
-  type GeneratedIdeationCandidate,
+  validateClaimFirstCandidateOutput,
+  type CandidateFieldFailure,
+  type ClaimFirstCandidate,
 } from "./output.ts";
+import {
+  ideationAnglesForTechnique,
+  IDEATION_ANGLE_TAXONOMY_VERSION,
+  IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
+  IDEATION_FIELD_REPAIR_POLICY_VERSION,
+  IDEATION_PROPOSITION_SCHEMA_VERSION,
+} from "./candidate-fields.ts";
 import type { IdeationAssetType } from "./period.ts";
 import type { TechniqueResearch } from "./techniques/types.ts";
 
@@ -38,7 +46,7 @@ export { IDEATION_OUTPUT_SCHEMA_VERSION, IDEATION_PROMPT_VERSION };
 export type IdeationModelResult =
   | {
     ok: true;
-    candidates: GeneratedIdeationCandidate[];
+    candidates: ClaimFirstCandidate[];
     structuredFindings: Record<string, string[]>;
     model: string;
     retried: boolean;
@@ -60,6 +68,7 @@ export interface IdeationGenerationTelemetryContext {
 
 interface IdeationPromptInput {
   clientName: string;
+  techniqueSlug: string;
   techniqueName: string;
   techniqueFocus: string;
   research: TechniqueResearch;
@@ -92,7 +101,7 @@ brief, or add storyboard, shot, render, distribution, or Calendar instructions.
 
 Return exactly one compact JSON object and no surrounding prose.`;
 
-export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["non-empty supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"asset_type":"reel|carousel|static|story","working_title":"specific title","hook":"specific opening","core_message":"one supported message","psychological_angle":"persona-fit rationale","cta":"honest next action","evidence_references":[{"evidence_type":"paraphrase","source_ids":["exactly one exact source_id"],"source_ref":"exact source_ref","source_url":"exact source_url","claim":"character-for-character copy of one of THIS candidate's five field values","support_unit_ids":["one to three exact UNIT_IDs from that source"],"support_note":"one short plain sentence linking that unit to the claim"}]}]}`;
+export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"candidate_index":1,"asset_type":"reel|carousel|static|story","grounded_propositions":[{"proposition_id":"P1","text":"one plain factual statement taken from the cited units","evidence_mode":"paraphrase","source_ids":["the SOURCE_ID those units belong to"],"source_ref":"exact source_ref","source_url":"exact source_url","support_unit_ids":["one to three exact UNIT_IDs from that source"],"support_note":"The unit states this."}],"working_title":{"text":"short creative title","proposition_ids":["P1"]},"hook":{"text":"creative opening line","proposition_ids":["P1"]},"core_message":{"text":"the supported message","proposition_ids":["P1"]},"psychological_angle":{"code":"one allowed angle code","proposition_ids":["P1"]},"cta":{"text":"honest next action","proposition_ids":["P1"]}}]}`;
 
 export const IDEATION_USER_PROMPT_TEMPLATE = `CLIENT
 {{CLIENT_NAME}}
@@ -132,91 +141,54 @@ reference must copy source_id, source_ref, and source_url exactly from it:
 Return:
 {{OUTPUT_CONTRACT}}
 
-EVIDENCE CLAIM RULE — read this twice, it is the most common failure.
-"claim" is never a description, summary, paraphrase, or explanation of a field.
-Each "claim" must be a character-for-character copy of one of THIS candidate's
-five field values: working_title, hook, core_message, psychological_angle, or
-cta. Copy the value exactly as you wrote it above — identical wording, spacing,
-punctuation, and casing. Put every explanation in support_note, never in "claim".
+WRITE THE FACTS FIRST, THEN THE COPY.
 
-Give each candidate at least five evidence references, so that all five of its
-field values appear verbatim as the "claim" of at least one reference.
+STEP 1 — GROUNDED PROPOSITIONS
+For each candidate, write one to four plain factual statements in
+"grounded_propositions". Each one:
+- states a single fact taken from the support units you cite;
+- is built from those units' own nouns and verbs — light editing only;
+- cites one to three UNIT_IDs from ONE source in "support_unit_ids";
+- carries "source_ids", "source_ref", and "source_url" copied from that source;
+- has a "support_note" built only from words in the unit. "The unit states
+  this." is always acceptable;
+- has a short "proposition_id" such as "P1", unique within that candidate.
 
-HOW TO MAKE EVERY FIELD PASS GROUNDING
-Write each candidate field in the approved authority's own vocabulary. Reuse the
-distinctive nouns and verbs that actually appear in the support unit you will
-cite — do not substitute synonyms, and do not introduce a concept the unit does
-not contain. Build each field this way:
-1. First choose the support unit — or up to three units from one source — that
-   carry the proposition.
-2. Write the field by LIGHTLY EDITING that unit's own words: drop the label,
-   fix the grammar, keep the nouns and verbs. Do not translate it into
-   marketing language, and do not add an idea the unit does not contain.
-3. Keep every field short — at most 12 words. A long field introduces words the
-   unit does not have and will be rejected.
-4. Cite those units' UNIT_IDs as the evidence for that field.
-A field whose wording shares no substantive vocabulary with the units you cite
-will be rejected. If a field is hard to ground, widen the citation to the
-neighbouring units whose words you actually used, or rewrite the field using the
-unit's own nouns and verbs.
+Every number, business outcome, causal statement, comparison, guarantee, and
+superlative must live in a proposition and be carried by its units. If a unit
+does not say it, do not write it.
 
-A bullet, a numbered item, a key-value line, and a table row are all citable
-directly. You do not need to find a prose sentence. State the proposition in
-your own words in the field, cite the unit that carries it, and explain the link
-in support_note.
+STEP 2 — THE CANDIDATE FIELDS
+Each field is an object with "proposition_ids" naming the propositions it rests
+on. Cite only proposition_ids you defined for that same candidate.
 
-Never rewrite a bullet or a table row into a sentence and present it as source
-text. You never supply the source span at all — the server already holds the
-exact text of every unit.
+- "core_message" is a FACT. Keep it close to its propositions' wording.
+- "working_title", "hook", and "cta" are CREATIVE. Write them as normal
+  marketing copy: questions, commands, contrast, curiosity, second person. You
+  do NOT need to reuse source vocabulary here. You must not add a new fact,
+  number, result, guarantee, comparison, urgency, or scarcity claim that its
+  propositions do not carry.
+- "psychological_angle" is a CLASSIFICATION. Return only a "code" from this
+  allowed list — no free text, no invented labels:
+{{ANGLE_CODES}}
 
-A heading gives context only. It cannot support a claim on its own; cite the
-bullet, row, or sentence that actually states the proposition.
+The angle describes how the idea works. It does not have to appear in the
+source, and it must never smuggle in a factual claim.
 
-WORKED EXAMPLE — this is the pattern that passes.
-Suppose these two units exist:
-  UNIT_ID: su_example1 | TYPE: bullet
-    RAW: **Stage:** Operating with real clients and real delivery — not a startup
-  UNIT_ID: su_example2 | TYPE: bullet
-    RAW: **Pain:** Good work stays invisible because proof is never captured
+EXAMPLE OF THE PATTERN
+grounded_propositions: [{"proposition_id":"P1","text":"Good work stays invisible
+when proof is never captured","evidence_mode":"paraphrase","support_unit_ids":
+["su_example2"],"support_note":"The unit states this."}]
+working_title: {"text":"The proof nobody ever sees","proposition_ids":["P1"]}
+hook: {"text":"Your best work is invisible. Here is why.","proposition_ids":["P1"]}
+core_message: {"text":"Good work stays invisible when proof is never captured","proposition_ids":["P1"]}
+psychological_angle: {"code":"proof_visibility","proposition_ids":["P1"]}
+cta: {"text":"Look at what your proof is doing right now","proposition_ids":["P1"]}
 
-A field that PASSES, because its meaningful words come from the units:
-  core_message: "Good work stays invisible when proof is never captured"
-  reference: {"evidence_type":"paraphrase","support_unit_ids":["su_example2"],
-   "support_note":"The unit states this.", "claim":"Good work stays invisible when proof is never captured"}
+A hook like "Scale to 3x more clients in 90 days" FAILS: it adds a number and a
+result no proposition carries.
 
-A field that FAILS, because it shares no substantive vocabulary and adds an
-unsupported outcome and number:
-  core_message: "Scale to 3x more clients in 90 days"
-
-If your field draws on two units, cite both:
-  "support_unit_ids":["su_example1","su_example2"]
-Citing only one unit when you used the words of two is the single most common
-cause of rejection.
-
-EVIDENCE REFERENCE SHAPE — use this shape for every reference, with no variation.
-- "evidence_type" is always exactly "paraphrase". Never emit "exact_quote" or
-  "derived_claim".
-- "support_unit_ids" is an array of one to three UNIT_IDs copied from the
-  support-unit list, all belonging to the SAME source. Cite every unit whose
-  words you used. If one unit carries the whole proposition, cite just that one.
-- "source_ids" contains exactly the SOURCE_ID that unit belongs to, and
-  "source_ref"/"source_url" are that same source's values, copied exactly.
-- "support_note" is one short plain sentence saying how that unit supports the
-  claim. Build it ONLY from words that appear in the cited unit, plus ordinary
-  connecting words. Do not restate the claim in the note, and do not introduce
-  any outcome, result, growth, revenue, buyer, competitor, guarantee, causal, or
-  numeric word that is not already in the unit. "The unit states this." is a
-  perfectly acceptable note.
-- Never include "support_span". Never include "quoted_text" or "reasoning_note".
-
-Do not write superlatives ("best", "fastest", "number one"), absolutes
-("always", "never", "every", "all", "nobody"), guarantees, certainty ("will",
-"inevitably"), competitor comparisons, causal promises, or any number, unless
-that exact concept appears in the support unit you cite. A number must appear in
-that unit; a number from a different row or a different unit does not support it.
-
-Produce exactly {{CANDIDATE_COUNT}} candidates. Every field is at most 12
-words and is built from the words of the unit you cite for it.`;
+Produce exactly {{CANDIDATE_COUNT}} candidates. Keep every field concise.`;
 
 export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
   hierarchy_version: "aa.ideation.trust-hierarchy.v1",
@@ -241,6 +213,14 @@ export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
   support_unit_parser_version: IDEATION_SUPPORT_UNIT_PARSER_VERSION,
   support_unit_selection: IDEATION_SUPPORT_UNIT_SELECTION,
   support_unit_block_mode: "unit_registry_with_raw_text",
+  // Candidate-field policy v2: facts are grounded once in a proposition
+  // registry; creative fields frame those propositions; the strategic angle is
+  // a code-owned taxonomy value.
+  candidate_field_policy_version: IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
+  proposition_schema_version: IDEATION_PROPOSITION_SCHEMA_VERSION,
+  angle_taxonomy_version: IDEATION_ANGLE_TAXONOMY_VERSION,
+  field_repair_policy_version: IDEATION_FIELD_REPAIR_POLICY_VERSION,
+  candidate_contract_mode: "claim_first",
   deduplicate_sources_by_source_id: true,
   maximum_prompt_chars: IDEATION_PROMPT_BUDGET.maximum_prompt_chars,
   oversized_prompt_behaviour: "fail_closed_never_truncate_authority",
@@ -251,6 +231,47 @@ export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
 // Slack left inside the technique deadline so a correction call can always
 // return, be validated, and be reported before the deadline is reached.
 const CORRECTION_TIME_RESERVE_MS = 5_000;
+
+/** Bounded output budget for the field-level repair call. */
+export const IDEATION_FIELD_REPAIR_TOKENS = 1_600;
+
+/** Bounded, non-sensitive repair context taken from the model's own response. */
+function repairContext(parsed: Record<string, unknown>): Array<{
+  candidate_index: number;
+  asset_type: string;
+  propositions: Array<{ proposition_id: string; text: string }>;
+  fields: Record<string, string>;
+}> {
+  const rows = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+  return rows.map((row, index) => {
+    const candidate = (row ?? {}) as Record<string, unknown>;
+    const propositions = Array.isArray(candidate.grounded_propositions)
+      ? candidate.grounded_propositions.map((entry) => {
+        const proposition = (entry ?? {}) as Record<string, unknown>;
+        return {
+          proposition_id: String(proposition.proposition_id ?? ""),
+          text: String(proposition.text ?? ""),
+        };
+      })
+      : [];
+    const fields: Record<string, string> = {};
+    for (const field of ["working_title", "hook", "core_message", "psychological_angle", "cta"]) {
+      const entry = candidate[field];
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const value = entry as Record<string, unknown>;
+        fields[field] = typeof value.text === "string"
+          ? value.text
+          : typeof value.code === "string" ? value.code : "";
+      }
+    }
+    return {
+      candidate_index: typeof candidate.candidate_index === "number" ? candidate.candidate_index : index + 1,
+      asset_type: String(candidate.asset_type ?? ""),
+      propositions,
+      fields,
+    };
+  });
+}
 
 function correctionDirective(
   reason: "none" | "format" | "truncation",
@@ -318,6 +339,9 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
       ? serializeSourceUnitSection(external, supportUnits)
       : "No external research source is present for this run.",
     REGISTRY: serializeEvidenceRegistryIdentities(evidenceRegistry),
+    ANGLE_CODES: ideationAnglesForTechnique(input.techniqueSlug)
+      .map((angle) => `  ${angle.code} — ${angle.definition}`)
+      .join("\n"),
     OUTPUT_CONTRACT: IDEATION_OUTPUT_CONTRACT_TEMPLATE,
     CANDIDATE_COUNT: String(input.assetTypes.length),
   };
@@ -327,6 +351,170 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
   );
 
   return { system, user, evidenceRegistry, supportUnits };
+}
+
+
+/**
+ * Bounded field-level compliance repair.
+ *
+ * When only candidate fields fail, regenerating the whole technique response
+ * throws away work that already validated. This builds a minimal repair prompt
+ * carrying ONLY the failing fields, their typed reasons, the already-validated
+ * propositions those fields may rest on, and the allowed angle codes. It
+ * deliberately does not carry unrelated approved authority.
+ */
+export function buildFieldRepairPrompt(input: {
+  techniqueSlug: string;
+  failures: CandidateFieldFailure[];
+  candidates: Array<{
+    candidate_index: number;
+    asset_type: string;
+    propositions: Array<{ proposition_id: string; text: string }>;
+    fields: Record<string, string>;
+  }>;
+}): { system: string; user: string } {
+  const system =
+    "You repair only the named invalid fields of an Ideation candidate. Return exactly one compact JSON object and no prose. Do not change any field that is not named. Do not add facts.";
+  const blocks = input.candidates.map((candidate) => {
+    const failing = input.failures.filter((failure) => failure.candidate_index === candidate.candidate_index);
+    if (failing.length === 0) return "";
+    return [
+      `CANDIDATE ${candidate.candidate_index} (asset_type ${candidate.asset_type})`,
+      "VALIDATED PROPOSITIONS — these are already proven; do not change them:",
+      ...candidate.propositions.map((proposition) => `  ${proposition.proposition_id}: ${proposition.text}`),
+      "FIELDS TO REPAIR:",
+      ...failing.map((failure) =>
+        `  ${failure.field} — rejected because: ${failure.message}\n    current: ${candidate.fields[failure.field] ?? "(none)"}`
+      ),
+    ].join("\n");
+  }).filter(Boolean).join("\n\n");
+
+  const user = [
+    blocks,
+    "",
+    "ALLOWED psychological_angle CODES:",
+    ideationAnglesForTechnique(input.techniqueSlug)
+      .map((angle) => `  ${angle.code} — ${angle.definition}`)
+      .join("\n"),
+    "",
+    "RULES",
+    "- Rewrite ONLY the listed fields.",
+    "- A creative field (working_title, hook, cta) may use ordinary marketing",
+    "  language but must add no fact, number, result, guarantee, comparison,",
+    "  urgency, or scarcity the cited propositions do not carry.",
+    "- core_message must stay close to its propositions' wording.",
+    "- psychological_angle must be one allowed code, nothing else.",
+    "- Keep the same proposition_ids unless a proposition itself was rejected.",
+    "- If a grounded_propositions.PX entry was rejected, return it under",
+    '  "propositions" as {"proposition_id":"PX","text":"..."} and restate it',
+    "  strictly inside what its already-cited units say. Do not add a number,",
+    "  outcome, comparison, causal link, or guarantee those units do not carry.",
+    "",
+    "Return exactly:",
+    '{"repairs":[{"candidate_index":1,"propositions":[{"proposition_id":"P1","text":"..."}],"fields":{"hook":{"text":"...","proposition_ids":["P1"]}}}]}',
+  ].join("\n");
+  return { system, user };
+}
+
+/**
+ * Merges a repair response into the original model output. Only the fields that
+ * actually failed are replaced; every already-valid field is carried through
+ * byte-for-byte, and immutable identity can never be altered.
+ */
+export function applyFieldRepairs(
+  original: Record<string, unknown>,
+  repairs: unknown,
+  failures: CandidateFieldFailure[],
+): { ok: true; merged: Record<string, unknown> } | { ok: false; error: string } {
+  if (!repairs || typeof repairs !== "object" || Array.isArray(repairs)) {
+    return { ok: false, error: "Field repair returned malformed JSON." };
+  }
+  const rows = (repairs as Record<string, unknown>).repairs;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: false, error: "Field repair returned no repairs." };
+  }
+  const candidates = Array.isArray(original.candidates) ? [...original.candidates] : null;
+  if (!candidates) return { ok: false, error: "The original response has no candidates to repair." };
+
+  const repairable = new Map<number, Set<string>>();
+  for (const failure of failures) {
+    if (!repairable.has(failure.candidate_index)) repairable.set(failure.candidate_index, new Set());
+    repairable.get(failure.candidate_index)!.add(failure.field);
+  }
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return { ok: false, error: "Field repair contains a malformed entry." };
+    }
+    const entry = row as Record<string, unknown>;
+    for (const key of Object.keys(entry)) {
+      if (key !== "candidate_index" && key !== "fields" && key !== "propositions") {
+        return { ok: false, error: `Field repair contains the unexpected key ${key}.` };
+      }
+    }
+    const candidateIndex = entry.candidate_index;
+    if (typeof candidateIndex !== "number" || !Number.isInteger(candidateIndex)) {
+      return { ok: false, error: "Field repair is missing a candidate_index." };
+    }
+    const allowed = repairable.get(candidateIndex);
+    if (!allowed) return { ok: false, error: "Field repair targets a candidate that did not fail." };
+    const target = candidates[candidateIndex - 1];
+    if (!target || typeof target !== "object") {
+      return { ok: false, error: "Field repair targets a candidate that does not exist." };
+    }
+    // A rejected proposition may be restated. Only its text changes: the units
+    // and sources it cites are carried through untouched, so the repair cannot
+    // reach for new evidence.
+    if (entry.propositions !== undefined) {
+      if (!Array.isArray(entry.propositions)) {
+        return { ok: false, error: "Field repair propositions must be an array." };
+      }
+      const existing = (target as Record<string, unknown>).grounded_propositions;
+      if (!Array.isArray(existing)) {
+        return { ok: false, error: "The original candidate has no propositions to repair." };
+      }
+      for (const rawFix of entry.propositions) {
+        if (!rawFix || typeof rawFix !== "object" || Array.isArray(rawFix)) {
+          return { ok: false, error: "Field repair contains a malformed proposition." };
+        }
+        const fix = rawFix as Record<string, unknown>;
+        for (const key of Object.keys(fix)) {
+          if (key !== "proposition_id" && key !== "text") {
+            return { ok: false, error: `A repaired proposition may not set ${key}.` };
+          }
+        }
+        const id = typeof fix.proposition_id === "string" ? fix.proposition_id.trim() : "";
+        if (!allowed.has(`grounded_propositions.${id}`)) {
+          return { ok: false, error: `Field repair may not rewrite proposition ${id}, which did not fail.` };
+        }
+        const original = existing.find((item) =>
+          item && typeof item === "object"
+          && (item as Record<string, unknown>).proposition_id === id
+        ) as Record<string, unknown> | undefined;
+        if (!original) return { ok: false, error: `Field repair targets unknown proposition ${id}.` };
+        if (typeof fix.text !== "string" || !fix.text.trim()) {
+          return { ok: false, error: `Repaired proposition ${id} has no text.` };
+        }
+        original.text = fix.text.trim();
+      }
+    }
+    const fields = entry.fields;
+    if (fields === undefined) continue;
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+      return { ok: false, error: "Field repair is missing a fields object." };
+    }
+    for (const [field, replacement] of Object.entries(fields as Record<string, unknown>)) {
+      if (!allowed.has(field)) {
+        return { ok: false, error: `Field repair may not rewrite ${field}, which did not fail.` };
+      }
+      // Identity and allocation are immutable through a repair.
+      if (field === "asset_type" || field === "candidate_index" || field === "grounded_propositions") {
+        return { ok: false, error: `Field repair may not change ${field}.` };
+      }
+      (target as Record<string, unknown>)[field] = replacement;
+    }
+  }
+  return { ok: true, merged: { ...original, candidates } };
 }
 
 export async function generateTechniqueCandidates(input: IdeationPromptInput): Promise<IdeationModelResult> {
@@ -383,6 +571,7 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
   let correctionReason: "none" | "format" | "truncation" = "none";
   let lastValidationError: string | null = null;
   let retried = false;
+  let fieldRepairUsed = false;
   let lastFailure: { code: string; error: string; retryable: boolean } | null = null;
 
   for (let attempt = 0; attempt <= IDEATION_MODEL_CONFIGURATION.correction_attempts; attempt += 1) {
@@ -424,11 +613,70 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
     });
 
     const parsed = result.ok ? extractIdeationJson(result.text) : null;
-    const validated = result.ok
+    let validated = result.ok
       ? (parsed
-        ? validateIdeationCandidateOutput(parsed, input.assetTypes, prompts.evidenceRegistry, prompts.supportUnits)
-        : { ok: false as const, error: "Anthropic returned malformed candidate JSON." })
+        ? validateClaimFirstCandidateOutput(parsed, input.assetTypes, prompts.evidenceRegistry, prompts.supportUnits, input.techniqueSlug)
+        : { ok: false as const, error: "Anthropic returned malformed candidate JSON.", failures: [] })
       : null;
+
+    // One bounded field-level repair per model response. A failing proposition
+    // is repairable too — the repair may only restate it inside the same cited
+    // units, and the result is re-validated under the identical
+    // evidence-policy-v2 rules, so nothing is accepted that was not already
+    // provable.
+    if (parsed && validated && !validated.ok && !fieldRepairUsed && validated.failures.length > 0) {
+      const repairBudgetMs = runtime.technique_deadline_ms - (Date.now() - startedAt) - CORRECTION_TIME_RESERVE_MS;
+      if (repairBudgetMs >= runtime.minimum_correction_budget_ms) {
+        fieldRepairUsed = true;
+        const repairPrompts = buildFieldRepairPrompt({
+          techniqueSlug: input.techniqueSlug,
+          failures: validated.failures,
+          candidates: repairContext(parsed),
+        });
+        const repairResult = await callAnthropic({
+          system: repairPrompts.system,
+          user: repairPrompts.user,
+          model,
+          maxTokens: IDEATION_FIELD_REPAIR_TOKENS,
+          timeoutMs: Math.max(1_000, Math.min(runtime.call_timeout_ms, repairBudgetMs)),
+          connectTimeoutMs,
+          rejectTruncation: IDEATION_MODEL_CONFIGURATION.reject_max_token_truncation,
+        });
+        logIdeationProviderCall({
+          cycle_id: input.telemetry?.cycleId ?? null,
+          technique_slug: input.telemetry?.techniqueSlug ?? "unknown",
+          attempt_number: input.telemetry?.attemptNumber ?? 0,
+          call_index: attempt,
+          correction_reason: "field_repair",
+          requested_slot_count: input.assetTypes.length,
+          prompt_chars: repairPrompts.system.length + repairPrompts.user.length,
+          approximate_prompt_tokens: approximatePromptTokens(repairPrompts.system.length + repairPrompts.user.length),
+          selected_source_count: prompts.evidenceRegistry.length,
+          research_result_count: input.research.evidenceSources.length,
+          configured_output_tokens: IDEATION_FIELD_REPAIR_TOKENS,
+          configured_call_timeout_ms: Math.max(1_000, Math.min(runtime.call_timeout_ms, repairBudgetMs)),
+          configured_connect_timeout_ms: connectTimeoutMs ?? 0,
+          technique_deadline_ms: runtime.technique_deadline_ms,
+          elapsed_ms: 0,
+          remaining_budget_ms: runtime.technique_deadline_ms - (Date.now() - startedAt),
+          // Field names and typed codes only — never candidate text.
+          outcome: repairResult.ok ? "field_repair_attempted" : "provider_failure",
+          stop_reason: null,
+          failure_code: repairResult.ok ? null : repairResult.code,
+          retryable: repairResult.ok ? null : repairResult.retryable,
+        });
+        if (repairResult.ok) {
+          const repairJson = extractIdeationJson(repairResult.text);
+          const merged = applyFieldRepairs(parsed, repairJson, validated.failures);
+          if (merged.ok) {
+            // The repaired response is validated exactly like the original.
+            validated = validateClaimFirstCandidateOutput(
+              merged.merged, input.assetTypes, prompts.evidenceRegistry, prompts.supportUnits, input.techniqueSlug,
+            );
+          }
+        }
+      }
+    }
 
     logIdeationProviderCall({
       cycle_id: input.telemetry?.cycleId ?? null,

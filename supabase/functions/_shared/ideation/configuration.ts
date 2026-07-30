@@ -1,3 +1,4 @@
+import { IDEATION_CANDIDATE_FIELD_MANIFEST } from "./candidate-fields.ts";
 import {
   IDEATION_EVIDENCE_POLICY_VERSION,
   IDEATION_SUPPORT_UNIT_PARSER_VERSION,
@@ -72,6 +73,9 @@ export async function buildIdeationConfigurationSnapshot(input: IdeationConfigur
     canonical_technique_order: [...IDEATION_TECHNIQUE_SLUGS],
     // Evidence policy v2 participates in the hash: an existing v1 cycle can
     // never silently reuse the previous grounding contract.
+    // Candidate-field policy v2: a semantically different candidate contract
+    // must never replay an older cycle's configuration.
+    candidate_field_policy: IDEATION_CANDIDATE_FIELD_MANIFEST,
     evidence_policy: {
       version: IDEATION_EVIDENCE_POLICY_VERSION,
       support_unit_parser_version: IDEATION_SUPPORT_UNIT_PARSER_VERSION,

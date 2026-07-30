@@ -1,5 +1,17 @@
 import type { IdeationEvidenceSource } from "./evidence.ts";
 import {
+  defaultAngleForTechnique,
+  IDEATION_ANGLE_TAXONOMY_VERSION,
+  IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
+  IDEATION_PROPOSITION_SCHEMA_VERSION,
+  detectHighRiskCategories,
+  ideationAngleDefinition,
+  IDEATION_CANDIDATE_FIELD_NAMES,
+  IDEATION_FIELD_LIMITS,
+  type IdeationAngleDefinition,
+  type IdeationCandidateFieldName,
+} from "./candidate-fields.ts";
+import {
   quotableSpansForUnit,
   supportTextForUnit,
   type IdeationSupportUnit,
@@ -590,6 +602,57 @@ function validateEvidenceReference(
   };
 }
 
+/**
+ * Structured findings are graded against the whole registry. Extracted so the
+ * claim-first path enforces exactly the same rule, with no second contract.
+ */
+export function validateStructuredFindings(
+  value: Record<string, unknown>,
+  evidenceRegistry: IdeationEvidenceSource[],
+): { ok: true; structuredFindings: Record<string, string[]> } | { ok: false; error: string } {
+  const rawFindings = value.structured_findings;
+  const findingKeys = ["pain_language", "objections", "desired_outcomes", "content_opportunities"] as const;
+  if (!rawFindings || typeof rawFindings !== "object" || Array.isArray(rawFindings)) {
+    return { ok: false as const, error: "Model output requires structured_findings." };
+  }
+  const structuredFindings: Record<string, string[]> = {};
+  let findingCount = 0;
+  for (const key of findingKeys) {
+    const items = (rawFindings as Record<string, unknown>)[key];
+    if (!Array.isArray(items) || items.length > 20 || items.some((item) =>
+      typeof item !== "string" || !item.trim() || item.trim().length > 500
+    )) {
+      return { ok: false as const, error: `structured_findings.${key} must be a bounded string array.` };
+    }
+    structuredFindings[key] = items.map((item) => (item as string).trim());
+    findingCount += structuredFindings[key].length;
+  }
+  if (findingCount === 0) {
+    return { ok: false as const, error: "Structured findings cannot consist only of empty arrays." };
+  }
+  const registrySupport = evidenceRegistry.map((source) => source.bounded_excerpt).join("\n");
+  const registryNumbers = new Set(numericalTokens(registrySupport));
+  const findingText = Object.values(structuredFindings).flat().join("\n");
+  const unsupportedFindingNumbers = numericalTokens(findingText)
+    .filter((token) => !registryNumbers.has(token));
+  if (unsupportedFindingNumbers.length > 0) {
+    return {
+      ok: false,
+      error: `Structured findings contain unsupported numerical claims: ${[...new Set(unsupportedFindingNumbers)].join(", ")}.`,
+    };
+  }
+  if (unsupportedClaims(findingText, registrySupport).length > 0) {
+    return { ok: false as const, error: "Structured findings contain an unsupported high-risk claim." };
+  }
+  for (const finding of Object.values(structuredFindings).flat()) {
+    const grounding = validateClaimGrounding(finding, registrySupport);
+    if (!grounding.ok) {
+      return { ok: false as const, error: `Structured finding is not grounded: ${grounding.error}` };
+    }
+  }
+  return { ok: true, structuredFindings };
+}
+
 export function validateIdeationCandidateOutput(
   value: Record<string, unknown>,
   expectedAssetTypes: IdeationAssetType[],
@@ -616,46 +679,9 @@ export function validateIdeationCandidateOutput(
     return { ok: false, error: "The support-unit registry is empty." };
   }
 
-  const rawFindings = value.structured_findings;
-  const findingKeys = ["pain_language", "objections", "desired_outcomes", "content_opportunities"] as const;
-  if (!rawFindings || typeof rawFindings !== "object" || Array.isArray(rawFindings)) {
-    return { ok: false, error: "Model output requires structured_findings." };
-  }
-  const structuredFindings: Record<string, string[]> = {};
-  let findingCount = 0;
-  for (const key of findingKeys) {
-    const items = (rawFindings as Record<string, unknown>)[key];
-    if (!Array.isArray(items) || items.length > 20 || items.some((item) =>
-      typeof item !== "string" || !item.trim() || item.trim().length > 500
-    )) {
-      return { ok: false, error: `structured_findings.${key} must be a bounded string array.` };
-    }
-    structuredFindings[key] = items.map((item) => (item as string).trim());
-    findingCount += structuredFindings[key].length;
-  }
-  if (findingCount === 0) {
-    return { ok: false, error: "Structured findings cannot consist only of empty arrays." };
-  }
-  const registrySupport = evidenceRegistry.map((source) => source.bounded_excerpt).join("\n");
-  const registryNumbers = new Set(numericalTokens(registrySupport));
-  const findingText = Object.values(structuredFindings).flat().join("\n");
-  const unsupportedFindingNumbers = numericalTokens(findingText)
-    .filter((token) => !registryNumbers.has(token));
-  if (unsupportedFindingNumbers.length > 0) {
-    return {
-      ok: false,
-      error: `Structured findings contain unsupported numerical claims: ${[...new Set(unsupportedFindingNumbers)].join(", ")}.`,
-    };
-  }
-  if (unsupportedClaims(findingText, registrySupport).length > 0) {
-    return { ok: false, error: "Structured findings contain an unsupported high-risk claim." };
-  }
-  for (const finding of Object.values(structuredFindings).flat()) {
-    const grounding = validateClaimGrounding(finding, registrySupport);
-    if (!grounding.ok) {
-      return { ok: false, error: `Structured finding is not grounded: ${grounding.error}` };
-    }
-  }
+  const findingsResult = validateStructuredFindings(value, evidenceRegistry);
+  if (!findingsResult.ok) return { ok: false, error: findingsResult.error };
+  const structuredFindings = findingsResult.structuredFindings;
   if (!Array.isArray(value.candidates) || value.candidates.length !== expectedAssetTypes.length) {
     return { ok: false, error: `Model output must contain exactly ${expectedAssetTypes.length} candidates.` };
   }
@@ -730,4 +756,501 @@ export function validateIdeationCandidateOutput(
     });
   }
   return { ok: true, candidates, structuredFindings };
+}
+
+/* ==========================================================================
+ * Candidate-field policy v2 — claim-first candidate validation.
+ *
+ * Facts are grounded ONCE, in the proposition registry, under exactly the same
+ * evidence-policy-v2 rules as before. Creative fields then reference validated
+ * propositions and are checked for what they must not do. Nothing about
+ * grounding is relaxed: every number, outcome, causal statement, guarantee,
+ * comparison, and superlative must still be carried by a validated proposition.
+ * ======================================================================== */
+
+export interface ValidatedProposition {
+  proposition_id: string;
+  text: string;
+  evidence_mode: IdeationEvidenceType;
+  source_ids: string[];
+  source_ref: string;
+  source_url: string;
+  support_unit_ids: string[];
+  support_span: string;
+  support_note?: string;
+  reasoning_note?: string;
+  quoted_text?: string;
+}
+
+export interface ClaimFirstCandidate {
+  asset_type: IdeationAssetType;
+  working_title: string;
+  hook: string;
+  core_message: string;
+  psychological_angle: string;
+  psychological_angle_code: string;
+  cta: string;
+  propositions: ValidatedProposition[];
+  field_propositions: Record<string, string[]>;
+  angle_source: "model" | "technique_default";
+}
+
+export interface CandidateFieldFailure {
+  candidate_index: number;
+  field: string;
+  code: string;
+  message: string;
+}
+
+/** Everything a creative field is measured against: its cited propositions. */
+/**
+ * True when a creative field shares at least one distinctive concept with its
+ * propositions. Weak/generic vocabulary is excluded by meaningfulConcepts, so
+ * this can never be satisfied by a generic token alone.
+ */
+export function hasCreativeAlignment(text: string, supportText: string): boolean {
+  const fieldConcepts = meaningfulConcepts(text);
+  if (fieldConcepts.size === 0) return false;
+  const supportConcepts = meaningfulConcepts(supportText);
+  for (const concept of fieldConcepts) {
+    if (supportConcepts.has(concept)) return true;
+  }
+  return false;
+}
+
+function propositionSupportText(propositions: ValidatedProposition[]): string {
+  return propositions.map((proposition) => proposition.text).join("\n");
+}
+
+/**
+ * A creative field may frame a proposition in ordinary language, but it may not
+ * assert anything the proposition does not. Two independent checks:
+ *   1. every number must appear in the cited propositions;
+ *   2. every high-risk category present in the field must also be present in
+ *      the cited propositions, and survive the existing direct-support rule.
+ * Ordinary connective and rhetorical wording is deliberately not measured
+ * against source vocabulary — it asserts nothing.
+ */
+export function validateCreativeField(input: {
+  field: string;
+  text: string;
+  propositions: ValidatedProposition[];
+}): { ok: true } | { ok: false; code: string; message: string } {
+  const support = propositionSupportText(input.propositions);
+  if (input.propositions.length === 0) {
+    return {
+      ok: false,
+      code: "FIELD_HAS_NO_PROPOSITION",
+      message: `${input.field} must reference at least one validated proposition.`,
+    };
+  }
+
+  const supportNumbers = new Set(numericalTokens(support));
+  const unsupportedNumbers = numericalTokens(input.text).filter((token) => !supportNumbers.has(token));
+  if (unsupportedNumbers.length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_NUMBER",
+      message: `${input.field} contains a number its cited propositions do not carry.`,
+    };
+  }
+
+  const fieldRisks = detectHighRiskCategories(input.text);
+  const supportRisks = new Set(detectHighRiskCategories(support));
+  const introduced = fieldRisks.filter((code) => !supportRisks.has(code));
+  if (introduced.length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_CLAIM",
+      message: `${input.field} introduces an unsupported ${introduced[0]} claim.`,
+    };
+  }
+  // Even when the category is present on both sides, the existing direct-support
+  // rule still decides whether this particular sentence is carried.
+  if (unsupportedClaims(input.text, support).length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_CLAIM",
+      message: `${input.field} makes a high-risk claim its cited propositions do not directly support.`,
+    };
+  }
+
+  // Aboutness, calibrated for creative copy. A hook or CTA is not a factual
+  // claim, so it is not measured by the proposition-level overlap threshold —
+  // that threshold is what rejected valid framing. It must still be recognisably
+  // about its propositions: at least one DISTINCTIVE concept must be shared.
+  // Generic tokens (buyer, business, client, content, market, service, …) are
+  // dropped by meaningfulConcepts before this runs, so a single generic overlap
+  // still counts for nothing.
+  if (!hasCreativeAlignment(input.text, support)) {
+    return {
+      ok: false,
+      code: "FIELD_UNRELATED_TO_PROPOSITION",
+      message: `${input.field} is not recognisably about the propositions it cites.`,
+    };
+  }
+  return { ok: true };
+}
+
+/** core_message is a proposition, so it keeps the full grounding contract. */
+export function validateCoreMessageField(input: {
+  text: string;
+  propositions: ValidatedProposition[];
+}): { ok: true } | { ok: false; code: string; message: string } {
+  if (input.propositions.length === 0) {
+    return {
+      ok: false,
+      code: "FIELD_HAS_NO_PROPOSITION",
+      message: "core_message must reference at least one validated proposition.",
+    };
+  }
+  const support = propositionSupportText(input.propositions);
+  const grounding = validateClaimGrounding(input.text, support);
+  if (!grounding.ok) {
+    return { ok: false, code: "FIELD_UNSUPPORTED_CLAIM", message: `core_message: ${grounding.error}` };
+  }
+  return { ok: true };
+}
+
+export function validatePsychologicalAngle(input: {
+  code: unknown;
+  techniqueSlug: string;
+  propositions: ValidatedProposition[];
+}): { ok: true; angle: IdeationAngleDefinition } | { ok: false; code: string; message: string } {
+  if (typeof input.code !== "string" || !input.code.trim()) {
+    return {
+      ok: false,
+      code: "ANGLE_MISSING",
+      message: "psychological_angle must be a taxonomy code.",
+    };
+  }
+  const angle = ideationAngleDefinition(input.code.trim());
+  if (!angle) {
+    return {
+      ok: false,
+      code: "ANGLE_UNKNOWN",
+      message: "psychological_angle is not an allowed taxonomy code.",
+    };
+  }
+  if (!(angle.techniques as readonly string[]).includes(input.techniqueSlug)) {
+    return {
+      ok: false,
+      code: "ANGLE_TECHNIQUE_INCOMPATIBLE",
+      message: "psychological_angle is not compatible with this technique.",
+    };
+  }
+  if (input.propositions.length === 0) {
+    return {
+      ok: false,
+      code: "FIELD_HAS_NO_PROPOSITION",
+      message: "psychological_angle must reference at least one validated proposition.",
+    };
+  }
+  return { ok: true, angle };
+}
+
+export type ClaimFirstValidation =
+  | { ok: true; candidates: ClaimFirstCandidate[]; structuredFindings: Record<string, string[]> }
+  | { ok: false; error: string; failures: CandidateFieldFailure[] };
+
+/**
+ * Validates one claim-first model response.
+ *
+ * Order matters: propositions are validated first and independently, so a
+ * creative field can only ever be measured against evidence that has already
+ * passed the full evidence-policy-v2 contract.
+ */
+export function validateClaimFirstCandidateOutput(
+  value: Record<string, unknown>,
+  expectedAssetTypes: IdeationAssetType[],
+  evidenceRegistry: IdeationEvidenceSource[],
+  supportUnits: IdeationSupportUnit[],
+  techniqueSlug: string,
+): ClaimFirstValidation {
+  const fail = (error: string, failures: CandidateFieldFailure[] = []): ClaimFirstValidation =>
+    ({ ok: false, error, failures });
+
+  if (hasProhibitedKey(value)) {
+    return fail("Model output contains a prohibited downstream field.");
+  }
+  const registry = new Map(evidenceRegistry.map((source) => [source.source_id, source]));
+  if (registry.size !== evidenceRegistry.length || evidenceRegistry.length === 0) {
+    return fail("The allowed evidence registry is empty or contains duplicate source IDs.");
+  }
+  const unitRegistry = new Map(supportUnits.map((unit) => [unit.support_unit_id, unit]));
+  if (unitRegistry.size !== supportUnits.length || supportUnits.length === 0) {
+    return fail("The support-unit registry is empty or contains duplicate support_unit_ids.");
+  }
+
+  const findings = validateStructuredFindings(value, evidenceRegistry);
+  if (!findings.ok) return fail(findings.error);
+
+  if (!Array.isArray(value.candidates) || value.candidates.length !== expectedAssetTypes.length) {
+    return fail(`Model output must contain exactly ${expectedAssetTypes.length} candidates.`);
+  }
+
+  const candidates: ClaimFirstCandidate[] = [];
+  const failures: CandidateFieldFailure[] = [];
+
+  for (let index = 0; index < value.candidates.length; index += 1) {
+    const raw = value.candidates[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return fail(`Candidate ${index + 1} is not an object.`);
+    }
+    const row = raw as Record<string, unknown>;
+    const allowedKeys = new Set([
+      "candidate_index", "asset_type", "grounded_propositions",
+      ...IDEATION_CANDIDATE_FIELD_NAMES,
+    ]);
+    for (const key of Object.keys(row)) {
+      if (!allowedKeys.has(key)) {
+        return fail(`Candidate ${index + 1} contains the unexpected field ${key}.`);
+      }
+    }
+    if (row.asset_type !== expectedAssetTypes[index]) {
+      return fail(`Candidate ${index + 1} has the wrong asset_type.`);
+    }
+
+    /* ---- 1. propositions, validated independently and first ---- */
+    const rawPropositions = row.grounded_propositions;
+    if (!Array.isArray(rawPropositions)
+      || rawPropositions.length < IDEATION_FIELD_LIMITS.min_propositions_per_candidate
+      || rawPropositions.length > IDEATION_FIELD_LIMITS.max_propositions_per_candidate) {
+      return fail(`Candidate ${index + 1} requires one to ${IDEATION_FIELD_LIMITS.max_propositions_per_candidate} grounded_propositions.`);
+    }
+    const byId = new Map<string, ValidatedProposition>();
+    for (const rawProposition of rawPropositions) {
+      if (!rawProposition || typeof rawProposition !== "object" || Array.isArray(rawProposition)) {
+        return fail(`Candidate ${index + 1} has a malformed grounded proposition.`);
+      }
+      const proposition = rawProposition as Record<string, unknown>;
+      const propositionId = typeof proposition.proposition_id === "string"
+        ? proposition.proposition_id.trim()
+        : "";
+      if (!propositionId || propositionId.length > 16) {
+        return fail(`Candidate ${index + 1} has a proposition without a usable proposition_id.`);
+      }
+      if (byId.has(propositionId)) {
+        return fail(`Candidate ${index + 1} repeats proposition_id ${propositionId}.`);
+      }
+      const text = requiredString(proposition, "text", IDEATION_FIELD_LIMITS.proposition_text);
+      if (!text) {
+        return fail(`Candidate ${index + 1} proposition ${propositionId} has no bounded text.`);
+      }
+      // A proposition is validated exactly like a v2 evidence reference, with
+      // its own text as the claim.
+      const reference = validateEvidenceReferenceV2(
+        {
+          evidence_type: proposition.evidence_mode ?? proposition.evidence_type,
+          support_unit_ids: proposition.support_unit_ids ?? proposition.support_unit_id,
+          source_ids: proposition.source_ids
+            ?? (typeof proposition.source_id === "string" ? [proposition.source_id] : undefined),
+          source_ref: proposition.source_ref,
+          source_url: proposition.source_url,
+          support_note: proposition.support_note,
+          reasoning_note: proposition.reasoning_note,
+          quoted_text: proposition.quoted_text,
+          claim: text,
+        },
+        registry,
+        unitRegistry,
+        [text],
+      );
+      if (!reference.ok) {
+        failures.push({
+          candidate_index: index + 1,
+          field: `grounded_propositions.${propositionId}`,
+          code: "PROPOSITION_UNSUPPORTED",
+          message: reference.error,
+        });
+        continue;
+      }
+      byId.set(propositionId, {
+        proposition_id: propositionId,
+        text,
+        evidence_mode: reference.reference.evidence_type,
+        source_ids: reference.reference.source_ids,
+        source_ref: reference.reference.source_ref,
+        source_url: reference.reference.source_url,
+        support_unit_ids: reference.reference.support_unit_ids ?? [],
+        support_span: reference.reference.support_span ?? "",
+        ...(reference.reference.support_note ? { support_note: reference.reference.support_note } : {}),
+        ...(reference.reference.reasoning_note ? { reasoning_note: reference.reference.reasoning_note } : {}),
+        ...(reference.reference.quoted_text ? { quoted_text: reference.reference.quoted_text } : {}),
+      });
+    }
+    // An unsupported proposition fails before any field is considered.
+    if (failures.some((failure) => failure.candidate_index === index + 1)) continue;
+
+    /* ---- 2. fields, each measured by its own semantics ---- */
+    const fieldPropositions: Record<string, string[]> = {};
+    const resolveField = (field: IdeationCandidateFieldName): {
+      text: string | null;
+      code: string | null;
+      propositions: ValidatedProposition[];
+      error: string | null;
+    } => {
+      const rawField = row[field];
+      if (!rawField || typeof rawField !== "object" || Array.isArray(rawField)) {
+        return { text: null, code: null, propositions: [], error: `${field} must be an object.` };
+      }
+      const entry = rawField as Record<string, unknown>;
+      const ids = Array.isArray(entry.proposition_ids)
+        ? entry.proposition_ids.map((id) => typeof id === "string" ? id.trim() : "")
+        : [];
+      if (ids.length === 0 || ids.length > IDEATION_FIELD_LIMITS.max_propositions_per_field) {
+        return { text: null, code: null, propositions: [], error: `${field} must cite one to ${IDEATION_FIELD_LIMITS.max_propositions_per_field} proposition_ids.` };
+      }
+      if (new Set(ids).size !== ids.length) {
+        return { text: null, code: null, propositions: [], error: `${field} repeats a proposition_id.` };
+      }
+      const resolved: ValidatedProposition[] = [];
+      for (const id of ids) {
+        const proposition = byId.get(id);
+        if (!proposition) {
+          return { text: null, code: null, propositions: [], error: `${field} cites unknown proposition_id ${id}.` };
+        }
+        resolved.push(proposition);
+      }
+      fieldPropositions[field] = ids;
+      const text = typeof entry.text === "string" ? entry.text.trim() : null;
+      const code = typeof entry.code === "string" ? entry.code.trim() : null;
+      return { text, code, propositions: resolved, error: null };
+    };
+
+    const parts: Partial<Record<IdeationCandidateFieldName, { text: string; propositions: ValidatedProposition[] }>> = {};
+    let angleDefinition: IdeationAngleDefinition | null = null;
+    let angleSource: "model" | "technique_default" = "model";
+
+    for (const field of IDEATION_CANDIDATE_FIELD_NAMES) {
+      const resolved = resolveField(field);
+      if (resolved.error) {
+        failures.push({ candidate_index: index + 1, field, code: "FIELD_MALFORMED", message: resolved.error });
+        continue;
+      }
+      if (field === "psychological_angle") {
+        let angle = validatePsychologicalAngle({
+          code: resolved.code,
+          techniqueSlug,
+          propositions: resolved.propositions,
+        });
+        if (!angle.ok) {
+          // Deterministic classification fallback: allowed for this field only,
+          // because a taxonomy label asserts no client fact.
+          const fallback = defaultAngleForTechnique(techniqueSlug);
+          if (fallback && resolved.propositions.length > 0
+            && (angle.code === "ANGLE_MISSING" || angle.code === "ANGLE_UNKNOWN"
+              || angle.code === "ANGLE_TECHNIQUE_INCOMPATIBLE")) {
+            angleDefinition = fallback;
+            angleSource = "technique_default";
+          } else {
+            failures.push({ candidate_index: index + 1, field, code: angle.code, message: angle.message });
+            continue;
+          }
+        } else {
+          angleDefinition = angle.angle;
+        }
+        continue;
+      }
+      const text = resolved.text;
+      if (!text || text.length > IDEATION_FIELD_LIMITS[field]) {
+        failures.push({
+          candidate_index: index + 1, field, code: "FIELD_MALFORMED",
+          message: `${field} must be bounded non-empty text.`,
+        });
+        continue;
+      }
+      const check = field === "core_message"
+        ? validateCoreMessageField({ text, propositions: resolved.propositions })
+        : validateCreativeField({ field, text, propositions: resolved.propositions });
+      if (!check.ok) {
+        failures.push({ candidate_index: index + 1, field, code: check.code, message: check.message });
+        continue;
+      }
+      parts[field] = { text, propositions: resolved.propositions };
+    }
+
+    if (failures.some((failure) => failure.candidate_index === index + 1)) continue;
+    if (!parts.working_title || !parts.hook || !parts.core_message || !parts.cta || !angleDefinition) {
+      failures.push({
+        candidate_index: index + 1, field: "candidate", code: "FIELD_MALFORMED",
+        message: "Candidate is missing a required field.",
+      });
+      continue;
+    }
+
+    candidates.push({
+      asset_type: expectedAssetTypes[index],
+      working_title: parts.working_title.text,
+      hook: parts.hook.text,
+      core_message: parts.core_message.text,
+      psychological_angle: angleDefinition.label,
+      psychological_angle_code: angleDefinition.code,
+      cta: parts.cta.text,
+      propositions: [...byId.values()],
+      field_propositions: fieldPropositions,
+      angle_source: angleSource,
+    });
+  }
+
+  if (failures.length > 0) {
+    return fail(
+      `${failures[0].field}: ${failures[0].message}`,
+      failures,
+    );
+  }
+  return { ok: true, candidates, structuredFindings: findings.structuredFindings };
+}
+
+/**
+ * Adapts a validated claim-first candidate to the EXACT persisted shape Stages
+ * 2, 3, and 4 already consume. The public candidate contract is unchanged:
+ * five strings plus evidence_references. The claim-first structure is preserved
+ * as provenance, never as a new required column.
+ */
+export function toPersistedIdeationCandidate(candidate: ClaimFirstCandidate): {
+  asset_type: IdeationAssetType;
+  working_title: string;
+  hook: string;
+  core_message: string;
+  psychological_angle: string;
+  cta: string;
+  evidence_references: GeneratedEvidenceReference[];
+  candidate_field_provenance: Record<string, unknown>;
+} {
+  const evidence: GeneratedEvidenceReference[] = candidate.propositions.map((proposition) => ({
+    evidence_type: proposition.evidence_mode,
+    source_ids: proposition.source_ids,
+    source_ref: proposition.source_ref,
+    source_url: proposition.source_url,
+    claim: proposition.text,
+    support_unit_ids: proposition.support_unit_ids,
+    support_span: proposition.support_span,
+    ...(proposition.support_note ? { support_note: proposition.support_note } : {}),
+    ...(proposition.reasoning_note ? { reasoning_note: proposition.reasoning_note } : {}),
+    ...(proposition.quoted_text ? { quoted_text: proposition.quoted_text } : {}),
+  }));
+  return {
+    asset_type: candidate.asset_type,
+    working_title: candidate.working_title,
+    hook: candidate.hook,
+    core_message: candidate.core_message,
+    psychological_angle: candidate.psychological_angle,
+    cta: candidate.cta,
+    evidence_references: evidence,
+    candidate_field_provenance: {
+      candidate_field_policy_version: IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
+      proposition_schema_version: IDEATION_PROPOSITION_SCHEMA_VERSION,
+      angle_taxonomy_version: IDEATION_ANGLE_TAXONOMY_VERSION,
+      psychological_angle_code: candidate.psychological_angle_code,
+      psychological_angle_source: candidate.angle_source,
+      field_propositions: candidate.field_propositions,
+      propositions: candidate.propositions.map((proposition) => ({
+        proposition_id: proposition.proposition_id,
+        evidence_mode: proposition.evidence_mode,
+        support_unit_ids: proposition.support_unit_ids,
+        source_ids: proposition.source_ids,
+      })),
+    },
+  };
 }
