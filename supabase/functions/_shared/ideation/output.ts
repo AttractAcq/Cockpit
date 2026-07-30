@@ -1,9 +1,16 @@
 import type { IdeationEvidenceSource } from "./evidence.ts";
+import {
+  quotableSpansForUnit,
+  supportTextForUnit,
+  type IdeationSupportUnit,
+} from "./support-units.ts";
 import type { IdeationAssetType } from "./period.ts";
 
 export type IdeationEvidenceType = "exact_quote" | "paraphrase" | "derived_claim";
 
 export interface GeneratedEvidenceReference {
+  /** Evidence policy v2: the registered units this reference cites. */
+  support_unit_ids?: string[];
   evidence_type: IdeationEvidenceType;
   source_ids: string[];
   source_ref: string;
@@ -324,6 +331,174 @@ function validateClaimBearingMetadata(
   return { ok: true };
 }
 
+/**
+ * Evidence policy v2 reference validation.
+ *
+ * The model cites a registered support_unit_id; the SERVER owns the exact raw
+ * span. This is strictly stronger than v1, where the model chose which part of
+ * a 4000-character excerpt to point at, and it is what makes bullet and table
+ * evidence expressible at all — a table proposition spans a header row and a
+ * data row, which are never contiguous, so no valid v1 span could exist.
+ */
+function validateEvidenceReferenceV2(
+  value: unknown,
+  registry: Map<string, IdeationEvidenceSource>,
+  units: Map<string, IdeationSupportUnit>,
+  candidateFields: string[],
+): { ok: true; reference: GeneratedEvidenceReference } | { ok: false; error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, error: "Evidence reference must be an object." };
+  }
+  const row = value as Record<string, unknown>;
+  const evidenceType = row.evidence_type;
+  if (typeof evidenceType !== "string" || !EVIDENCE_TYPES.has(evidenceType as IdeationEvidenceType)) {
+    return { ok: false, error: "Evidence reference has an unsupported evidence_type." };
+  }
+
+  // Either spelling is accepted for every evidence type: the array form is what
+  // the prompt asks for, and the singular form stays valid so a model that
+  // cites exactly one unit is never rejected on shape alone.
+  const rawUnitIds = row.support_unit_ids ?? row.support_unit_id;
+  const unitIdList = Array.isArray(rawUnitIds)
+    ? rawUnitIds
+    : typeof rawUnitIds === "string"
+      ? [rawUnitIds]
+      : null;
+  if (!unitIdList || unitIdList.length === 0 || unitIdList.length > 5) {
+    return { ok: false, error: "Evidence reference requires one to five registered support_unit_ids." };
+  }
+  const unitIds = unitIdList.map((id) => typeof id === "string" ? id.trim() : "");
+  if (unitIds.some((id) => !id) || new Set(unitIds).size !== unitIds.length) {
+    return { ok: false, error: "Evidence reference contains invalid or duplicate support_unit_ids." };
+  }
+  const resolvedUnits = unitIds.map((id) => units.get(id));
+  if (resolvedUnits.some((unit) => !unit)) {
+    return { ok: false, error: "Evidence reference contains an unknown support_unit_id." };
+  }
+  const citedUnits = resolvedUnits as IdeationSupportUnit[];
+  // An exact quotation is always one unit: a quote spans one exact source run.
+  // A paraphrase may cite up to three units from the SAME source, because a
+  // proposition often lives across a bullet and its sibling, or a row and its
+  // neighbour. This remains strictly stronger than the v1 contract, where the
+  // model chose its own span anywhere inside a 4000-character excerpt: here
+  // every span is server-owned, exact, and individually registered.
+  if (evidenceType === "exact_quote" && citedUnits.length !== 1) {
+    return { ok: false, error: "An exact quotation must cite exactly one support unit." };
+  }
+  if (evidenceType === "paraphrase" && citedUnits.length > 3) {
+    return { ok: false, error: "A paraphrase may cite at most three support units." };
+  }
+
+  // Every cited unit must belong to a source this candidate is allowed to use,
+  // and a single reference may never straddle two sources.
+  const citedSourceIds = [...new Set(citedUnits.map((unit) => unit.source_id))];
+  if (citedSourceIds.some((sourceId) => !registry.has(sourceId))) {
+    return { ok: false, error: "Evidence reference cites a support unit outside the allowed registry." };
+  }
+  if (evidenceType !== "derived_claim" && citedSourceIds.length !== 1) {
+    return { ok: false, error: "Evidence reference cites support units from more than one source." };
+  }
+  for (const unit of citedUnits) {
+    const source = registry.get(unit.source_id)!;
+    if (unit.source_content_hash !== source.content_hash) {
+      return { ok: false, error: "Evidence reference cites a support unit from a changed source." };
+    }
+  }
+
+  const declaredSourceIds = Array.isArray(row.source_ids)
+    ? row.source_ids.map((id) => typeof id === "string" ? id.trim() : "")
+    : null;
+  if (!declaredSourceIds || declaredSourceIds.length === 0
+    || declaredSourceIds.some((id) => !registry.has(id))) {
+    return { ok: false, error: "Evidence reference contains an unknown source_id." };
+  }
+  if (new Set(declaredSourceIds).size !== declaredSourceIds.length) {
+    return { ok: false, error: "Evidence reference contains duplicate source_ids." };
+  }
+  // The declared sources must be exactly the sources the cited units come from.
+  if (declaredSourceIds.length !== citedSourceIds.length
+    || citedSourceIds.some((sourceId) => !declaredSourceIds.includes(sourceId))) {
+    return { ok: false, error: "Evidence reference source_ids do not match its cited support units." };
+  }
+
+  const primary = registry.get(citedUnits[0].source_id)!;
+  const sourceRef = requiredString(row, "source_ref", 300);
+  const sourceUrl = requiredString(row, "source_url", 2048);
+  if (!sourceRef || !sourceUrl || sourceRef !== primary.source_ref || sourceUrl !== primary.source_url) {
+    return { ok: false, error: "Evidence reference contains an unsupported source_ref/source_url pair." };
+  }
+
+  const quotedText = optionalString(row, "quoted_text", 1000);
+  const claim = requiredString(row, "claim", 3000);
+  const supportNote = optionalString(row, "support_note", 500);
+  const reasoningNote = optionalString(row, "reasoning_note", 700);
+  if (!claim || !candidateFields.includes(claim)) {
+    return { ok: false, error: "Evidence claim must exactly match one persisted candidate field." };
+  }
+  // The span is server-owned in v2; a caller-supplied one is a contract breach.
+  if (row.support_span !== undefined) {
+    return { ok: false, error: "support_span is server-owned under evidence policy v2 and must not be supplied." };
+  }
+
+  let supportText: string;
+  if (evidenceType === "exact_quote") {
+    const quotable = quotableSpansForUnit(citedUnits[0]);
+    if (!quotedText || !quotable.some((span) => normalizedSupport(span).includes(normalizedSupport(quotedText)))) {
+      return { ok: false, error: "Exact quotation is absent or altered in the cited support unit." };
+    }
+    supportText = quotedText;
+  } else if (evidenceType === "paraphrase") {
+    if (quotedText) {
+      return { ok: false, error: "Paraphrase cannot include quoted_text." };
+    }
+    if (!supportNote) {
+      return { ok: false, error: "Paraphrase requires a support_note." };
+    }
+    const paraphraseParts = citedUnits.map(supportTextForUnit).filter(Boolean);
+    if (paraphraseParts.length === 0) {
+      return {
+        ok: false,
+        error: "A heading alone cannot support a claim; cite the bullet, row, or sentence that states it.",
+      };
+    }
+    supportText = paraphraseParts.join("\n");
+  } else {
+    if (!reasoningNote || quotedText) {
+      return { ok: false, error: "Derived claim requires reasoning_note and cannot include quoted_text." };
+    }
+    const parts = citedUnits.map(supportTextForUnit).filter(Boolean);
+    if (parts.length === 0) {
+      return { ok: false, error: "Derived claim cites no unit that can support a proposition." };
+    }
+    supportText = parts.join("\n");
+  }
+
+  const grounding = validateClaimGrounding(claim, supportText);
+  if (!grounding.ok) return grounding;
+  for (const metadata of [supportNote, reasoningNote]) {
+    if (!metadata) continue;
+    const metadataGrounding = validateClaimBearingMetadata(metadata, supportText);
+    if (!metadataGrounding.ok) return metadataGrounding;
+  }
+
+  return {
+    ok: true,
+    reference: {
+      evidence_type: evidenceType as IdeationEvidenceType,
+      source_ids: declaredSourceIds,
+      source_ref: sourceRef,
+      source_url: sourceUrl,
+      claim,
+      support_unit_ids: unitIds,
+      // Persisted for provenance and display. Server-derived, never model text.
+      support_span: citedUnits.map((unit) => unit.raw_span).join("\n"),
+      ...(quotedText ? { quoted_text: quotedText } : {}),
+      ...(supportNote ? { support_note: supportNote } : {}),
+      ...(reasoningNote ? { reasoning_note: reasoningNote } : {}),
+    },
+  };
+}
+
 function validateEvidenceReference(
   value: unknown,
   registry: Map<string, IdeationEvidenceSource>,
@@ -419,6 +594,12 @@ export function validateIdeationCandidateOutput(
   value: Record<string, unknown>,
   expectedAssetTypes: IdeationAssetType[],
   evidenceRegistry: IdeationEvidenceSource[],
+  /**
+   * Evidence policy v2 support units. When supplied, references are validated
+   * against server-owned spans. Omitted for historical v1 records, which keep
+   * their original contract and are never rewritten.
+   */
+  supportUnits?: IdeationSupportUnit[],
 ): { ok: true; candidates: GeneratedIdeationCandidate[]; structuredFindings: Record<string, string[]> } | { ok: false; error: string } {
   if (hasProhibitedKey(value)) {
     return { ok: false, error: "Model output contains a prohibited downstream field." };
@@ -426,6 +607,13 @@ export function validateIdeationCandidateOutput(
   const registry = new Map(evidenceRegistry.map((source) => [source.source_id, source]));
   if (registry.size !== evidenceRegistry.length || evidenceRegistry.length === 0) {
     return { ok: false, error: "The allowed evidence registry is empty or contains duplicate source IDs." };
+  }
+  const unitRegistry = new Map((supportUnits ?? []).map((unit) => [unit.support_unit_id, unit]));
+  if (supportUnits && unitRegistry.size !== supportUnits.length) {
+    return { ok: false, error: "The support-unit registry contains duplicate support_unit_ids." };
+  }
+  if (supportUnits && supportUnits.length === 0) {
+    return { ok: false, error: "The support-unit registry is empty." };
   }
 
   const rawFindings = value.structured_findings;
@@ -497,7 +685,9 @@ export function validateIdeationCandidateOutput(
     const candidateFields = [title, hook, coreMessage, angle, cta];
     const evidence: GeneratedEvidenceReference[] = [];
     for (const rawReference of row.evidence_references) {
-      const result = validateEvidenceReference(rawReference, registry, candidateFields);
+      const result = supportUnits
+        ? validateEvidenceReferenceV2(rawReference, registry, unitRegistry, candidateFields)
+        : validateEvidenceReference(rawReference, registry, candidateFields);
       if (!result.ok) return { ok: false, error: `Candidate ${index + 1}: ${result.error}` };
       evidence.push(result.reference);
     }

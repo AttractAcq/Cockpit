@@ -1,4 +1,9 @@
 import {
+  IDEATION_EVIDENCE_POLICY_VERSION,
+  IDEATION_SUPPORT_UNIT_PARSER_VERSION,
+  IDEATION_SUPPORT_UNIT_SELECTION,
+} from "./support-units.ts";
+import {
   IDEATION_EVIDENCE_SELECTION_VERSION,
   IDEATION_EXECUTION_FILE_NUMBERS,
   IDEATION_MAX_ATTEMPTS,
@@ -65,6 +70,13 @@ export async function buildIdeationConfigurationSnapshot(input: IdeationConfigur
     technique_manifest_version: IDEATION_TECHNIQUE_MANIFEST_VERSION,
     technique_manifest: techniqueManifest,
     canonical_technique_order: [...IDEATION_TECHNIQUE_SLUGS],
+    // Evidence policy v2 participates in the hash: an existing v1 cycle can
+    // never silently reuse the previous grounding contract.
+    evidence_policy: {
+      version: IDEATION_EVIDENCE_POLICY_VERSION,
+      support_unit_parser_version: IDEATION_SUPPORT_UNIT_PARSER_VERSION,
+      support_unit_selection: IDEATION_SUPPORT_UNIT_SELECTION,
+    },
     evidence_selection: {
       version: IDEATION_EVIDENCE_SELECTION_VERSION,
       execution_file_numbers: [...IDEATION_EXECUTION_FILE_NUMBERS],

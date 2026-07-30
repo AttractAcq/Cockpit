@@ -24,6 +24,11 @@ import {
   resolveIdeationProviderRuntimeDetailed,
 } from "../supabase/functions/_shared/ideation/provider-runtime.ts";
 import {
+  buildSupportUnits,
+  normalizeExcerptForUnits,
+  uncoveredSubstantiveText,
+} from "../supabase/functions/_shared/ideation/support-units.ts";
+import {
   buildIdeationPrompts,
   generateTechniqueCandidates,
 } from "../supabase/functions/_shared/ideation/model.ts";
@@ -180,6 +185,22 @@ const FINDINGS = {
   content_opportunities: ["show hidden proof as visible authority"],
 };
 
+/**
+ * Evidence policy v2 unit ids are content-derived, so the fixture resolves them
+ * from the real parser rather than hardcoding a hash.
+ */
+const CONTEXT_UNITS = await buildSupportUnits(contextSource);
+/**
+ * The widest unit covering the whole excerpt, so this fixture keeps exactly the
+ * v1 semantics of citing the entire bounded excerpt. Narrow-unit grounding has
+ * its own dedicated tests.
+ */
+function widestUnitId(): string {
+  const unit = [...CONTEXT_UNITS].sort((left, right) => right.raw_span.length - left.raw_span.length)[0];
+  if (!unit) throw new Error("The fixture source produced no support unit.");
+  return unit.support_unit_id;
+}
+
 function groundedCandidate() {
   const fields = {
     asset_type: "reel",
@@ -199,11 +220,11 @@ function groundedCandidate() {
       fields.cta,
     ].map((claim) => ({
       evidence_type: "paraphrase",
+      support_unit_id: widestUnitId(),
       source_ids: [contextSource.source_id],
       source_ref: contextSource.source_ref,
       source_url: contextSource.source_url,
-      support_span: EXCERPT,
-      support_note: "Supported by the bounded excerpt.",
+      support_note: "Supported by the cited support unit.",
       claim,
     })),
   };
@@ -627,8 +648,8 @@ test("effective provider and token configuration participate in the idempotency 
 /* 19-22  Prompt compaction                                            */
 /* ================================================================== */
 
-test("duplicate authority excerpts are supplied once and provenance is preserved", () => {
-  const prompts = buildIdeationPrompts(promptInput());
+test("duplicate authority excerpts are supplied once and provenance is preserved", async () => {
+  const prompts = await buildIdeationPrompts(promptInput());
 
   // The same approved context file reaches the prompt through research, the
   // persona reference, and the format reference.
@@ -642,7 +663,20 @@ test("duplicate authority excerpts are supplied once and provenance is preserved
     assert.ok(prompts.user.includes(source.source_ref));
     assert.ok(prompts.user.includes(source.source_url));
     assert.ok(prompts.user.includes(source.content_hash));
-    assert.ok(prompts.user.includes(source.bounded_excerpt), "the bounded excerpt itself must still be supplied");
+    // Evidence policy v2 presents each excerpt as citable support units rather
+    // than one contiguous block. The no-omission guarantee is therefore checked
+    // by coverage, which is stricter: every substantive line must be reachable
+    // through a registered unit whose raw span is an exact source substring.
+    const own = prompts.supportUnits.filter((unit) => unit.source_id === source.source_id);
+    assert.ok(own.length > 0, `${source.source_id} must yield support units`);
+    assert.deepEqual(
+      uncoveredSubstantiveText(normalizeExcerptForUnits(source.bounded_excerpt), own),
+      [],
+      "no substantive authority line may be omitted",
+    );
+    for (const unit of own) {
+      assert.ok(prompts.user.includes(unit.raw_span), "every unit's raw text must reach the prompt");
+    }
   }
   assert.equal(prompts.evidenceRegistry.length, 3, "sources are deduplicated by source_id");
 
@@ -654,7 +688,7 @@ test("duplicate authority excerpts are supplied once and provenance is preserved
   assert.doesNotMatch(prompts.user, /\{\{[A-Z_]+\}\}/);
 });
 
-test("compaction materially shrinks the prompt without dropping any source", () => {
+test("compaction materially shrinks the prompt without dropping any source", async () => {
   const big = (label: string) => `${label} `.repeat(600).trim();
   const sources = [0, 1, 2, 3, 4, 5].map((index) => ({
     ...contextSource,
@@ -663,7 +697,7 @@ test("compaction materially shrinks the prompt without dropping any source", () 
     bounded_excerpt: big(`excerpt-${index}`),
     content_hash: String(index).repeat(64).slice(0, 64),
   }));
-  const prompts = buildIdeationPrompts(promptInput({
+  const prompts = await buildIdeationPrompts(promptInput({
     research: research(sources),
     personaReference: research(sources),
     formatReference: research(sources),
@@ -672,8 +706,22 @@ test("compaction materially shrinks the prompt without dropping any source", () 
 
   const excerptChars = sources.reduce((total, source) => total + source.bounded_excerpt.length, 0);
   for (const source of sources) {
-    assert.equal(prompts.user.split(source.bounded_excerpt).length - 1, 1);
     assert.ok(prompts.user.includes(source.source_id));
+    const own = prompts.supportUnits.filter((unit) => unit.source_id === source.source_id);
+    assert.deepEqual(
+      uncoveredSubstantiveText(normalizeExcerptForUnits(source.bounded_excerpt), own),
+      [],
+      "no substantive authority line may be omitted",
+    );
+    // Units partition the excerpt: their spans never overlap, so no character
+    // of authority is carried twice.
+    const ordered = [...own].sort((left, right) => left.start_offset - right.start_offset);
+    for (let index = 1; index < ordered.length; index += 1) {
+      assert.ok(
+        ordered[index].start_offset >= ordered[index - 1].end_offset,
+        "support unit spans must not overlap",
+      );
+    }
   }
   // Before compaction the registry block repeated every excerpt verbatim, so
   // the prompt carried the whole excerpt payload twice.
@@ -683,9 +731,9 @@ test("compaction materially shrinks the prompt without dropping any source", () 
   );
 });
 
-test("prompt construction is deterministic and ordering is stable", () => {
-  const first = buildIdeationPrompts(promptInput());
-  const second = buildIdeationPrompts(promptInput());
+test("prompt construction is deterministic and ordering is stable", async () => {
+  const first = await buildIdeationPrompts(promptInput());
+  const second = await buildIdeationPrompts(promptInput());
   assert.equal(first.user, second.user);
   assert.equal(first.system, second.system);
   assert.deepEqual(
@@ -694,7 +742,7 @@ test("prompt construction is deterministic and ordering is stable", () => {
   );
 
   // Supplying the same sources in a different order changes nothing.
-  const reordered = buildIdeationPrompts(promptInput({
+  const reordered = await buildIdeationPrompts(promptInput({
     research: research([strategicSource, contextSource]),
     personaReference: research([contextSource]),
     formatReference: research([strategicSource]),

@@ -896,15 +896,56 @@ test("the Ideation display reference is never used as an operational ref", async
   assert.equal(sql.includes("IDEATION/"), false);
 });
 
-test("Stage 5 is not implemented", async () => {
-  const files = await readdir("supabase/functions");
-  for (const name of files) {
-    assert.equal(/stage-?5|verify-ideation|ideation-verification/i.test(name), false, name);
+test("the committed Story type is the neutral canonical default, and implies nothing stronger", async () => {
+  const stage5 = await readFile(
+    "supabase/migrations/20260731000041_ideation_stage5_authority_race.sql",
+    "utf8",
+  );
+  // story_master.story_type is one of daily|sequence|poll|dm_prompt|proof|offer|
+  // bts|faq. Only the neutral default is ever written: an Ideation candidate
+  // carries no story type, and approved authority defines no deterministic rule
+  // for choosing one, so anything else would assert meaning nobody approved.
+  const storyInsert = stage5.slice(
+    stage5.indexOf("insert into public.story_master"),
+    stage5.indexOf("returning id into v_master_id", stage5.indexOf("insert into public.story_master")),
+  );
+  assert.match(storyInsert, /'daily'/);
+  for (const stronger of ["sequence", "poll", "dm_prompt", "proof", "offer", "bts", "faq"]) {
+    assert.equal(
+      new RegExp(`'${stronger}'`).test(storyInsert),
+      false,
+      `${stronger} implies meaning no approved authority established`,
+    );
+  }
+  // The choice is recorded in provenance as a default, not as derived authority.
+  assert.match(stage5, /'story_type_source', case when v_slot\.master_table = 'story_master'/);
+  assert.match(stage5, /'neutral_canonical_default'/);
+  // It matches the Phase 3 fallback exactly, so Ideation introduces no new rule.
+  const phase3 = await readFile("supabase/functions/_shared/phase3-scope.ts", "utf8");
+  assert.match(phase3, /story_type: str\(row, "story_type"\) \?\? "daily"/);
+  // Committed Story content still enters normal review.
+  assert.match(storyInsert, /'needs_review'/);
+});
+
+test("Stage 5 closes the Ideation system and starts no Stage 6 or next feature", async () => {
+  // Stage 5 is the final Ideation stage. It adds one forward migration and no
+  // new Edge Function; there is no Stage 6, and no work has begun on the
+  // features that come after Ideation.
+  const functions = await readdir("supabase/functions");
+  for (const name of functions) {
+    assert.equal(/stage-?6/i.test(name), false, name);
+    assert.equal(/proof-upload|website-build|paid-distribution-build/i.test(name), false, name);
   }
   const migrations = await readdir("supabase/migrations");
+  const stage5 = migrations.filter((name) => /ideation_stage5/i.test(name));
+  assert.equal(stage5.length, 1, "exactly one Stage 5 forward migration exists");
   for (const name of migrations) {
-    assert.equal(/stage5|stage_5/i.test(name), false, name);
+    assert.equal(/stage6|stage_6/i.test(name), false, name);
   }
+  // The deployed Stage 4 migration is never edited in place.
+  const stage4 = await readFile("supabase/migrations/20260730000040_ideation_stage4_commit_content.sql", "utf8");
+  assert.match(stage4, /create table public\.client_ideation_commit_runs/);
+  assert.equal(/for share/i.test(stage4), false, "the authority lock belongs to the Stage 5 forward migration");
 });
 
 test("IDEATION-D1 remains documented as open and deferred to Stage 5", async () => {

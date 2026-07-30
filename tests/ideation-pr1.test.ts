@@ -623,7 +623,7 @@ test("grounding rejects unrelated paraphrase spans, numeric substrings, and unsu
   }
 });
 
-test("prompt trust hierarchy follows Execution constraints and rejects external instructions", () => {
+test("prompt trust hierarchy follows Execution constraints and rejects external instructions", async () => {
   const execution: IdeationEvidenceSource = {
     ...evidenceSource,
     source_id: "execution:e1:v1",
@@ -670,7 +670,7 @@ test("prompt trust hierarchy follows Execution constraints and rejects external 
     sourceUrl: evidenceSource.source_url,
     evidenceSources: [evidenceSource, strategicPlaybook],
   } satisfies TechniqueResearch;
-  const prompts = buildIdeationPrompts({
+  const prompts = await buildIdeationPrompts({
     clientName: "Client",
     techniqueName: "Review-Mined Pain Language",
     techniqueFocus: "Use supported pain language.",
