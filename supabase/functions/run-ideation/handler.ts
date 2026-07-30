@@ -1,4 +1,4 @@
-import { toPersistedIdeationCandidate } from "../_shared/ideation/output.ts";
+import { toPersistedClaimCardCandidate } from "../_shared/ideation/output.ts";
 import {
   IDEATION_MAX_ATTEMPTS,
   IDEATION_MODULE_VERSION,
@@ -684,7 +684,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
             analyzed_at: analyzedAt,
             analysis_findings: generation?.result.ok ? generation.result.structuredFindings : {},
             analysis_source_references: generation?.result.ok
-              ? evidenceReferences(generation.result.candidates.map(toPersistedIdeationCandidate))
+              ? evidenceReferences(generation.result.candidates.map(toPersistedClaimCardCandidate))
               : [],
           };
         });
@@ -696,7 +696,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
           const slot = item.missing[localIndex];
           // The persisted shape is unchanged: five strings plus
           // evidence_references. Claim-first structure travels as provenance.
-          const { candidate_field_provenance, ...candidate } = toPersistedIdeationCandidate(claimFirst);
+          const { claim_card_provenance, ...candidate } = toPersistedClaimCardCandidate(claimFirst);
           candidatePayload.push({
             technique_slug: item.slug,
             research_key: item.module!.research!.researchKey,
@@ -704,7 +704,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
             ...candidate,
             draft_payload: {
               ...candidate,
-              ...candidate_field_provenance,
+              ...claim_card_provenance,
               technique_number: IDEATION_TECHNIQUE_SLUGS.indexOf(item.slug) + 1,
               output_schema_version: IDEATION_OUTPUT_SCHEMA_VERSION,
               module_version: IDEATION_MODULE_VERSION,

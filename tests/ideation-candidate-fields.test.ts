@@ -730,35 +730,26 @@ test("61-62. the repair prompt carries no unrelated authority and no excerpt bod
   assert.match(prompts.user, /ALLOWED psychological_angle CODES/);
 });
 
-test("a rejected proposition may be restated, but only its text and only if it failed", () => {
+test("a repair may never author or modify a claim — the server owns the factual layer", () => {
   const failures = [{
     candidate_index: 1,
     field: "grounded_propositions.P1",
     code: "PROPOSITION_UNSUPPORTED",
     message: "High-risk or outcome claim lacks direct support.",
   }];
-  const merged = applyFieldRepairs(originalResponse(), {
-    repairs: [{ candidate_index: 1, propositions: [{ proposition_id: "P1", text: "Proof stays hidden" }] }],
-  }, failures);
-  assert.equal(merged.ok, true);
-  if (merged.ok) {
-    const row = (merged.merged.candidates as Array<Record<string, unknown>>)[0];
-    const propositions = row.grounded_propositions as Array<Record<string, unknown>>;
-    assert.equal(propositions[0].text, "Proof stays hidden");
-  }
-
-  // A proposition that did not fail cannot be rewritten.
-  const untouched = applyFieldRepairs(originalResponse(), {
-    repairs: [{ candidate_index: 1, propositions: [{ proposition_id: "P1", text: "x" }] }],
-  }, REPAIR_FAILURES);
-  assert.equal(untouched.ok, false);
-
-  // A repair may never reach for new evidence.
-  for (const key of ["support_unit_ids", "source_ids", "evidence_mode"]) {
-    const reaching = applyFieldRepairs(originalResponse(), {
-      repairs: [{ candidate_index: 1, propositions: [{ proposition_id: "P1", text: "y", [key]: ["z"] }] }],
+  // Under server-owned claim cards a repair cannot restate a fact at all.
+  for (const key of ["propositions", "grounded_propositions"]) {
+    const authoring = applyFieldRepairs(originalResponse(), {
+      repairs: [{ candidate_index: 1, [key]: [{ proposition_id: "P1", text: "Proof stays hidden" }] }],
     }, failures);
-    assert.equal(reaching.ok, false, key);
+    assert.equal(authoring.ok, false, key);
+  }
+  // Nor may it reach for evidence or reselect accepted cards.
+  for (const field of ["claim_card_ids", "evidence_references", "support_unit_ids"]) {
+    const reaching = applyFieldRepairs(originalResponse(), {
+      repairs: [{ candidate_index: 1, fields: { [field]: ["x"] } }],
+    }, REPAIR_FAILURES);
+    assert.equal(reaching.ok, false, field);
   }
 });
 

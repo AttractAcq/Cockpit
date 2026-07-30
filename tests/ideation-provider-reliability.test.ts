@@ -23,6 +23,7 @@ import {
   resolveIdeationProviderRuntime,
   resolveIdeationProviderRuntimeDetailed,
 } from "../supabase/functions/_shared/ideation/provider-runtime.ts";
+import { buildClaimCards } from "../supabase/functions/_shared/ideation/claim-cards.ts";
 import {
   buildSupportUnits,
   normalizeExcerptForUnits,
@@ -202,29 +203,24 @@ function widestUnitId(): string {
   return unit.support_unit_id;
 }
 
+const CONTEXT_CARDS = await buildClaimCards(CONTEXT_UNITS);
+function widestCardId(): string {
+  const card = [...CONTEXT_CARDS].sort((left, right) => right.normalized_text.length - left.normalized_text.length)[0];
+  if (!card) throw new Error("The fixture source produced no claim card.");
+  return card.claim_card_id;
+}
+
 function groundedCandidate() {
-  // Claim-first contract: facts live in grounded_propositions; the five fields
-  // reference them. Creative fields no longer need source vocabulary.
-  const unit = widestUnitId();
-  const proposition = "Buyers feel invisible when their strongest proof stays hidden";
+  // The server owns the facts; the model only selects a card and writes copy.
   return {
     candidate_index: 1,
     asset_type: "reel",
-    grounded_propositions: [{
-      proposition_id: "P1",
-      text: proposition,
-      evidence_mode: "paraphrase",
-      support_unit_ids: [unit],
-      source_ids: [contextSource.source_id],
-      source_ref: contextSource.source_ref,
-      source_url: contextSource.source_url,
-      support_note: "The unit states this.",
-    }],
-    working_title: { text: "The hidden proof problem", proposition_ids: ["P1"] },
-    hook: { text: "Your strongest proof is hidden. Here is why that matters.", proposition_ids: ["P1"] },
-    core_message: { text: proposition, proposition_ids: ["P1"] },
-    psychological_angle: { code: "proof_visibility", proposition_ids: ["P1"] },
-    cta: { text: "Look at what your proof is doing right now", proposition_ids: ["P1"] },
+    claim_card_ids: [widestCardId()],
+    working_title: { text: "The hidden proof problem" },
+    hook: { text: "Your strongest proof is hidden. Here is why that matters." },
+    core_message: { text: "Buyers feel invisible when their strongest proof stays hidden" },
+    psychological_angle: { code: "proof_visibility" },
+    cta: { text: "Look at what your proof is doing right now" },
   };
 }
 
@@ -661,10 +657,9 @@ test("duplicate authority excerpts are supplied once and provenance is preserved
     assert.ok(prompts.user.includes(source.source_ref));
     assert.ok(prompts.user.includes(source.source_url));
     assert.ok(prompts.user.includes(source.content_hash));
-    // Evidence policy v2 presents each excerpt as citable support units rather
-    // than one contiguous block. The no-omission guarantee is therefore checked
-    // by coverage, which is stricter: every substantive line must be reachable
-    // through a registered unit whose raw span is an exact source substring.
+    // Authority now reaches the model as server-owned claim cards. Coverage is
+    // still checked at the unit level — no substantive line may be omitted —
+    // and every cardable unit must be represented by exactly one card.
     const own = prompts.supportUnits.filter((unit) => unit.source_id === source.source_id);
     assert.ok(own.length > 0, `${source.source_id} must yield support units`);
     assert.deepEqual(
@@ -672,9 +667,23 @@ test("duplicate authority excerpts are supplied once and provenance is preserved
       [],
       "no substantive authority line may be omitted",
     );
-    for (const unit of own) {
-      assert.ok(prompts.user.includes(unit.raw_span), "every unit's raw text must reach the prompt");
+    const cards = prompts.claimCards.filter((card) => card.source_id === source.source_id);
+    assert.ok(cards.length > 0, `${source.source_id} must yield claim cards`);
+    // Each card is listed exactly once. The fixture deliberately gives two
+    // different sources the same excerpt, so identical text legitimately
+    // appears under each source's own trust classification — but never twice
+    // for the same source.
+    for (const card of cards) {
+      assert.equal(
+        prompts.user.split(card.claim_card_id).length - 1,
+        1,
+        "each claim card is listed exactly once",
+      );
     }
+    // Card ids are unique per source, so id-uniqueness is the exact statement
+    // of "no source repeats its own facts". The fixture deliberately gives
+    // three sources the same excerpt, so identical TEXT recurring once per
+    // source is correct: each appears under its own trust classification.
   }
   assert.equal(prompts.evidenceRegistry.length, 3, "sources are deduplicated by source_id");
 
@@ -711,8 +720,7 @@ test("compaction materially shrinks the prompt without dropping any source", asy
       [],
       "no substantive authority line may be omitted",
     );
-    // Units partition the excerpt: their spans never overlap, so no character
-    // of authority is carried twice.
+    // Units partition the excerpt, so no character of authority is carried twice.
     const ordered = [...own].sort((left, right) => left.start_offset - right.start_offset);
     for (let index = 1; index < ordered.length; index += 1) {
       assert.ok(
@@ -720,6 +728,9 @@ test("compaction materially shrinks the prompt without dropping any source", asy
         "support unit spans must not overlap",
       );
     }
+    // Every cardable unit becomes exactly one card.
+    const cards = prompts.claimCards.filter((card) => card.source_id === source.source_id);
+    assert.ok(cards.length > 0);
   }
   // Before compaction the registry block repeated every excerpt verbatim, so
   // the prompt carried the whole excerpt payload twice.

@@ -371,6 +371,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
         },
         // Claim-first shape, as generateTechniqueCandidates now returns it.
         // The handler adapts this to the unchanged persisted candidate shape.
+        // Claim-card shape, as generateTechniqueCandidates now returns it.
         candidates: assetTypes.map((assetType) => ({
           asset_type: assetType,
           working_title: "Show hidden proof",
@@ -380,20 +381,33 @@ function makeHarness(options: HarnessOptions = {}): Harness {
           psychological_angle_code: "proof_visibility",
           cta: "Review hidden proof",
           angle_source: "model" as const,
-          field_propositions: {
-            working_title: ["P1"], hook: ["P1"], core_message: ["P1"],
-            psychological_angle: ["P1"], cta: ["P1"],
-          },
-          propositions: [{
-            proposition_id: "P1",
-            text: "Proof stays hidden",
-            evidence_mode: "paraphrase" as const,
-            source_ids: ["context:c1:v1"],
+          claim_card_ids: ["cc_000000000001"],
+          cards: [{
+            claim_card_id: "cc_000000000001",
+            card_type: "direct" as const,
+            claim_mode: "source_text" as const,
+            source_id: "context:c1:v1",
             source_ref: "02_Avatar_And_Buyer_Psychology.md",
+            source_type: "approved_context",
             source_url: "aa-authority://client/client-1/context/c1",
+            source_content_hash: "a".repeat(64),
             support_unit_ids: ["su_0000000000000001"],
-            support_span: "Proof stays hidden",
-            support_note: "The unit states this.",
+            support_span_hashes: ["b".repeat(64)],
+            canonical_text: "Proof stays hidden",
+            normalized_text: "Proof stays hidden",
+            quotable_spans: ["Proof stays hidden"],
+            permissions: {
+              numbers: [], entities: [], audience_terms: [], high_risk_categories: [],
+              allows_causal: false, allows_comparison: false, allows_superiority: false,
+              allows_leadership: false, allows_guarantee: false, allows_universal: false,
+              allows_competitor: false, allows_urgency: false, allows_scarcity: false,
+              allows_outcome: false, ledger_version: "aa.ideation.claim-permissions.v1",
+            },
+            policy_version: "aa.ideation.claim-cards.v1",
+            construction_version: "aa.ideation.claim-card-construction.v1",
+            parser_version: "aa.ideation.support-units.v1",
+            evidence_policy_version: "aa.ideation.evidence.v2",
+            card_hash: "c".repeat(64),
           }],
         })),
       };

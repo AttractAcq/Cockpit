@@ -14,7 +14,6 @@ import {
   IDEATION_EVIDENCE_POLICY_VERSION,
   IDEATION_SUPPORT_UNIT_PARSER_VERSION,
   IDEATION_SUPPORT_UNIT_SELECTION,
-  serializeSourceUnitSection,
   type IdeationSupportUnit,
 } from "./support-units.ts";
 import {
@@ -27,10 +26,20 @@ import {
 import { logIdeationProviderCall } from "./telemetry.ts";
 import {
   extractIdeationJson,
-  validateClaimFirstCandidateOutput,
+  validateClaimCardCandidateOutput,
   type CandidateFieldFailure,
-  type ClaimFirstCandidate,
+  type ClaimCardCandidate,
 } from "./output.ts";
+import {
+  buildClaimCards,
+  serializeSourceCardSection,
+  IDEATION_CANDIDATE_OUTPUT_SCHEMA_VERSION,
+  IDEATION_CLAIM_CARD_CONSTRUCTION_VERSION,
+  IDEATION_CLAIM_CARD_MANIFEST,
+  IDEATION_CLAIM_CARD_POLICY_VERSION,
+  IDEATION_PERMISSION_LEDGER_VERSION,
+  type IdeationClaimCard,
+} from "./claim-cards.ts";
 import {
   ideationAnglesForTechnique,
   IDEATION_ANGLE_TAXONOMY_VERSION,
@@ -46,7 +55,7 @@ export { IDEATION_OUTPUT_SCHEMA_VERSION, IDEATION_PROMPT_VERSION };
 export type IdeationModelResult =
   | {
     ok: true;
-    candidates: ClaimFirstCandidate[];
+    candidates: ClaimCardCandidate[];
     structuredFindings: Record<string, string[]>;
     model: string;
     retried: boolean;
@@ -101,7 +110,7 @@ brief, or add storyboard, shot, render, distribution, or Calendar instructions.
 
 Return exactly one compact JSON object and no surrounding prose.`;
 
-export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"candidate_index":1,"asset_type":"reel|carousel|static|story","grounded_propositions":[{"proposition_id":"P1","text":"one plain factual statement taken from the cited units","evidence_mode":"paraphrase","source_ids":["the SOURCE_ID those units belong to"],"source_ref":"exact source_ref","source_url":"exact source_url","support_unit_ids":["one to three exact UNIT_IDs from that source"],"support_note":"The unit states this."}],"working_title":{"text":"short creative title","proposition_ids":["P1"]},"hook":{"text":"creative opening line","proposition_ids":["P1"]},"core_message":{"text":"the supported message","proposition_ids":["P1"]},"psychological_angle":{"code":"one allowed angle code","proposition_ids":["P1"]},"cta":{"text":"honest next action","proposition_ids":["P1"]}}]}`;
+export const IDEATION_OUTPUT_CONTRACT_TEMPLATE = `{"structured_findings":{"pain_language":["supported finding"],"objections":["supported objection"],"desired_outcomes":["supported outcome"],"content_opportunities":["supported opportunity"]},"candidates":[{"candidate_index":1,"asset_type":"reel|carousel|static|story","claim_card_ids":["one to three exact CLAIM CARD ids"],"working_title":{"text":"short creative title"},"hook":{"text":"creative opening line"},"core_message":{"text":"the message, in the cards' own terms"},"psychological_angle":{"code":"one allowed angle code"},"cta":{"text":"honest next action"}}]}`;
 
 export const IDEATION_USER_PROMPT_TEMPLATE = `CLIENT
 {{CLIENT_NAME}}
@@ -113,12 +122,10 @@ TECHNIQUE
 REQUIRED ASSET TYPES IN THIS EXACT ORDER
 {{ASSET_TYPES}}
 
-Each approved source below is listed once, split into citable SUPPORT UNITS. A
-unit is an exact piece of that source: a sentence, a bullet, a numbered item, a
-key-value line, a table row, or a heading. RAW is that unit's exact source text.
-For a table row, TABLE_HEADER is the row's header line and MEANING pairs each
-header cell with that row's cell — MEANING explains the row, it is NOT a
-quotation of it. Cite evidence only by UNIT_ID.
+Each approved source below is listed once, as the CLAIM CARDS the server built
+from it. A card is a fact the server owns: FACT is source text, MEANING is a
+server-built table reading (never a quotation). ALLOWED lists exactly which
+numbers and claim types that card lets you use. Select facts by card id.
 
 APPROVED EXECUTION CONSTRAINTS — TRUSTED AND BINDING
 {{EXECUTION}}
@@ -141,52 +148,53 @@ reference must copy source_id, source_ref, and source_url exactly from it:
 Return:
 {{OUTPUT_CONTRACT}}
 
-WRITE THE FACTS FIRST, THEN THE COPY.
+YOU DO NOT WRITE FACTS. YOU SELECT THEM, THEN WRITE THE COPY.
 
-STEP 1 — GROUNDED PROPOSITIONS
-For each candidate, write one to four plain factual statements in
-"grounded_propositions". Each one:
-- states a single fact taken from the support units you cite;
-- is built from those units' own nouns and verbs — light editing only;
-- cites one to three UNIT_IDs from ONE source in "support_unit_ids";
-- carries "source_ids", "source_ref", and "source_url" copied from that source;
-- has a "support_note" built only from words in the unit. "The unit states
-  this." is always acceptable;
-- has a short "proposition_id" such as "P1", unique within that candidate.
+The CLAIM CARDS below are the only facts that exist. Each card was built by the
+server from approved source text. You cannot add a fact, change a fact, or write
+your own version of a fact — you can only choose which cards a candidate rests
+on and then write creative copy around them.
 
-Every number, business outcome, causal statement, comparison, guarantee, and
-superlative must live in a proposition and be carried by its units. If a unit
-does not say it, do not write it.
+STEP 1 — SELECT CARDS
+For each candidate, put one to three CLAIM CARD ids in "claim_card_ids". All the
+cards for one candidate must come from the same source. Use every card you
+select: if a card's meaning does not show up in your copy, do not select it.
 
-STEP 2 — THE CANDIDATE FIELDS
-Each field is an object with "proposition_ids" naming the propositions it rests
-on. Cite only proposition_ids you defined for that same candidate.
-
-- "core_message" is a FACT. Keep it close to its propositions' wording.
-- "working_title", "hook", and "cta" are CREATIVE. Write them as normal
-  marketing copy: questions, commands, contrast, curiosity, second person. You
-  do NOT need to reuse source vocabulary here. You must not add a new fact,
-  number, result, guarantee, comparison, urgency, or scarcity claim that its
-  propositions do not carry.
-- "psychological_angle" is a CLASSIFICATION. Return only a "code" from this
-  allowed list — no free text, no invented labels:
+STEP 2 — WRITE THE COPY
+- "core_message" states the selected cards' meaning in their own terms.
+- "working_title", "hook", and "cta" are creative. Use normal marketing language:
+  questions, commands, contrast, curiosity, second person. You do not need to
+  reuse source vocabulary here.
+- "psychological_angle" is a classification. Return only a "code" from this list:
 {{ANGLE_CODES}}
 
-The angle describes how the idea works. It does not have to appear in the
-source, and it must never smuggle in a factual claim.
+WHAT YOUR COPY MAY NOT DO
+Each card lists exactly what it ALLOWS. If a card does not list a number, you may
+not write that number anywhere. If a card does not list a claim type, you may not
+write that kind of claim: no results, growth, revenue, conversions, comparisons,
+"best" or "fastest", market leadership, guarantees, "always"/"never"/"every",
+competitor claims, urgency, or scarcity.
 
-EXAMPLE OF THE PATTERN
-grounded_propositions: [{"proposition_id":"P1","text":"Good work stays invisible
-when proof is never captured","evidence_mode":"paraphrase","support_unit_ids":
-["su_example2"],"support_note":"The unit states this."}]
-working_title: {"text":"The proof nobody ever sees","proposition_ids":["P1"]}
-hook: {"text":"Your best work is invisible. Here is why.","proposition_ids":["P1"]}
-core_message: {"text":"Good work stays invisible when proof is never captured","proposition_ids":["P1"]}
-psychological_angle: {"code":"proof_visibility","proposition_ids":["P1"]}
-cta: {"text":"Look at what your proof is doing right now","proposition_ids":["P1"]}
+Never write a number that is not listed under ALLOWED on a card you selected.
+Never restate a card's MEANING as if it were a direct quotation.
 
-A hook like "Scale to 3x more clients in 90 days" FAILS: it adds a number and a
-result no proposition carries.
+WORKED EXAMPLE
+Given a card:
+  cc_example [02_File.md]
+    FACT: Good work stays invisible when proof is never captured
+    ALLOWED: no numbers, no outcome or comparison claims
+
+A candidate that PASSES:
+  "claim_card_ids": ["cc_example"]
+  "working_title": {"text": "The proof that stays out of sight"}
+  "hook": {"text": "Your best work is invisible. Here is why."}
+  "core_message": {"text": "Good work stays invisible when proof is never captured"}
+  "psychological_angle": {"code": "proof_visibility"}
+  "cta": {"text": "Look at what your proof is doing right now"}
+
+The same candidate FAILS if the hook says "invisible work costs you clients"
+(an outcome the card does not allow) or "the number 1 reason" (a number the card
+does not allow).
 
 Produce exactly {{CANDIDATE_COUNT}} candidates. Keep every field concise.`;
 
@@ -220,7 +228,12 @@ export const IDEATION_PROMPT_CONSTRUCTION_CONFIG = Object.freeze({
   proposition_schema_version: IDEATION_PROPOSITION_SCHEMA_VERSION,
   angle_taxonomy_version: IDEATION_ANGLE_TAXONOMY_VERSION,
   field_repair_policy_version: IDEATION_FIELD_REPAIR_POLICY_VERSION,
-  candidate_contract_mode: "claim_first",
+  candidate_contract_mode: "server_owned_claim_cards",
+  claim_card_policy_version: IDEATION_CLAIM_CARD_POLICY_VERSION,
+  claim_card_construction_version: IDEATION_CLAIM_CARD_CONSTRUCTION_VERSION,
+  permission_ledger_version: IDEATION_PERMISSION_LEDGER_VERSION,
+  candidate_output_schema_version: IDEATION_CANDIDATE_OUTPUT_SCHEMA_VERSION,
+  claim_card_manifest: IDEATION_CLAIM_CARD_MANIFEST,
   deduplicate_sources_by_source_id: true,
   maximum_prompt_chars: IDEATION_PROMPT_BUDGET.maximum_prompt_chars,
   oversized_prompt_behaviour: "fail_closed_never_truncate_authority",
@@ -245,14 +258,8 @@ function repairContext(parsed: Record<string, unknown>): Array<{
   const rows = Array.isArray(parsed.candidates) ? parsed.candidates : [];
   return rows.map((row, index) => {
     const candidate = (row ?? {}) as Record<string, unknown>;
-    const propositions = Array.isArray(candidate.grounded_propositions)
-      ? candidate.grounded_propositions.map((entry) => {
-        const proposition = (entry ?? {}) as Record<string, unknown>;
-        return {
-          proposition_id: String(proposition.proposition_id ?? ""),
-          text: String(proposition.text ?? ""),
-        };
-      })
+    const propositions = Array.isArray(candidate.claim_card_ids)
+      ? candidate.claim_card_ids.map((id) => ({ proposition_id: String(id ?? ""), text: "" }))
       : [];
     const fields: Record<string, string> = {};
     for (const field of ["working_title", "hook", "core_message", "psychological_angle", "cta"]) {
@@ -307,6 +314,7 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
   user: string;
   evidenceRegistry: IdeationEvidenceSource[];
   supportUnits: IdeationSupportUnit[];
+  claimCards: IdeationClaimCard[];
 }> {
   const evidenceRegistry = uniqueEvidenceSources([
     ...input.research.evidenceSources,
@@ -324,6 +332,9 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
   // Evidence policy v2: the citable units are derived from exactly the same
   // bounded excerpts already supplied above, so no new authority is introduced.
   const supportUnits = await buildSupportUnitRegistry(evidenceRegistry);
+  // The factual layer is built here, by the server, before the model sees
+  // anything. The model can only select from it.
+  const claimCards = await buildClaimCards(supportUnits);
 
   const system = IDEATION_SYSTEM_PROMPT_TEMPLATE;
 
@@ -332,11 +343,11 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
     TECHNIQUE_NAME: input.techniqueName,
     TECHNIQUE_FOCUS: input.techniqueFocus,
     ASSET_TYPES: JSON.stringify(input.assetTypes),
-    EXECUTION: serializeSourceUnitSection(execution, supportUnits),
-    STRATEGIC: serializeSourceUnitSection(strategicPlaybooks, supportUnits),
-    CONTEXT: serializeSourceUnitSection(context, supportUnits),
+    EXECUTION: serializeSourceCardSection(execution, claimCards),
+    STRATEGIC: serializeSourceCardSection(strategicPlaybooks, claimCards),
+    CONTEXT: serializeSourceCardSection(context, claimCards),
     EXTERNAL: external.length
-      ? serializeSourceUnitSection(external, supportUnits)
+      ? serializeSourceCardSection(external, claimCards)
       : "No external research source is present for this run.",
     REGISTRY: serializeEvidenceRegistryIdentities(evidenceRegistry),
     ANGLE_CODES: ideationAnglesForTechnique(input.techniqueSlug)
@@ -350,7 +361,7 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
     (_placeholder, key: string) => replacements[key] ?? "",
   );
 
-  return { system, user, evidenceRegistry, supportUnits };
+  return { system, user, evidenceRegistry, supportUnits, claimCards };
 }
 
 
@@ -380,8 +391,8 @@ export function buildFieldRepairPrompt(input: {
     if (failing.length === 0) return "";
     return [
       `CANDIDATE ${candidate.candidate_index} (asset_type ${candidate.asset_type})`,
-      "VALIDATED PROPOSITIONS — these are already proven; do not change them:",
-      ...candidate.propositions.map((proposition) => `  ${proposition.proposition_id}: ${proposition.text}`),
+      "SELECTED CLAIM CARDS — server-owned facts. You cannot change or author these:",
+      ...candidate.propositions.map((entry) => `  ${entry.proposition_id}${entry.text ? `: ${entry.text}` : ""}`),
       "FIELDS TO REPAIR:",
       ...failing.map((failure) =>
         `  ${failure.field} — rejected because: ${failure.message}\n    current: ${candidate.fields[failure.field] ?? "(none)"}`
@@ -404,14 +415,13 @@ export function buildFieldRepairPrompt(input: {
     "  urgency, or scarcity the cited propositions do not carry.",
     "- core_message must stay close to its propositions' wording.",
     "- psychological_angle must be one allowed code, nothing else.",
-    "- Keep the same proposition_ids unless a proposition itself was rejected.",
-    "- If a grounded_propositions.PX entry was rejected, return it under",
-    '  "propositions" as {"proposition_id":"PX","text":"..."} and restate it',
-    "  strictly inside what its already-cited units say. Do not add a number,",
-    "  outcome, comparison, causal link, or guarantee those units do not carry.",
+    "- You may not author, create, or modify a claim card.",
+    "- Only change claim_card_ids if the selected set itself was rejected, and",
+    "  then only to other ids from the same registry.",
+    "- Remove any number or claim the selected cards do not allow.",
     "",
     "Return exactly:",
-    '{"repairs":[{"candidate_index":1,"propositions":[{"proposition_id":"P1","text":"..."}],"fields":{"hook":{"text":"...","proposition_ids":["P1"]}}}]}',
+    '{"repairs":[{"candidate_index":1,"fields":{"hook":{"text":"..."}}}]}',
   ].join("\n");
   return { system, user };
 }
@@ -448,9 +458,18 @@ export function applyFieldRepairs(
     }
     const entry = row as Record<string, unknown>;
     for (const key of Object.keys(entry)) {
-      if (key !== "candidate_index" && key !== "fields" && key !== "propositions") {
+      if (key !== "candidate_index" && key !== "fields" && key !== "claim_card_ids") {
         return { ok: false, error: `Field repair contains the unexpected key ${key}.` };
       }
+    }
+    if (entry.claim_card_ids !== undefined) {
+      if (!allowed.has("claim_card_ids")) {
+        return { ok: false, error: "A repair may not reselect claim cards that were accepted." };
+      }
+      if (!Array.isArray(entry.claim_card_ids)) {
+        return { ok: false, error: "claim_card_ids must be an array." };
+      }
+      (target as Record<string, unknown>).claim_card_ids = entry.claim_card_ids;
     }
     const candidateIndex = entry.candidate_index;
     if (typeof candidateIndex !== "number" || !Number.isInteger(candidateIndex)) {
@@ -462,41 +481,9 @@ export function applyFieldRepairs(
     if (!target || typeof target !== "object") {
       return { ok: false, error: "Field repair targets a candidate that does not exist." };
     }
-    // A rejected proposition may be restated. Only its text changes: the units
-    // and sources it cites are carried through untouched, so the repair cannot
-    // reach for new evidence.
-    if (entry.propositions !== undefined) {
-      if (!Array.isArray(entry.propositions)) {
-        return { ok: false, error: "Field repair propositions must be an array." };
-      }
-      const existing = (target as Record<string, unknown>).grounded_propositions;
-      if (!Array.isArray(existing)) {
-        return { ok: false, error: "The original candidate has no propositions to repair." };
-      }
-      for (const rawFix of entry.propositions) {
-        if (!rawFix || typeof rawFix !== "object" || Array.isArray(rawFix)) {
-          return { ok: false, error: "Field repair contains a malformed proposition." };
-        }
-        const fix = rawFix as Record<string, unknown>;
-        for (const key of Object.keys(fix)) {
-          if (key !== "proposition_id" && key !== "text") {
-            return { ok: false, error: `A repaired proposition may not set ${key}.` };
-          }
-        }
-        const id = typeof fix.proposition_id === "string" ? fix.proposition_id.trim() : "";
-        if (!allowed.has(`grounded_propositions.${id}`)) {
-          return { ok: false, error: `Field repair may not rewrite proposition ${id}, which did not fail.` };
-        }
-        const original = existing.find((item) =>
-          item && typeof item === "object"
-          && (item as Record<string, unknown>).proposition_id === id
-        ) as Record<string, unknown> | undefined;
-        if (!original) return { ok: false, error: `Field repair targets unknown proposition ${id}.` };
-        if (typeof fix.text !== "string" || !fix.text.trim()) {
-          return { ok: false, error: `Repaired proposition ${id} has no text.` };
-        }
-        original.text = fix.text.trim();
-      }
+    // A repair can never author a fact: the factual layer is server-owned.
+    if (entry.propositions !== undefined || entry.grounded_propositions !== undefined) {
+      return { ok: false, error: "A repair may not author or modify a claim." };
     }
     const fields = entry.fields;
     if (fields === undefined) continue;
@@ -508,7 +495,9 @@ export function applyFieldRepairs(
         return { ok: false, error: `Field repair may not rewrite ${field}, which did not fail.` };
       }
       // Identity and allocation are immutable through a repair.
-      if (field === "asset_type" || field === "candidate_index" || field === "grounded_propositions") {
+      if (field === "asset_type" || field === "candidate_index"
+        || field === "grounded_propositions" || field === "claim_card_ids"
+        || field === "evidence_references" || field === "support_unit_ids") {
         return { ok: false, error: `Field repair may not change ${field}.` };
       }
       (target as Record<string, unknown>)[field] = replacement;
@@ -615,7 +604,7 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
     const parsed = result.ok ? extractIdeationJson(result.text) : null;
     let validated = result.ok
       ? (parsed
-        ? validateClaimFirstCandidateOutput(parsed, input.assetTypes, prompts.evidenceRegistry, prompts.supportUnits, input.techniqueSlug)
+        ? validateClaimCardCandidateOutput(parsed, input.assetTypes, prompts.evidenceRegistry, prompts.claimCards, input.techniqueSlug)
         : { ok: false as const, error: "Anthropic returned malformed candidate JSON.", failures: [] })
       : null;
 
@@ -670,8 +659,8 @@ export async function generateTechniqueCandidates(input: IdeationPromptInput): P
           const merged = applyFieldRepairs(parsed, repairJson, validated.failures);
           if (merged.ok) {
             // The repaired response is validated exactly like the original.
-            validated = validateClaimFirstCandidateOutput(
-              merged.merged, input.assetTypes, prompts.evidenceRegistry, prompts.supportUnits, input.techniqueSlug,
+            validated = validateClaimCardCandidateOutput(
+              merged.merged, input.assetTypes, prompts.evidenceRegistry, prompts.claimCards, input.techniqueSlug,
             );
           }
         }

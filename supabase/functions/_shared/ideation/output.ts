@@ -1,5 +1,13 @@
 import type { IdeationEvidenceSource } from "./evidence.ts";
 import {
+  IDEATION_CLAIM_CARD_CONSTRUCTION_VERSION,
+  IDEATION_CLAIM_CARD_MANIFEST,
+  IDEATION_CLAIM_CARD_POLICY_VERSION,
+  IDEATION_PERMISSION_LEDGER_VERSION,
+  IDEATION_CANDIDATE_OUTPUT_SCHEMA_VERSION,
+  type IdeationClaimCard,
+} from "./claim-cards.ts";
+import {
   defaultAngleForTechnique,
   IDEATION_ANGLE_TAXONOMY_VERSION,
   IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
@@ -915,7 +923,8 @@ export function validateCoreMessageField(input: {
 export function validatePsychologicalAngle(input: {
   code: unknown;
   techniqueSlug: string;
-  propositions: ValidatedProposition[];
+  /** Optional: the claim-card path proves support through selected cards. */
+  propositions?: ValidatedProposition[];
 }): { ok: true; angle: IdeationAngleDefinition } | { ok: false; code: string; message: string } {
   if (typeof input.code !== "string" || !input.code.trim()) {
     return {
@@ -939,7 +948,7 @@ export function validatePsychologicalAngle(input: {
       message: "psychological_angle is not compatible with this technique.",
     };
   }
-  if (input.propositions.length === 0) {
+  if (input.propositions !== undefined && input.propositions.length === 0) {
     return {
       ok: false,
       code: "FIELD_HAS_NO_PROPOSITION",
@@ -1250,6 +1259,387 @@ export function toPersistedIdeationCandidate(candidate: ClaimFirstCandidate): {
         evidence_mode: proposition.evidence_mode,
         support_unit_ids: proposition.support_unit_ids,
         source_ids: proposition.source_ids,
+      })),
+    },
+  };
+}
+
+/* ==========================================================================
+ * Claim-card candidate validation — the model never authors factual text.
+ *
+ * The model selects registered claim-card ids and writes creative copy. Every
+ * field is validated against the SERVER-OWNED permission ledger of the selected
+ * cards. Nothing outside a registered card can grant a permission, so a
+ * candidate index, a card id, a schema version, or an array position can never
+ * become factual support.
+ * ======================================================================== */
+
+export interface ClaimCardCandidate {
+  asset_type: IdeationAssetType;
+  working_title: string;
+  hook: string;
+  core_message: string;
+  psychological_angle: string;
+  psychological_angle_code: string;
+  cta: string;
+  claim_card_ids: string[];
+  cards: IdeationClaimCard[];
+  angle_source: "model" | "technique_default";
+}
+
+export type ClaimCardValidation =
+  | { ok: true; candidates: ClaimCardCandidate[]; structuredFindings: Record<string, string[]> }
+  | { ok: false; error: string; failures: CandidateFieldFailure[] };
+
+/** Union of the selected cards' server-owned permissions. */
+function mergedPermissions(cards: IdeationClaimCard[]) {
+  const numbers = new Set<string>();
+  const categories = new Set<string>();
+  const entities = new Set<string>();
+  for (const card of cards) {
+    for (const number of card.permissions.numbers) numbers.add(number);
+    for (const category of card.permissions.high_risk_categories) categories.add(category);
+    for (const entity of card.permissions.entities) entities.add(entity);
+  }
+  return { numbers, categories, entities };
+}
+
+/**
+ * Capitalised words that genuinely assert a named thing. Sentence-initial
+ * capitalisation and ordinary English words are excluded, so normal creative
+ * copy is never mistaken for an entity claim.
+ */
+const COMMON_CAPITALISED = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "but", "by", "do", "does", "for",
+  "from", "go", "here", "how", "if", "in", "is", "it", "its", "just", "look",
+  "make", "no", "not", "now", "of", "on", "or", "our", "out", "review", "see",
+  "show", "so", "start", "stop", "than", "that", "the", "their", "then",
+  "there", "these", "they", "this", "to", "up", "use", "want", "was", "we",
+  "what", "when", "where", "which", "who", "why", "will", "with", "you", "your",
+  "every", "each", "some", "most", "more", "less", "yes", "find", "check",
+]);
+
+export function namedEntitiesRequiringSupport(text: string): string[] {
+  const entities: string[] = [];
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+    const words = sentence.trim().split(/\s+/);
+    words.forEach((word, index) => {
+      const clean = word.replace(/[^A-Za-z]/g, "");
+      if (!clean || clean.length < 3) return;
+      if (index === 0) return; // sentence-initial capitalisation asserts nothing
+      if (!/^[A-Z]/.test(clean)) return;
+      if (COMMON_CAPITALISED.has(clean.toLowerCase())) return;
+      entities.push(clean);
+    });
+  }
+  return [...new Set(entities)];
+}
+
+function cardSupportText(cards: IdeationClaimCard[]): string {
+  return cards.map((card) => card.normalized_text).join("\n");
+}
+
+/**
+ * Validates one creative field against the selected cards.
+ *
+ * Only the FIELD TEXT is scanned. No identifier, index, or version reaches this
+ * function, which is what makes metadata numbers structurally incapable of
+ * becoming factual claims.
+ */
+export function validateFieldAgainstCards(input: {
+  field: string;
+  text: string;
+  cards: IdeationClaimCard[];
+  requireProposition?: boolean;
+}): { ok: true } | { ok: false; code: string; message: string } {
+  if (input.cards.length === 0) {
+    return { ok: false, code: "FIELD_HAS_NO_CARD", message: `${input.field} has no selected claim card.` };
+  }
+  const permissions = mergedPermissions(input.cards);
+  const support = cardSupportText(input.cards);
+
+  const unsupportedNumbers = numericalTokens(input.text).filter((token) => !permissions.numbers.has(token));
+  if (unsupportedNumbers.length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_NUMBER",
+      message: `${input.field} uses a number the selected claim cards do not permit.`,
+    };
+  }
+
+  // Named entities require support. Without this a claim can borrow a table's
+  // shared header vocabulary and then name a value from a row it did not
+  // select. Only genuine proper nouns count: a word capitalised because it
+  // starts a sentence, or an ordinary English word, is not an entity.
+  const unsupportedEntities = namedEntitiesRequiringSupport(input.text)
+    .filter((entity) => !cardSupportText(input.cards).toLowerCase().includes(entity.toLowerCase()));
+  if (unsupportedEntities.length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_ENTITY",
+      message: `${input.field} names ${unsupportedEntities[0]}, which the selected claim cards do not support.`,
+    };
+  }
+
+  const introduced = detectHighRiskCategories(input.text)
+    .filter((category) => !permissions.categories.has(category));
+  if (introduced.length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_CLAIM",
+      message: `${input.field} introduces an unsupported ${introduced[0]} claim.`,
+    };
+  }
+  // Category permission alone is not enough: the existing direct-support rule
+  // still decides whether this particular sentence is carried.
+  if (unsupportedClaims(input.text, support).length > 0) {
+    return {
+      ok: false,
+      code: "FIELD_UNSUPPORTED_CLAIM",
+      message: `${input.field} makes a claim the selected cards do not directly support.`,
+    };
+  }
+
+  if (input.requireProposition) {
+    const grounding = validateClaimGrounding(input.text, support);
+    if (!grounding.ok) {
+      return { ok: false, code: "FIELD_UNSUPPORTED_CLAIM", message: `${input.field}: ${grounding.error}` };
+    }
+    return { ok: true };
+  }
+
+  if (!hasCreativeAlignment(input.text, support)) {
+    return {
+      ok: false,
+      code: "FIELD_UNRELATED_TO_CARD",
+      message: `${input.field} is not recognisably about the claim cards it selects.`,
+    };
+  }
+  return { ok: true };
+}
+
+const CLAIM_CARD_CANDIDATE_KEYS = new Set([
+  "candidate_index", "asset_type", "claim_card_ids",
+  "working_title", "hook", "core_message", "psychological_angle", "cta",
+]);
+
+/** Fields a model must never supply now that the server owns the factual layer. */
+const FORBIDDEN_MODEL_KEYS = [
+  "grounded_propositions", "propositions", "evidence_references", "support_span",
+  "support_unit_ids", "support_note", "quoted_text", "reasoning_note", "source_ids",
+];
+
+export function validateClaimCardCandidateOutput(
+  value: Record<string, unknown>,
+  expectedAssetTypes: IdeationAssetType[],
+  evidenceRegistry: IdeationEvidenceSource[],
+  claimCards: IdeationClaimCard[],
+  techniqueSlug: string,
+): ClaimCardValidation {
+  const fail = (error: string, failures: CandidateFieldFailure[] = []): ClaimCardValidation =>
+    ({ ok: false, error, failures });
+
+  if (hasProhibitedKey(value)) return fail("Model output contains a prohibited downstream field.");
+  const cardRegistry = new Map(claimCards.map((card) => [card.claim_card_id, card]));
+  if (cardRegistry.size !== claimCards.length || claimCards.length === 0) {
+    return fail("The claim-card registry is empty or contains duplicate ids.");
+  }
+
+  const findings = validateStructuredFindings(value, evidenceRegistry);
+  if (!findings.ok) return fail(findings.error);
+
+  if (!Array.isArray(value.candidates) || value.candidates.length !== expectedAssetTypes.length) {
+    return fail(`Model output must contain exactly ${expectedAssetTypes.length} candidates.`);
+  }
+
+  const candidates: ClaimCardCandidate[] = [];
+  const failures: CandidateFieldFailure[] = [];
+
+  for (let index = 0; index < value.candidates.length; index += 1) {
+    const raw = value.candidates[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return fail(`Candidate ${index + 1} is not an object.`);
+    }
+    const row = raw as Record<string, unknown>;
+    for (const key of Object.keys(row)) {
+      if (FORBIDDEN_MODEL_KEYS.includes(key)) {
+        return fail(`Candidate ${index + 1} supplied ${key}; the server owns the factual layer.`);
+      }
+      if (!CLAIM_CARD_CANDIDATE_KEYS.has(key)) {
+        return fail(`Candidate ${index + 1} contains the unexpected field ${key}.`);
+      }
+    }
+    if (row.asset_type !== expectedAssetTypes[index]) {
+      return fail(`Candidate ${index + 1} has the wrong asset_type.`);
+    }
+
+    const rawIds = row.claim_card_ids;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return fail(`Candidate ${index + 1} must select at least one claim card.`);
+    }
+    if (rawIds.length > IDEATION_CLAIM_CARD_MANIFEST.max_cards_per_candidate) {
+      return fail(`Candidate ${index + 1} selects more than ${IDEATION_CLAIM_CARD_MANIFEST.max_cards_per_candidate} claim cards.`);
+    }
+    const ids = rawIds.map((id) => typeof id === "string" ? id.trim() : "");
+    if (ids.some((id) => !id)) return fail(`Candidate ${index + 1} has an invalid claim_card_id.`);
+    if (new Set(ids).size !== ids.length) return fail(`Candidate ${index + 1} repeats a claim_card_id.`);
+    const cards: IdeationClaimCard[] = [];
+    for (const id of ids) {
+      const card = cardRegistry.get(id);
+      if (!card) return fail(`Candidate ${index + 1} selects the unknown claim card ${id}.`);
+      cards.push(card);
+    }
+    // Cross-source combinations are refused: a candidate's facts must come from
+    // one approved source unless a code-owned rule says otherwise.
+    if (new Set(cards.map((card) => card.source_id)).size > 1) {
+      return fail(`Candidate ${index + 1} combines claim cards from different sources.`);
+    }
+
+    const fieldText = (field: string): { text: string | null; code: string | null; error: string | null } => {
+      const entry = row[field];
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return { text: null, code: null, error: `${field} must be an object.` };
+      }
+      const record = entry as Record<string, unknown>;
+      for (const key of Object.keys(record)) {
+        if (key !== "text" && key !== "code") {
+          return { text: null, code: null, error: `${field} contains the unexpected key ${key}.` };
+        }
+      }
+      return {
+        text: typeof record.text === "string" ? record.text.trim() : null,
+        code: typeof record.code === "string" ? record.code.trim() : null,
+        error: null,
+      };
+    };
+
+    let angleDefinition: IdeationAngleDefinition | null = null;
+    let angleSource: "model" | "technique_default" = "model";
+    const texts: Record<string, string> = {};
+
+    for (const field of IDEATION_CANDIDATE_FIELD_NAMES) {
+      const resolved = fieldText(field);
+      if (resolved.error) {
+        failures.push({ candidate_index: index + 1, field, code: "FIELD_MALFORMED", message: resolved.error });
+        continue;
+      }
+      if (field === "psychological_angle") {
+        const angle = validatePsychologicalAngle({ code: resolved.code, techniqueSlug });
+        if (angle.ok) {
+          angleDefinition = angle.angle;
+        } else {
+          const fallback = defaultAngleForTechnique(techniqueSlug);
+          if (fallback) {
+            angleDefinition = fallback;
+            angleSource = "technique_default";
+          } else {
+            failures.push({ candidate_index: index + 1, field, code: angle.code, message: angle.message });
+          }
+        }
+        continue;
+      }
+      const text = resolved.text;
+      if (!text || text.length > IDEATION_FIELD_LIMITS[field]) {
+        failures.push({
+          candidate_index: index + 1, field, code: "FIELD_MALFORMED",
+          message: `${field} must be bounded non-empty text.`,
+        });
+        continue;
+      }
+      const check = validateFieldAgainstCards({
+        field,
+        text,
+        cards,
+        requireProposition: field === "core_message",
+      });
+      if (!check.ok) {
+        failures.push({ candidate_index: index + 1, field, code: check.code, message: check.message });
+        continue;
+      }
+      texts[field] = text;
+    }
+
+    if (failures.some((failure) => failure.candidate_index === index + 1)) continue;
+    if (!texts.working_title || !texts.hook || !texts.core_message || !texts.cta || !angleDefinition) {
+      failures.push({
+        candidate_index: index + 1, field: "candidate", code: "FIELD_MALFORMED",
+        message: "Candidate is missing a required field.",
+      });
+      continue;
+    }
+
+    candidates.push({
+      asset_type: expectedAssetTypes[index],
+      working_title: texts.working_title,
+      hook: texts.hook,
+      core_message: texts.core_message,
+      psychological_angle: angleDefinition.label,
+      psychological_angle_code: angleDefinition.code,
+      cta: texts.cta,
+      claim_card_ids: ids,
+      cards,
+      angle_source: angleSource,
+    });
+  }
+
+  if (failures.length > 0) return fail(`${failures[0].field}: ${failures[0].message}`, failures);
+  return { ok: true, candidates, structuredFindings: findings.structuredFindings };
+}
+
+/**
+ * Adapts a claim-card candidate to the persisted shape Stages 2-4 already
+ * consume. The public contract is unchanged; claim-card provenance travels
+ * alongside it.
+ */
+export function toPersistedClaimCardCandidate(candidate: ClaimCardCandidate): {
+  asset_type: IdeationAssetType;
+  working_title: string;
+  hook: string;
+  core_message: string;
+  psychological_angle: string;
+  cta: string;
+  evidence_references: GeneratedEvidenceReference[];
+  claim_card_provenance: Record<string, unknown>;
+} {
+  const evidence: GeneratedEvidenceReference[] = candidate.cards.map((card) => ({
+    evidence_type: card.claim_mode === "normalized_table_meaning" ? "derived_claim" : "paraphrase",
+    source_ids: [card.source_id],
+    source_ref: card.source_ref,
+    source_url: card.source_url,
+    claim: card.normalized_text,
+    support_unit_ids: card.support_unit_ids,
+    support_span: card.quotable_spans.join("\n"),
+    support_note: "Server-owned claim card derived from registered support units.",
+  }));
+  return {
+    asset_type: candidate.asset_type,
+    working_title: candidate.working_title,
+    hook: candidate.hook,
+    core_message: candidate.core_message,
+    psychological_angle: candidate.psychological_angle,
+    cta: candidate.cta,
+    evidence_references: evidence,
+    claim_card_provenance: {
+      claim_card_policy_version: IDEATION_CLAIM_CARD_POLICY_VERSION,
+      claim_card_construction_version: IDEATION_CLAIM_CARD_CONSTRUCTION_VERSION,
+      permission_ledger_version: IDEATION_PERMISSION_LEDGER_VERSION,
+      candidate_output_schema_version: IDEATION_CANDIDATE_OUTPUT_SCHEMA_VERSION,
+      candidate_field_policy_version: IDEATION_CANDIDATE_FIELD_POLICY_VERSION,
+      angle_taxonomy_version: IDEATION_ANGLE_TAXONOMY_VERSION,
+      psychological_angle_code: candidate.psychological_angle_code,
+      psychological_angle_source: candidate.angle_source,
+      model_authored_factual_text: false,
+      claim_cards: candidate.cards.map((card) => ({
+        claim_card_id: card.claim_card_id,
+        card_hash: card.card_hash,
+        card_type: card.card_type,
+        claim_mode: card.claim_mode,
+        source_id: card.source_id,
+        support_unit_ids: card.support_unit_ids,
+        support_span_hashes: card.support_span_hashes,
+        canonical_text: card.canonical_text,
+        permitted_numbers: card.permissions.numbers,
+        permitted_categories: card.permissions.high_risk_categories,
       })),
     },
   };

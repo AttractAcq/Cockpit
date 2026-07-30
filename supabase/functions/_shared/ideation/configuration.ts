@@ -1,3 +1,4 @@
+import { IDEATION_CLAIM_CARD_MANIFEST } from "./claim-cards.ts";
 import { IDEATION_CANDIDATE_FIELD_MANIFEST } from "./candidate-fields.ts";
 import {
   IDEATION_EVIDENCE_POLICY_VERSION,
@@ -76,6 +77,9 @@ export async function buildIdeationConfigurationSnapshot(input: IdeationConfigur
     // Candidate-field policy v2: a semantically different candidate contract
     // must never replay an older cycle's configuration.
     candidate_field_policy: IDEATION_CANDIDATE_FIELD_MANIFEST,
+    // Server-owned claim cards: a new cycle can never replay a cycle whose
+    // factual layer was model-authored.
+    claim_card_policy: IDEATION_CLAIM_CARD_MANIFEST,
     evidence_policy: {
       version: IDEATION_EVIDENCE_POLICY_VERSION,
       support_unit_parser_version: IDEATION_SUPPORT_UNIT_PARSER_VERSION,
