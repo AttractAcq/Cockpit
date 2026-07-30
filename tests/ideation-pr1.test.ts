@@ -1014,14 +1014,16 @@ async function sourceFiles(directory: URL): Promise<URL[]> {
 }
 
 test("complete transitive Ideation runtime and RPC migration contain no prohibited downstream tables", async () => {
-  // Scoped to the Stage 1 generation runtime. The scoring/ and proposal/
-  // subdirectories are the Stage 2 and Stage 3 runtimes: run-ideation does not
-  // import them (asserted below), and each has its own dedicated write-boundary
-  // test. Stage 3 legitimately READS calendar_cells for conflict detection, so
-  // folding it in here would assert the wrong contract.
+  // Scoped to the Stage 1 generation runtime. The scoring/, proposal/, and
+  // commit/ subdirectories are the Stage 2, Stage 3, and Stage 4 runtimes:
+  // run-ideation does not import them (asserted below), and each has its own
+  // dedicated write-boundary test. Stage 3 legitimately READS calendar_cells for
+  // conflict detection, and Stage 4 legitimately WRITES organic_master,
+  // story_master, and calendar_cells, so folding either in here would assert the
+  // wrong contract.
   const stage1SharedFiles = (await sourceFiles(
     new URL("../supabase/functions/_shared/ideation/", import.meta.url),
-  )).filter((url) => !/\/ideation\/(scoring|proposal)\//.test(url.pathname));
+  )).filter((url) => !/\/ideation\/(scoring|proposal|commit)\//.test(url.pathname));
   const runIdeationFiles = await sourceFiles(
     new URL("../supabase/functions/run-ideation/", import.meta.url),
   );
@@ -1037,6 +1039,7 @@ test("complete transitive Ideation runtime and RPC migration contain no prohibit
   )).join("\n");
   assert.equal(/ideation\/scoring\//.test(runIdeationSource), false, "run-ideation must not import Stage 2 modules");
   assert.equal(/ideation\/proposal\//.test(runIdeationSource), false, "run-ideation must not import Stage 3 modules");
+  assert.equal(/ideation\/commit\//.test(runIdeationSource), false, "run-ideation must not import Stage 4 modules");
   const migrationUrl = new URL("../supabase/migrations/20260725000032_ideation_pr1_foundations.sql", import.meta.url);
   const source = (await Promise.all([...runtimeFiles, migrationUrl].map((url) => readFile(url, "utf8")))).join("\n");
   for (const table of [

@@ -13,6 +13,15 @@
 import { EdgeFunctionInvocationError, supabase, invokeFn } from "./supabase";
 import { decodeIdeationScoringFailureBody } from "./ideation-scoring-failure";
 import { decodeIdeationProposalFailureBody } from "./ideation-proposal-failure";
+import { decodeIdeationCommitFailureBody } from "./ideation-commit-failure";
+import type {
+  IdeationCommitFailure,
+  IdeationCommitItem,
+  IdeationCommitOverview,
+  IdeationCommitRequest,
+  IdeationCommitResponse,
+  IdeationCommitRun,
+} from "../types/ideation-commit";
 import type {
   IdeationCalendarProposal,
   IdeationProposalInvocationFailure,
@@ -3701,4 +3710,60 @@ export function decodeIdeationProposalInvocationFailure(
   if (!(error instanceof EdgeFunctionInvocationError)) return null;
   if (error.functionName !== "create-ideation-calendar-proposal") return null;
   return decodeIdeationProposalFailureBody(error.responseBody, error.message);
+}
+
+/* -------------------------------------------------------------------------
+ * Ideation Stage 4 — Commit Content
+ *
+ * Reads come straight from the commit tables under RLS; the commit itself is
+ * one Edge Function call that runs one atomic database transaction.
+ * ---------------------------------------------------------------------- */
+
+export async function fetchIdeationCommitOverview(
+  clientId: string,
+  proposalIds: string[],
+  signal?: AbortSignal,
+): Promise<IdeationCommitOverview> {
+  if (proposalIds.length === 0) return { runs: [], items: [] };
+  const runsQuery = supabase
+    .from("client_ideation_commit_runs")
+    .select("*")
+    .eq("client_id", clientId)
+    .in("proposal_id", proposalIds)
+    .order("created_at", { ascending: false });
+  const { data: runData, error: runError } =
+    await (signal ? runsQuery.abortSignal(signal) : runsQuery);
+  if (runError) throw runError;
+  const runs = (runData ?? []) as IdeationCommitRun[];
+  if (!runs.length) return { runs: [], items: [] };
+
+  const itemsQuery = supabase
+    .from("client_ideation_commit_items")
+    .select("*")
+    .in("commit_run_id", runs.map((run) => run.id))
+    .order("committed_date", { ascending: true })
+    .order("operational_ref", { ascending: true });
+  const { data: itemData, error: itemError } =
+    await (signal ? itemsQuery.abortSignal(signal) : itemsQuery);
+  if (itemError) throw itemError;
+  return { runs, items: (itemData ?? []) as IdeationCommitItem[] };
+}
+
+export async function invokeIdeationCommit(
+  input: IdeationCommitRequest,
+): Promise<IdeationCommitResponse> {
+  return await invokeFn<IdeationCommitResponse>("commit-ideation-content", {
+    client_id: input.client_id,
+    proposal_id: input.proposal_id,
+    expected_edit_revision: input.expected_edit_revision,
+    confirm_commit: true,
+  });
+}
+
+export function decodeIdeationCommitInvocationFailure(
+  error: unknown,
+): IdeationCommitFailure | null {
+  if (!(error instanceof EdgeFunctionInvocationError)) return null;
+  if (error.functionName !== "commit-ideation-content") return null;
+  return decodeIdeationCommitFailureBody(error.responseBody, error.message);
 }

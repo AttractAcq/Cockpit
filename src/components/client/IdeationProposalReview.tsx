@@ -20,6 +20,9 @@ import {
   type IdeationProposalSlot,
 } from "@/types/ideation-proposal";
 import type { IdeationCandidate } from "@/types/ideation";
+import { canCommitProposal } from "@/lib/ideation-commit-view";
+import { IdeationCommitResult } from "./IdeationCommitResult";
+import type { IdeationCommitItem, IdeationCommitRun } from "@/types/ideation-commit";
 
 const FIELD_CLASS =
   "rounded border border-line bg-ink px-2 py-1 text-2xs text-paper outline-none focus:border-teal/50";
@@ -202,6 +205,11 @@ export function IdeationProposalReview({
   onRegenerate,
   onApprove,
   onOpenCandidate,
+  commitRun,
+  commitItems,
+  onCommit,
+  onOpenCalendarDate,
+  onOpenCommittedContent,
 }: {
   proposal: IdeationCalendarProposal;
   proposals: IdeationCalendarProposal[];
@@ -215,6 +223,12 @@ export function IdeationProposalReview({
   onRegenerate: () => void;
   onApprove: () => void;
   onOpenCandidate: (candidate: IdeationCandidate) => void;
+  /** Stage 4. Null until this proposal has a completed commit. */
+  commitRun: IdeationCommitRun | null;
+  commitItems: IdeationCommitItem[];
+  onCommit: () => void;
+  onOpenCalendarDate: (date: string) => void;
+  onOpenCommittedContent: (item: IdeationCommitItem) => void;
 }) {
   const [order, setOrder] = useState<"chronological" | "score">("chronological");
   const [restoreTargets, setRestoreTargets] = useState<Record<string, string>>({});
@@ -265,6 +279,19 @@ export function IdeationProposalReview({
           >
             {proposal.status === "approved" ? "Approved" : busy ? "Approving…" : "Approve Proposed Calendar"}
           </Button>
+          {/* Stage 4. Shown only for an approved proposal that has not been
+              committed; a completed commit is terminal, so the action is
+              removed rather than disabled. */}
+          {canCommitProposal(proposal.status, commitRun) && (
+            <Button
+              variant="primary"
+              disabled={busy}
+              aria-describedby="proposal-commit-status"
+              onClick={onCommit}
+            >
+              {busy ? "Committing…" : "Commit Content"}
+            </Button>
+          )}
         </>
       }
     >
@@ -296,6 +323,23 @@ export function IdeationProposalReview({
             ? "This proposal is approved and immutable. No operational Calendar or master row was created."
             : blockReason ?? "Every slot is assigned and every conflict is resolved. This proposal can be approved."}
         </p>
+
+        <p id="proposal-commit-status" role="status" className="text-2xs text-paper-3">
+          {commitRun
+            ? `This proposal was committed: ${commitRun.committed_item_count} Content records and ${commitRun.committed_item_count} Calendar records exist.`
+            : proposal.status === "approved"
+              ? `Committing creates ${proposal.expected_slot_count} operational Content records and ${proposal.expected_slot_count} Calendar records.`
+              : "A proposal must be approved before its content can be committed."}
+        </p>
+
+        {commitRun && (
+          <IdeationCommitResult
+            run={commitRun}
+            items={commitItems}
+            onOpenCalendar={onOpenCalendarDate}
+            onOpenContent={onOpenCommittedContent}
+          />
+        )}
 
         {proposal.warnings.length > 0 && (
           <ul className="space-y-1">

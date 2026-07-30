@@ -14,7 +14,11 @@ export type IdeationMutationKind =
   | "regenerate-proposal"
   | "edit-proposal"
   | "refresh-conflicts"
-  | "approve-proposal";
+  | "approve-proposal"
+  // Stage 4. Commit is deliberately its own kind: a second click while a commit
+  // is in flight must be refused, and a client change must invalidate it, but a
+  // commit must never block an unrelated proposal action.
+  | "commit-content";
 
 export interface IdeationMutationToken {
   readonly clientId: string;

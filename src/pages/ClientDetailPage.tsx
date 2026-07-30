@@ -647,7 +647,15 @@ export function ClientDetailPage() {
       case "calendar":
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase3Controls()}</div><Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} /></div>;
       case "ideation":
-        return <IdeationPanel clientId={id} executionMonth={currentMonth()} />;
+        return (
+          <IdeationPanel
+            clientId={id}
+            executionMonth={currentMonth()}
+            onOpenCalendarDate={() => navigate(ROUTES.clientSection(id, "calendar"))}
+            onOpenContentRef={(operationalRef) =>
+              navigate(`${ROUTES.clientSection(id, "masters")}?source_ref=${encodeURIComponent(operationalRef)}`)}
+          />
+        );
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "reel_studio":

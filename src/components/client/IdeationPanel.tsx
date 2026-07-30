@@ -8,9 +8,15 @@ import {
   fetchIdeationProposalOverview,
   invokeIdeationProposal,
   decodeIdeationProposalInvocationFailure,
+  fetchIdeationCommitOverview,
+  invokeIdeationCommit,
+  decodeIdeationCommitInvocationFailure,
   runIdeation,
   scoreIdeationCandidates,
 } from "@/lib/api";
+import { IdeationCommitConfirmation } from "./IdeationCommitConfirmation";
+import { COMMIT_RECOVERY_LABELS, commitRecoveryAction } from "@/lib/ideation-commit-view";
+import type { IdeationCommitFailure, IdeationCommitOverview } from "@/types/ideation-commit";
 import {
   activeProposal,
   canCreateProposal,
@@ -559,7 +565,18 @@ function GenerationModal({
   );
 }
 
-export function IdeationPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
+export function IdeationPanel({
+  clientId,
+  executionMonth,
+  onOpenCalendarDate,
+  onOpenContentRef,
+}: {
+  clientId: string;
+  executionMonth: string;
+  /** Stage 4 navigation into the operational records a commit created. */
+  onOpenCalendarDate?: (date: string) => void;
+  onOpenContentRef?: (operationalRef: string) => void;
+}) {
   const [overview, setOverview] = useState<IdeationOverview>({ runs: [], technique_runs: [], research_results: [], candidates: [] });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [openCandidate, setOpenCandidate] = useState<IdeationCandidate | null>(null);
@@ -578,6 +595,11 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
   const [proposalOpen, setProposalOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
+  const [commits, setCommits] = useState<IdeationCommitOverview>({ runs: [], items: [] });
+  const [commitBusy, setCommitBusy] = useState(false);
+  const [commitOpen, setCommitOpen] = useState(false);
+  const [commitFailure, setCommitFailure] = useState<IdeationCommitFailure | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const clientIdRef = useRef(clientId);
@@ -607,6 +629,11 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
       const cycleIds = next.runs.map((run) => run.id);
       const nextScoring = await fetchIdeationScoringOverview(clientId, cycleIds, controller.signal);
       const nextProposals = await fetchIdeationProposalOverview(clientId, cycleIds, controller.signal);
+      const nextCommits = await fetchIdeationCommitOverview(
+        clientId,
+        nextProposals.proposals.map((proposal) => proposal.id),
+        controller.signal,
+      );
       if (
         requestId !== requestSequence.current
         || controller.signal.aborted
@@ -616,6 +643,7 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
       setOverview(next);
       setScoring(nextScoring);
       setProposals(nextProposals);
+      setCommits(nextCommits);
       setSelectedRunId((current) => preferredRunId ?? current ?? next.runs[0]?.id ?? null);
     } catch (value) {
       if (
@@ -764,6 +792,20 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
       : [],
     [proposals.slots, selectedProposal],
   );
+  // Stage 4. Only a completed run counts as committed: a failed attempt left an
+  // audit record but created nothing, so the proposal is still committable.
+  const selectedCommitRun = useMemo(
+    () => selectedProposal
+      ? commits.runs.find((run) => run.proposal_id === selectedProposal.id && run.status === "completed") ?? null
+      : null,
+    [commits.runs, selectedProposal],
+  );
+  const selectedCommitItems = useMemo(
+    () => selectedCommitRun
+      ? commits.items.filter((item) => item.commit_run_id === selectedCommitRun.id)
+      : [],
+    [commits.items, selectedCommitRun],
+  );
   const candidatesById = useMemo(
     () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
     [candidates],
@@ -825,6 +867,65 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
     } finally {
       if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
         setProposalBusy(false);
+      }
+      coordinator.finish(token);
+    }
+  }
+
+  // Stage 4. One commit action, captured against the originating client and the
+  // exact proposal revision the operator confirmed. A completed commit replays
+  // as a success; a refresh failure afterwards never relabels it as failed.
+  async function commitContent(expectedEditRevision: number) {
+    if (!selectedProposal || commitBusy) return;
+    const originatingClientId = clientId;
+    const originatingRunId = selectedRun?.id;
+    const originatingProposalId = selectedProposal.id;
+    const token = coordinator.begin("commit-content", originatingClientId);
+    if (!token) return;
+    setCommitBusy(true);
+    setCommitFailure(null);
+    setRefreshWarning(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await invokeIdeationCommit({
+        client_id: originatingClientId,
+        proposal_id: originatingProposalId,
+        expected_edit_revision: expectedEditRevision,
+        confirm_commit: true,
+      });
+      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
+      setCommitOpen(false);
+      setNotice(
+        result.replayed
+          ? "This proposal was already committed; the existing result was returned and nothing new was created."
+          : `Content committed: ${result.commit?.committed_item_count ?? 0} Content records and the matching Calendar records were created.`,
+      );
+      try {
+        await load(originatingRunId, token);
+      } catch {
+        // The commit itself succeeded. A failed refresh is a display problem,
+        // never a reason to report the commit as failed or to retry it.
+        if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
+          setRefreshWarning(
+            "Content was committed successfully, but this view could not be refreshed. Reload to see the created records.",
+          );
+        }
+      }
+    } catch (value) {
+      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
+      setCommitOpen(false);
+      const failure = decodeIdeationCommitInvocationFailure(value);
+      if (failure) {
+        setCommitFailure(failure);
+        setError(failure.message);
+        await load(originatingRunId, token).catch(() => undefined);
+      } else {
+        setError(errorText(value));
+      }
+    } finally {
+      if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
+        setCommitBusy(false);
       }
       coordinator.finish(token);
     }
@@ -897,6 +998,34 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
 
       {error && <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
       {notice && <div className="mt-3 rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{notice}</div>}
+
+      {/* Stage 4. The commit succeeded; only the refresh did not. It is never
+          reported as a failed commit, and the commit is never re-sent. */}
+      {refreshWarning && (
+        <div role="status" className="mt-3 rounded border border-warn/30 bg-warn/5 px-3 py-2 text-xs text-warn">
+          {refreshWarning}
+          <Button className="ml-2" size="sm" variant="secondary" onClick={() => void load(selectedRun?.id)}>
+            Reload
+          </Button>
+        </div>
+      )}
+
+      {/* A non-retryable integrity failure never offers a blind Retry: only the
+          one correct recovery action for that specific typed reason. */}
+      {commitFailure && (
+        <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">
+          <div>Content was not committed. No Content or Calendar records were created.</div>
+          <div className="mt-1 text-2xs text-paper-3">
+            {commitFailure.code}: {commitFailure.message}
+            {commitFailure.failed_proposal_slot_key && ` (slot ${commitFailure.failed_proposal_slot_key})`}
+          </div>
+          {commitRecoveryAction(commitFailure.code) !== "none" && (
+            <div className="mt-2 text-2xs text-paper-3">
+              Recommended next step: {COMMIT_RECOVERY_LABELS[commitRecoveryAction(commitFailure.code)]}.
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-4"><EmptyState icon="clock" title="Loading Ideation" body="Loading runs and generated candidates." /></div>
@@ -1262,6 +1391,20 @@ export function IdeationPanel({ clientId, executionMonth }: { clientId: string; 
           onRegenerate={() => setRegenerateOpen(true)}
           onApprove={() => setApproveOpen(true)}
           onOpenCandidate={(candidate) => { setProposalOpen(false); setOpenCandidate(candidate); }}
+          commitRun={selectedCommitRun}
+          commitItems={selectedCommitItems}
+          onCommit={() => setCommitOpen(true)}
+          onOpenCalendarDate={(date) => { setProposalOpen(false); onOpenCalendarDate?.(date); }}
+          onOpenCommittedContent={(item) => { setProposalOpen(false); onOpenContentRef?.(item.operational_ref); }}
+        />
+      )}
+      {commitOpen && selectedProposal && (
+        <IdeationCommitConfirmation
+          proposal={selectedProposal}
+          slots={selectedProposalSlots}
+          busy={commitBusy}
+          onCancel={() => setCommitOpen(false)}
+          onConfirm={(expectedEditRevision) => void commitContent(expectedEditRevision)}
         />
       )}
       {regenerateOpen && selectedProposal && selectedScoringRun && (
