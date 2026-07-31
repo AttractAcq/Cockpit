@@ -6,7 +6,7 @@
 // bounded identity needed for conflict display and drift detection.
 
 import { sha256, stableJson } from "../hash.ts";
-import type { IdeationAssetType, ProposalSlot } from "./slot-planner.ts";
+import type { ProposalSlot } from "./slot-planner.ts";
 
 export const IDEATION_CONFLICT_SNAPSHOT_VERSION = "aa.ideation.calendar-conflict.v1";
 

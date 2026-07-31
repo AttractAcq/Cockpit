@@ -165,11 +165,9 @@ export function EntityDetail() {
     setMessageStatus("sending");
     setMessageError(null);
     try {
-      await mockApi.conversations.send({
-        entity_id: currentEntity.id,
-        to: messageTarget,
-        body: messageText.trim(),
-      });
+      // Retired 2026-07-31 (Stage A readiness): the dialog360-send Edge Function is
+      // undeployed and its backing tables no longer exist. See archive/manifest.md.
+      throw new Error("Outbound messaging was retired with the legacy conversations system.");
       setMessageStatus("sent");
       setMessageText("");
       window.setTimeout(() => {

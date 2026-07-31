@@ -1,4 +1,4 @@
-import type { UUID, ISODate, ZAR, Percent } from "./common";
+import type { UUID, ISODate } from "./common";
 
 /**
  * Pulse = vital signs metrics. Shown in TopBar vitals strip,

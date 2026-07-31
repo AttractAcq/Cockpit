@@ -8,7 +8,6 @@ import { callAnthropic } from "../../anthropic.ts";
 import {
   serializeEvidenceRegistry,
   serializeEvidenceRegistryIdentities,
-  type IdeationEvidenceSource,
 } from "../evidence.ts";
 import {
   approximatePromptTokens,

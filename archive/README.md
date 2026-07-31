@@ -5,8 +5,19 @@ traceability. Nothing here is deleted, and nothing here is deployed.
 
 **This directory is not part of any build, deploy or migration path.** It is
 excluded from `supabase db push` (it is outside `supabase/migrations/`), from
-`supabase functions deploy` (it is outside `supabase/functions/`), and from the
-Vite build (it is outside `src/`).
+`supabase functions deploy` (it is outside `supabase/functions/`), from the Vite
+build (it is outside `src/`), and from linting (`eslint.config.js` ignores it).
+
+## Structure
+
+| Directory | Contents |
+|---|---|
+| `edge-functions/` | Retired Supabase Edge Functions. Undeployed, no callers, backing tables gone. |
+| `application-code/` | Retired frontend code — unrouted pages and components with no active replacement. |
+
+Further subdirectories (`docs/`, `migrations/`, `scripts/`, `assets/`) are
+created only if something genuinely needs to move there. An empty directory is
+not created "for completeness".
 
 ## Rules
 

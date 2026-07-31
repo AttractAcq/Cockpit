@@ -61,13 +61,11 @@ export function PipelineBoard({ filterStage }: PipelineBoardProps) {
     if (!gate) return;
     setSaving(true);
     try {
-      await api.onboarding.start({
-        entity_id: gate.entityId,
-        amount_cents: Math.round(parseFloat(gateAmount) * 100),
-        tier: gateTier,
-      });
-      setEntities((prev) => prev.map((e) => e.id === gate.entityId ? { ...e, stage: "onboarding" as PipelineStage } : e));
-      setGate(null);
+      // Retired 2026-07-31 (Stage A readiness): the onboarding Edge Function is
+      // undeployed and its backing tables no longer exist. See archive/manifest.md.
+      // The optimistic stage update that followed is gone with it — there is no
+      // longer a server-side transition to reflect.
+      throw new Error("Onboarding start was retired with the legacy entities/PayFast system.");
     } catch (err) {
       alert("Failed to start onboarding: " + String(err));
     } finally {

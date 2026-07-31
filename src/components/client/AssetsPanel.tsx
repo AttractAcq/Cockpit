@@ -59,7 +59,7 @@ interface VisualMeta {
   visualInstructions: string | null;
 }
 
-const MULTI_IMAGE_FORMATS = new Set<AssetFormat>(["carousel", "story_sequence"]);
+const _MULTI_IMAGE_FORMATS = new Set<AssetFormat>(["carousel", "story_sequence"]);
 const UPLOADED_VISUAL_MODES = new Set(["uploaded_background", "uploaded_insert"]);
 
 function readVisualMeta(row: ClientAssetRow): VisualMeta {
@@ -280,12 +280,11 @@ function AssetPreviewModal({ group, busy, notice, onClose, onAction, onDismissWa
   onViewProductionBrief?: (sourceRef: string) => void;
 }) {
   const multi = group.first.asset_format === "carousel" || group.first.asset_format === "story_sequence" || group.isVideo;
-  const unit = group.isVideo ? "clip" : group.first.asset_format === "carousel" ? "slide" : "frame";
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ error: boolean; message: string } | null>(null);
   const selectedRows = group.rows.filter((row) => selected.has(row.id));
-  function toggleSelect(id: string) { setSelected((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
+  function toggleSelect(id: string) { setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   async function runExport(label: string, action: () => Promise<void>) {
     setExporting(true); setExportNotice(null);
     try { await action(); setExportNotice({ error: false, message: `${label} downloaded.` }); }

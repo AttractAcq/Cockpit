@@ -49,7 +49,9 @@ export function AgentControlPanel() {
     setScraping(true);
     setScrapeMsg(null);
     try {
-      await api.operations.runScrape();
+      // Retired 2026-07-31 (Stage A readiness): the apify-scrape Edge Function is
+      // undeployed and its backing tables no longer exist. See archive/manifest.md.
+      throw new Error("Prospect scraping was retired with the legacy entities system.");
       setScrapeMsg({ kind: "done", text: "Scrape triggered — new entities will appear in Pipeline as they arrive." });
       setScrapeConfirm(false);
     } catch (e) {

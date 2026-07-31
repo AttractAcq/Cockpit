@@ -1138,7 +1138,7 @@ export function validateClaimFirstCandidateOutput(
         continue;
       }
       if (field === "psychological_angle") {
-        let angle = validatePsychologicalAngle({
+        const angle = validatePsychologicalAngle({
           code: resolved.code,
           techniqueSlug,
           propositions: resolved.propositions,

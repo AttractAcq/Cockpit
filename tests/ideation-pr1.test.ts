@@ -1056,7 +1056,7 @@ test("complete transitive Ideation runtime and RPC migration contain no prohibit
   }
   for (const authorityTable of ["client_context_files", "client_execution_files", "playbooks", "playbook_runs"]) {
     const mutation = new RegExp(
-      `from\\([\"']${authorityTable}[\"']\\)[\\s\\S]{0,180}\\.(?:insert|upsert|update|delete)\\(`,
+      `from\\(["']${authorityTable}["']\\)[\\s\\S]{0,180}\\.(?:insert|upsert|update|delete)\\(`,
       "i",
     );
     assert.equal(mutation.test(source), false, `${authorityTable} must remain read-only from Ideation`);

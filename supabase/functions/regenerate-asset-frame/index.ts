@@ -9,7 +9,7 @@
 // group are untouched. A per-frame lock prevents concurrent regeneration.
 import { svc, json, cors } from "../_shared/aa.ts";
 import {
-  BUCKET, FORMAT_CONFIG, INPUT_MIME, STAFF_ROLES, cleanPathPart, generateImage,
+  BUCKET, FORMAT_CONFIG, INPUT_MIME, STAFF_ROLES, generateImage,
   type SupportedAssetFormat,
 } from "../_shared/ai-asset-generation.ts";
 

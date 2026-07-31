@@ -26,7 +26,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return fail(405, "request", "POST only");
 
   const sb = svc();
-  let insertedAssetIds: string[] = [];
+  const insertedAssetIds: string[] = [];
 
   try {
     const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");

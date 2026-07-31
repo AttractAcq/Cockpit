@@ -13,7 +13,6 @@ import {
   type ScoringPersistence,
 } from "../supabase/functions/score-ideation-candidates/handler.ts";
 import {
-  assignIdeationRanks,
   calculateIdeationOverallScore,
   ideationPriorityBand,
   IDEATION_SCORE_DIMENSION_KEYS,

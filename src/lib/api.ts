@@ -264,9 +264,6 @@ export const api = {
         attachments: row.media_url ? [{ name: "attachment", url: row.media_url as string, size_bytes: 0 }] : [],
       }));
     },
-    async send(args: { entity_id: string; conversation_id?: string; to: string; body: string; client_slug?: string }) {
-      return invokeFn("dialog360-send", { ...args, approved: true });
-    },
   },
 
   // ── CAMPAIGNS ───────────────────────────────────────────────────────────
@@ -304,12 +301,6 @@ export const api = {
         spend_trend_7d: [], cpa_trend_7d: [],
         creative_count: 0, flagged_at: null, flag_reason: null,
       };
-    },
-    async create(args: { entity_id: string; client_slug?: string; params: Record<string, unknown> }) {
-      return invokeFn("meta-ad-ops", { action: "create_campaign", ...args });
-    },
-    async pause(args: { entity_id: string; campaign_id: string }) {
-      return invokeFn("meta-ad-ops", { action: "pause", ...args });
     },
   },
 
@@ -359,14 +350,6 @@ export const api = {
         entity_name: entityName(row as Record<string, unknown>),
       }));
     },
-    async generate(args: { entity_id: string; topic?: string; ref_code?: string }) {
-      return invokeFn("brief-generator", args);
-    },
-  },
-  mjr: {
-    async generate(args: { entity_id: string }) {
-      return invokeFn("mjr-generate", args);
-    },
   },
 
   // ── OPERATIONS ──────────────────────────────────────────────────────────
@@ -392,9 +375,6 @@ export const api = {
         started_at: row.created_at as string,
         last_action_at: (row.last_run_at as string | null) ?? (row.updated_at as string),
       }));
-    },
-    async runScrape() {
-      return invokeFn("apify-scrape", {});
     },
     async agentEvents(limit = 100) {
       return api.agentEvents.list(limit);
@@ -492,12 +472,6 @@ export const api = {
     },
   },
 
-  // ── ONBOARDING ───────────────────────────────────────────────────────────
-  onboarding: {
-    async start(args: { entity_id: string; amount_cents: number; tier?: string }) {
-      return invokeFn("onboarding", args);
-    },
-  },
 };
 
 export type Api = typeof api;
@@ -1793,15 +1767,13 @@ export async function activateAssetVersion(clientAssetId: string): Promise<void>
   if (error) throw error;
 }
 
-const REVIEW_TABLES = [
-  "organic_master",
-  "story_master",
-  "ads_master",
-  "proof_master",
-  "asset_brief_index",
-  "calendar_cells",
-] as const;
-export type ReviewTable = (typeof REVIEW_TABLES)[number];
+export type ReviewTable =
+  | "organic_master"
+  | "story_master"
+  | "ads_master"
+  | "proof_master"
+  | "asset_brief_index"
+  | "calendar_cells";
 
 export async function updateReviewState(
   tableName: ReviewTable,
@@ -2426,7 +2398,6 @@ export async function promoteAssetGroupToDistribution(input: {
     ? sortedRows.map((row) => ({ seq: row.sequence_index, count: sortedRows.length, rows: [row], title: `${input.title ?? input.sourceRef} — Frame ${row.sequence_index} of ${sortedRows.length}` }))
     : [{ seq: 1, count: null as number | null, rows: sortedRows, title: input.title }];
 
-  const now = new Date().toISOString();
   const written: DistributionRecordRow[] = [];
   for (const spec of frameSpecs) {
     const existing = existingBySeq.get(spec.seq);

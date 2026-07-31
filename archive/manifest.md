@@ -54,6 +54,65 @@ then deploy explicitly if ever required.
 
 ---
 
+---
+
+## Application code — retired Money page
+
+Archived **2026-07-31** during Stage A readiness blocker remediation.
+
+| Original path | Archive path | Last commit | Classification |
+|---|---|---|---|
+| `src/pages/MoneyPage.tsx` | `archive/application-code/MoneyPage.tsx` | see `git log --follow` | Superseded application code |
+
+**Evidence of non-use:**
+
+- **Not routed.** `src/App.tsx` registers eight routes (login, cockpit, clients, client detail, website, website client detail, operations, settings). `MoneyPage` is not among them and the router has no lazy or dynamic registration.
+- **Nothing imports it** — reverse-import search across `src/` returned no importer.
+- Its only server call was `invokeFn("mrr-calc", {})`; `mrr-calc` is undeployed and the MRR-era tables it depended on no longer exist.
+- Its child components (`KPIGrid`, `RevenueChart`, `ClientBreakdown`) are imported **only** by this page and by `src/components/money/index.ts`.
+
+**Replacement:** none inside Cockpit. Financial reporting is out of scope for the current architecture; no active Xero integration or routed financial surface was touched.
+
+**Guard:** `tests/stage-a-readiness.test.ts` asserts that `App.tsx` does not reference `MoneyPage`, that it is absent from `src/pages/`, and that it is present in the archive.
+
+**Restoration:** `git mv archive/application-code/MoneyPage.tsx src/pages/MoneyPage.tsx`, then re-register a route.
+
+---
+
+## Retired Edge Functions — final call sites removed
+
+These seven remain under `supabase/functions/` (they are **not** archived) but are
+**undeployed**, and as of **2026-07-31** nothing in active source invokes them.
+Their backing tables — `entities`, `campaigns`, `conversations`, `messages`,
+`briefs`, `leads` — no longer exist, so the code paths were already failing.
+
+| Function | Former API wrapper (`src/lib/api.ts`) | Former UI caller | Call-site removal |
+|---|---|---|---|
+| `dialog360-send` | `conversations.send` | `ConversationThread.tsx`, `EntityDetail.tsx` | wrapper deleted; both callers now throw an explicit retirement error |
+| `meta-ad-ops` | `campaigns.create`, `campaigns.pause` | *(none — already unreferenced)* | wrappers deleted |
+| `brief-generator` | `briefs.generate` | `AssetGrid.tsx` | wrapper deleted; caller throws |
+| `mjr-generate` | `mjr.generate` (whole object) | `AssetGrid.tsx` | wrapper deleted; caller throws |
+| `apify-scrape` | `operations.runScrape` | `AgentControlPanel.tsx` | wrapper deleted; caller throws |
+| `onboarding` | `onboarding.start` (whole section) | `PipelineBoard.tsx` | wrapper deleted; caller throws |
+| `mrr-calc` | *(none — called directly)* | `MoneyPage.tsx` | page archived (above) |
+
+**Why the callers throw rather than being deleted:** every one lives in an
+unrouted legacy component tree (`conversations/`, `studio/`, `operations/`,
+`pipeline/`, `clients/`). Deleting those trees is legacy retirement — Stage P
+work — and was explicitly out of scope. An explicit error keeps the code
+compiling and honest: the button no longer pretends to do something.
+
+**Guard:** `tests/stage-a-readiness.test.ts` asserts no `invokeFn`/`functions.invoke`
+call to any of the seven, and that the `mjr`, `runScrape` and `onboarding`
+wrappers are gone.
+
+**Not archived** because they are still under `supabase/functions/`, where a
+future decision could deploy or retire them deliberately. Retiring the wider
+legacy surface belongs to Programme Stage P — End-to-End Hardening and Legacy
+Retirement.
+
+---
+
 ## Considered and held back — **not** archived
 
 Recorded so the same investigation is not repeated, and so nothing here is

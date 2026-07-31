@@ -79,16 +79,13 @@ export function ConversationThread() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async (text: string) => {
+  const handleSend = async (_text: string) => {
     if (!conversation?.entity_id) return;
     setSendState("sending");
     try {
-      await api.conversations.send({
-        entity_id: conversation.entity_id,
-        conversation_id: conversation.id,
-        to: conversation.entity_id,
-        body: text,
-      });
+      // Retired 2026-07-31 (Stage A readiness): the dialog360-send Edge Function is
+      // undeployed and its backing tables no longer exist. See archive/manifest.md.
+      throw new Error("Outbound messaging was retired with the legacy conversations system.");
       setSendState("sent");
       setTimeout(() => setSendState("idle"), 2000);
     } catch {

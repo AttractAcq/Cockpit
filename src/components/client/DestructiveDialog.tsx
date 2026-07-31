@@ -36,7 +36,7 @@ export function DestructiveDialog({ target, title, confirmWord, onClose, onDone 
       .catch((e) => { if (active) setError(errorText(e)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [target]);
 
   const blocked = !!plan && !plan.allowed;
   const canExecute = !!plan && plan.allowed && !!operationId && reason.trim().length > 0 && typed.trim() === confirmWord && !busy && !result;

@@ -5,7 +5,6 @@ import {
   IDEATION_PROMPT_VERSION,
 } from "./config.ts";
 import {
-  serializeEvidenceRegistry,
   serializeEvidenceRegistryIdentities,
   type IdeationEvidenceSource,
 } from "./evidence.ts";

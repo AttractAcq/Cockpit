@@ -51,7 +51,6 @@ import type {
   RunIdeationResponse,
 } from "@/types/ideation";
 import type {
-  IdeationCalendarProposal,
   IdeationProposalOverview,
 } from "@/types/ideation-proposal";
 import {
@@ -114,7 +113,7 @@ function periodLabel(run: IdeationRun): string {
     : `${run.period_start} → ${run.period_end}`;
 }
 
-function sourceDomain(candidate: IdeationCandidate): string {
+function _sourceDomain(candidate: IdeationCandidate): string {
   const url = candidate.research_result?.source_url ?? "";
   if (url.startsWith("aa-authority://")) return "Approved authority";
   try { return new URL(url).hostname.replace(/^www\./, ""); }

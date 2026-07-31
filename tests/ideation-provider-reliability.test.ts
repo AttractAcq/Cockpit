@@ -197,7 +197,7 @@ const CONTEXT_UNITS = await buildSupportUnits(contextSource);
  * v1 semantics of citing the entire bounded excerpt. Narrow-unit grounding has
  * its own dedicated tests.
  */
-function widestUnitId(): string {
+function _widestUnitId(): string {
   const unit = [...CONTEXT_UNITS].sort((left, right) => right.raw_span.length - left.raw_span.length)[0];
   if (!unit) throw new Error("The fixture source produced no support unit.");
   return unit.support_unit_id;

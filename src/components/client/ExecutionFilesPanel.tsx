@@ -12,7 +12,7 @@ import {
 } from "@/lib/api";
 import type { ClientExecutionFile, Phase2Section } from "@/types/phase";
 import type { ReviewState } from "@/types/client";
-import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST, EXECUTION_GROUP_ORDER, executionDefinitionByNumber } from "../../../supabase/functions/_shared/execution-manifest";
+import { EXECUTION_FILE_COUNT, EXECUTION_GROUP_ORDER, executionDefinitionByNumber } from "../../../supabase/functions/_shared/execution-manifest";
 
 type ViewMode = "preview" | "edit" | "split";
 type Filter = "all" | ReviewState;

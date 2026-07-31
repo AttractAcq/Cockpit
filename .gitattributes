@@ -1,0 +1,9 @@
+# Programme authority documents are copied in byte-identical from their approved
+# sources and must never be reformatted — see docs/programme/README.md.
+#
+# They use Markdown hard line breaks (two trailing spaces) in their front-matter
+# blocks, which `git diff --check` would otherwise report as whitespace errors.
+# Disabling the whitespace check here keeps the documents verbatim (their SHA-256
+# hashes are recorded in the readiness report) without weakening the check for
+# actual source code.
+docs/programme/*.md -whitespace

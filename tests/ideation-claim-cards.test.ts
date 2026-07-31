@@ -11,7 +11,6 @@ import { createEvidenceSource } from "../supabase/functions/_shared/ideation/evi
 import type { IdeationEvidenceSource } from "../supabase/functions/_shared/ideation/evidence.ts";
 import {
   buildSupportUnits,
-  type IdeationSupportUnit,
 } from "../supabase/functions/_shared/ideation/support-units.ts";
 import {
   buildClaimCards,

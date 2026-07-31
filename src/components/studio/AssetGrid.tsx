@@ -111,13 +111,10 @@ export function AssetGrid() {
     if (!genEntityId.trim() || !genKind) return;
     setGenState("running");
     try {
-      if (genKind === "mjr") {
-        await api.mjr.generate({ entity_id: genEntityId.trim() });
-        setGenMsg("MJR generation triggered — will appear in list once the agent completes.");
-      } else {
-        await api.briefs.generate({ entity_id: genEntityId.trim(), topic: genTopic.trim() || undefined });
-        setGenMsg("Brief generation triggered — will appear in Briefs tab once done.");
-      }
+      // Retired 2026-07-31 (Stage A readiness): the mjr-generate and brief-generator
+      // Edge Functions are undeployed and their backing tables no longer exist.
+      // See archive/manifest.md.
+      throw new Error("Legacy MJR and brief generation were retired with the entities system.");
       setGenState("done");
       // Refresh the relevant list after a brief delay to let DB write complete
       setTimeout(() => {

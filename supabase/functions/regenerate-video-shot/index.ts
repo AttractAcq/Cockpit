@@ -30,9 +30,7 @@ import {
 import {
   narrativePlanningPatch,
   type NarrativeReelShot,
-  type ReelContinuityPlan,
   REEL_STORY_ROLES,
-  type ReelStoryStrategy,
   SHOT_REGENERATION_PROMPT_VERSION,
   validateNarrativeReelShot,
   validateReelContinuityPlan,

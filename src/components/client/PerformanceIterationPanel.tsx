@@ -5,7 +5,7 @@ import { createIterationCandidate, fetchAnalyticsForClient, fetchIterationCandid
 import { ITERATION_CANDIDATE_TYPES, iterationEvidenceFromScore } from "@/lib/iteration-intake";
 import { dateInCalendarPeriod, localCalendarDateKey, preferredRecordDate, type CalendarPeriodView } from "@/lib/calendar-period";
 import { ROUTES } from "@/lib/constants";
-import type { AnalyticsSummary, ClientIterationCandidate, ClientPerformanceInsight } from "@/types/phase";
+import type { AnalyticsSummary, ClientIterationCandidate } from "@/types/phase";
 import { ContextUpdateProposalsSection } from "./ContextUpdateProposalsSection";
 import { ContextPatchDraftsSection } from "./ContextPatchDraftsSection";
 import { CalendarPeriodControls } from "./CalendarPeriodControls";

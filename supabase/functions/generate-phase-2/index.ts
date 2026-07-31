@@ -194,7 +194,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "section") {
-      if (!SECTIONS.includes(section as Section)) return failure(400, "validate_section", `Unknown Phase 2 section \"${section}\".`);
+      if (!SECTIONS.includes(section as Section)) return failure(400, "validate_section", `Unknown Phase 2 section "${section}".`);
       if (!isAiEnabled() || !hasAnthropicKey()) return failure(500, "validate_ai_configuration", "AI generation is not configured.");
       const sectionName = section as Section;
       const definition = executionDefinitionByCode(sectionName)!;
