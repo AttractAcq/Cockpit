@@ -1,0 +1,387 @@
+{
+  "schema_version": "aa.cockpit.stage-a-live-provenance.v2",
+  "classification": "currently live-verified with timestamp and project provenance",
+  "expected_production_project_ref": "xivewedajschthjlblfb",
+  "actual_linked_project_ref": "xivewedajschthjlblfb",
+  "linked_checkout": "/Users/alex/Desktop/Attract Acq/Application Surfaces/Cockpit",
+  "linked_metadata_ref": "xivewedajschthjlblfb",
+  "linked_project_discovery": {
+    "command": "supabase \"projects\" \"list\" \"--output\" \"json\"",
+    "linked_flag": true
+  },
+  "captured_at_utc": "2026-08-02T15:11:27.763Z",
+  "tool_versions": {
+    "supabase": "2.101.0",
+    "gh": "gh version 2.89.0 (2026-03-26)",
+    "curl": "curl 8.7.1 (x86_64-apple-darwin25.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.68.1"
+  },
+  "commands": [
+    {
+      "component": "linked-project-discovery",
+      "command": "supabase \"projects\" \"list\" \"--output\" \"json\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "linked",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "linked_metadata_ref": "xivewedajschthjlblfb",
+      "linked_project_flag": true,
+      "started_at_utc": "2026-08-02T15:10:47.529Z",
+      "finished_at_utc": "2026-08-02T15:10:48.815Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "linked-project-discovery.stdout.txt",
+        "sha256": "76792e9469d89ae17d54002b8b1bf178cf421df54954edefcb31873bb2f9567d",
+        "bytes": 486
+      },
+      "stderr": {
+        "path": "linked-project-discovery.stderr.txt",
+        "sha256": "fda5d11c4e0779cb0f0f5159cdc47ece04b56ca518cbbc37e0d77ae75a2c8508",
+        "bytes": 227
+      },
+      "output_artifact": {
+        "path": "linked-project.json",
+        "sha256": "729c8a39b8e6b736b3abdfb062b0743a43976749b52cd72ce3b44cb715669165",
+        "bytes": 448
+      }
+    },
+    {
+      "component": "migration-list",
+      "command": "supabase \"migration\" \"list\" \"--linked\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "linked",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "started_at_utc": "2026-08-02T15:10:48.818Z",
+      "finished_at_utc": "2026-08-02T15:10:51.709Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "migration-list.stdout.txt",
+        "sha256": "6aaab205d7b900f7483e3a5dfcd9ca07b2f284858606decf596219bc56d189d5",
+        "bytes": 2788
+      },
+      "stderr": {
+        "path": "migration-list.stderr.txt",
+        "sha256": "68971aac80f9bb35ecf1c1034093eca9606712a6645482df384cce4c355e91e5",
+        "bytes": 287
+      },
+      "output_artifact": {
+        "path": "migration-list.txt",
+        "sha256": "6aaab205d7b900f7483e3a5dfcd9ca07b2f284858606decf596219bc56d189d5",
+        "bytes": 2788
+      }
+    },
+    {
+      "component": "db-push-dry-run",
+      "command": "supabase \"db\" \"push\" \"--linked\" \"--dry-run\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "linked",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "started_at_utc": "2026-08-02T15:10:51.711Z",
+      "finished_at_utc": "2026-08-02T15:10:54.234Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "db-push-dry-run.stdout.txt",
+        "sha256": "1b20ae82a9a4465f73d54c46884a074e1d34884be339675279196562e1f1dbdd",
+        "bytes": 31
+      },
+      "stderr": {
+        "path": "db-push-dry-run.stderr.txt",
+        "sha256": "75ceebc5454a790a76ca9eab1d6861a26bf7ab041ca0cb1130a58974d45ea1b0",
+        "bytes": 345
+      },
+      "output_artifact": {
+        "path": "db-push-dry-run.txt",
+        "sha256": "1b20ae82a9a4465f73d54c46884a074e1d34884be339675279196562e1f1dbdd",
+        "bytes": 31
+      }
+    },
+    {
+      "component": "functions-list",
+      "command": "supabase \"functions\" \"list\" \"--project-ref\" \"xivewedajschthjlblfb\" \"--output\" \"json\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "explicit-project-ref",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "started_at_utc": "2026-08-02T15:10:54.236Z",
+      "finished_at_utc": "2026-08-02T15:11:00.187Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "functions-list.stdout.txt",
+        "sha256": "c5936c6ae09c15a20fe653c7a301238303aa68263f09ba7a90941b72823b15b2",
+        "bytes": 26155
+      },
+      "stderr": {
+        "path": "functions-list.stderr.txt",
+        "sha256": "fda5d11c4e0779cb0f0f5159cdc47ece04b56ca518cbbc37e0d77ae75a2c8508",
+        "bytes": 227
+      },
+      "output_artifact": {
+        "path": "functions-list.json",
+        "sha256": "c5936c6ae09c15a20fe653c7a301238303aa68263f09ba7a90941b72823b15b2",
+        "bytes": 26155
+      }
+    },
+    {
+      "component": "db-lint",
+      "command": "supabase \"db\" \"lint\" \"--linked\" \"--level\" \"error\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "linked",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "started_at_utc": "2026-08-02T15:11:00.189Z",
+      "finished_at_utc": "2026-08-02T15:11:03.858Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "db-lint.stdout.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "stderr": {
+        "path": "db-lint.stderr.txt",
+        "sha256": "8b004bac4bd10bbd3b9177ba68c6977c53aaa50f118b17a4f1acc63f765ec9b7",
+        "bytes": 337
+      },
+      "output_artifact": {
+        "path": "db-lint.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    },
+    {
+      "component": "remote-schema",
+      "command": "supabase \"db\" \"dump\" \"--linked\" \"--schema\" \"public,extensions\" \"--file\" \"/Users/alex/Desktop/Cockpit Stage A Live Evidence/.remote-schema.tmp.sql\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "linked",
+      "actual_project_ref": "xivewedajschthjlblfb",
+      "started_at_utc": "2026-08-02T15:11:03.860Z",
+      "finished_at_utc": "2026-08-02T15:11:24.974Z",
+      "tool": "supabase",
+      "tool_version": "2.101.0",
+      "exit_status": 0,
+      "stdout": {
+        "path": "remote-schema.stdout.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "stderr": {
+        "path": "remote-schema.stderr.txt",
+        "sha256": "7abe1c1086e3591795aa366b9814b2accd1fa1d9166fd39bfe481dfd676a3204",
+        "bytes": 385
+      },
+      "output_artifact": {
+        "path": "remote-schema.sql",
+        "sha256": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a",
+        "bytes": 632467
+      }
+    },
+    {
+      "component": "cockpit-main-sha",
+      "command": "gh \"api\" \"repos/AttractAcq/Cockpit/commits/main\" \"--jq\" \".sha\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "not-applicable",
+      "actual_project_ref": null,
+      "started_at_utc": "2026-08-02T15:11:24.979Z",
+      "finished_at_utc": "2026-08-02T15:11:25.765Z",
+      "tool": "gh",
+      "tool_version": "gh version 2.89.0 (2026-03-26)",
+      "exit_status": 0,
+      "stdout": {
+        "path": "cockpit-main-sha.stdout.txt",
+        "sha256": "d65fe36f5159ca14a5e8a33018bf973932b7b8e6515f1c926a85a28b88b87b7e",
+        "bytes": 41
+      },
+      "stderr": {
+        "path": "cockpit-main-sha.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "output_artifact": {
+        "path": "cockpit-main-sha.txt",
+        "sha256": "d65fe36f5159ca14a5e8a33018bf973932b7b8e6515f1c926a85a28b88b87b7e",
+        "bytes": 41
+      }
+    },
+    {
+      "component": "pages-config",
+      "command": "gh \"api\" \"repos/AttractAcq/Cockpit/pages\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "not-applicable",
+      "actual_project_ref": null,
+      "started_at_utc": "2026-08-02T15:11:25.767Z",
+      "finished_at_utc": "2026-08-02T15:11:26.194Z",
+      "tool": "gh",
+      "tool_version": "gh version 2.89.0 (2026-03-26)",
+      "exit_status": 0,
+      "stdout": {
+        "path": "pages-config.stdout.txt",
+        "sha256": "cdddaab5804af1ac0151944e413c24a8765a4a3402176fcf4d61f178e15ad5bb",
+        "bytes": 339
+      },
+      "stderr": {
+        "path": "pages-config.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "output_artifact": {
+        "path": "pages-config.json",
+        "sha256": "cdddaab5804af1ac0151944e413c24a8765a4a3402176fcf4d61f178e15ad5bb",
+        "bytes": 339
+      }
+    },
+    {
+      "component": "pages-deployment-workflow-api",
+      "command": "gh \"api\" \"--method\" \"GET\" \"repos/AttractAcq/Cockpit/contents/.github/workflows/deploy.yml\" \"-f\" \"ref=main\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "not-applicable",
+      "actual_project_ref": null,
+      "started_at_utc": "2026-08-02T15:11:26.198Z",
+      "finished_at_utc": "2026-08-02T15:11:26.595Z",
+      "tool": "gh",
+      "tool_version": "gh version 2.89.0 (2026-03-26)",
+      "exit_status": 0,
+      "stdout": {
+        "path": "pages-deployment-workflow-api.stdout.txt",
+        "sha256": "ecb780ce8b5c7889306606b4c53c53e10e08e8d9b351746f78c7fb57eb616c30",
+        "bytes": 2603
+      },
+      "stderr": {
+        "path": "pages-deployment-workflow-api.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "output_artifact": {
+        "path": "pages-deployment-workflow-api.json",
+        "sha256": "ecb780ce8b5c7889306606b4c53c53e10e08e8d9b351746f78c7fb57eb616c30",
+        "bytes": 2603
+      }
+    },
+    {
+      "component": "pages-main-deployment-run",
+      "command": "gh \"run\" \"list\" \"--repo\" \"AttractAcq/Cockpit\" \"--workflow\" \"deploy.yml\" \"--branch\" \"main\" \"--status\" \"success\" \"--limit\" \"1\" \"--json\" \"databaseId,headSha,status,conclusion,createdAt,updatedAt,url,workflowName,event\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "not-applicable",
+      "actual_project_ref": null,
+      "started_at_utc": "2026-08-02T15:11:26.600Z",
+      "finished_at_utc": "2026-08-02T15:11:27.487Z",
+      "tool": "gh",
+      "tool_version": "gh version 2.89.0 (2026-03-26)",
+      "exit_status": 0,
+      "stdout": {
+        "path": "pages-main-deployment-run.stdout.txt",
+        "sha256": "e965f715d3166c30eda5373edc484e71d1451531bd53c82e441bba2692ebc95b",
+        "bytes": 322
+      },
+      "stderr": {
+        "path": "pages-main-deployment-run.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "output_artifact": {
+        "path": "pages-main-deployment-run.json",
+        "sha256": "e965f715d3166c30eda5373edc484e71d1451531bd53c82e441bba2692ebc95b",
+        "bytes": 322
+      }
+    },
+    {
+      "component": "pages-http-response",
+      "command": "curl \"-sS\" \"-o\" \"/dev/null\" \"-w\" \"{\\\"http_code\\\":%{http_code},\\\"url_effective\\\":\\\"%{url_effective}\\\",\\\"remote_ip\\\":\\\"%{remote_ip}\\\"}\\n\" \"https://attractacq.github.io/Cockpit/\"",
+      "expected_production_project_ref": "xivewedajschthjlblfb",
+      "target_mode": "not-applicable",
+      "actual_project_ref": null,
+      "started_at_utc": "2026-08-02T15:11:27.489Z",
+      "finished_at_utc": "2026-08-02T15:11:27.763Z",
+      "tool": "curl",
+      "tool_version": "curl 8.7.1 (x86_64-apple-darwin25.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.68.1",
+      "exit_status": 0,
+      "stdout": {
+        "path": "pages-http-response.stdout.txt",
+        "sha256": "a3023974a615161d8950a77c46c9898c7d8cdeddf9f268b3efd7725f85470b79",
+        "bytes": 104
+      },
+      "stderr": {
+        "path": "pages-http-response.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "output_artifact": {
+        "path": "pages-http-response.json",
+        "sha256": "a3023974a615161d8950a77c46c9898c7d8cdeddf9f268b3efd7725f85470b79",
+        "bytes": 104
+      }
+    }
+  ],
+  "parsed_claims": {
+    "paired_migration_count": 47,
+    "dry_run_up_to_date": true,
+    "database_lint_error_count": 0,
+    "deployed_edge_function_count": 50,
+    "deployed_edge_function_names": [
+      "check-ai-background-image",
+      "check-shot-generation",
+      "check-shot-still-image",
+      "collect-instagram-insights",
+      "commit-ideation-content",
+      "complete-final-reel-upload",
+      "create-final-reel-upload",
+      "create-ideation-calendar-proposal",
+      "create-reel-distribution-draft",
+      "create-video-project",
+      "create-video-shot",
+      "delete-video-shot",
+      "execute-destructive",
+      "finalize-phase-1",
+      "generate-ad-static-asset",
+      "generate-ai-background-image",
+      "generate-carousel-assets",
+      "generate-carousel-slide",
+      "generate-feed-post-asset",
+      "generate-phase-1",
+      "generate-phase-1-file",
+      "generate-phase-2",
+      "generate-phase-3",
+      "generate-phase-3-slot",
+      "generate-production-brief",
+      "generate-story-assets",
+      "generate-video-storyboard",
+      "handoff-video-project",
+      "list-higgsfield-motions",
+      "plan-destructive",
+      "preview-phase-3-scope",
+      "process-asset-generation-jobs",
+      "process-scheduled-publishing",
+      "publish-instagram-asset",
+      "regenerate-asset-frame",
+      "regenerate-video-shot",
+      "retry-shot-still-image",
+      "retry-shot-video",
+      "review-final-reel",
+      "run-ideation",
+      "score-ideation-candidates",
+      "send-production-brief-to-contractor",
+      "set-production-brief-mode",
+      "start-carousel-generation",
+      "start-phase-3-scope",
+      "submit-shot-generation",
+      "submit-shot-still-image",
+      "update-video-project-status",
+      "update-video-shot",
+      "validate-execution-pack"
+    ],
+    "current_main_sha": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+    "pages_workflow_conclusion": "success",
+    "pages_workflow_head_sha": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+    "pages_http_status": 200,
+    "pages_url": "https://attractacq.github.io/Cockpit/"
+  },
+  "transcript": {
+    "path": "live-capture-transcript.txt",
+    "sha256": "76aeb1c14d35e20b78fe9a951280fd20aa60f5a616584e14cd1f9e414febc8b0",
+    "bytes": 40701
+  }
+}

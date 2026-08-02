@@ -106,7 +106,8 @@ test("all four programme documents plus the index are present and non-trivial", 
     assert.match(body, /^# /m, `${doc} must start with a heading`);
   }
   const index = await read("docs/programme/README.md");
-  assert.match(index, /Programme Stage A/, "the index must name the next programme action");
+  assert.match(index, /Programme Stage A/, "the index must name the current programme stage");
+  assert.match(index, /Programme Stage B must\s+not begin/i, "the index must keep Stage B behind the Stage A exit gate");
   // The statement is a wrapped blockquote, so normalise markers and whitespace.
   const flat = index.replace(/^>\s?/gm, "").replace(/\s+/g, " ");
   assert.match(
@@ -178,6 +179,7 @@ test("lint is a real, configured, CI-enforced gate", async () => {
   const pkg = JSON.parse(await read("package.json")) as {
     scripts: Record<string, string>;
     devDependencies: Record<string, string>;
+    engines: Record<string, string>;
   };
   assert.match(pkg.scripts.lint, /eslint/, "an eslint lint script must exist");
   for (const dep of ["eslint", "typescript-eslint", "eslint-plugin-react-hooks"]) {
@@ -189,7 +191,28 @@ test("lint is a real, configured, CI-enforced gate", async () => {
   assert.match(ci, /npm run lint/, "CI must run lint");
   assert.match(ci, /npm run typecheck|tsc --noEmit/, "CI must run typecheck");
   assert.match(ci, /npm run build/, "CI must run build");
-  assert.match(ci, /node --test/, "CI must run the deterministic test suite");
+  assert.match(ci, /run:\s+npm test/, "CI must call the canonical npm test command");
+  assert.doesNotMatch(ci, /run:\s+node --test/, "CI must not maintain a divergent raw TypeScript test command");
+});
+
+test("the pinned Node 20 workflow can execute the canonical TypeScript test command", async () => {
+  const pkg = JSON.parse(await read("package.json")) as {
+    scripts: Record<string, string>;
+    devDependencies: Record<string, string>;
+    engines: Record<string, string>;
+  };
+  const lock = JSON.parse(await read("package-lock.json")) as {
+    packages: Record<string, { version?: string; devDependencies?: Record<string, string>; engines?: Record<string, string> }>;
+  };
+  const ci = await read(".github/workflows/ci.yml");
+  assert.equal(pkg.scripts.test, "node --import tsx --test tests/*.test.ts");
+  assert.equal(pkg.devDependencies.tsx, "4.20.3", "the TypeScript test loader must be exact-version pinned");
+  assert.equal(pkg.engines.node, ">=20.19.4 <21");
+  assert.equal(pkg.engines.npm, ">=10.8.2 <11");
+  assert.match(ci, /node-version:\s*["']20\.19\.4["']/);
+  assert.match(ci, /- name: Test\s+run: npm test/);
+  assert.equal(lock.packages[""].devDependencies?.tsx, "4.20.3");
+  assert.equal(lock.packages["node_modules/tsx"].version, "4.20.3");
 });
 
 test("the archive keeps a README and a manifest", async () => {

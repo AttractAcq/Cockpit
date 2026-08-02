@@ -8,6 +8,7 @@ tsconfig.node.tsbuildinfo
 vite.config.js
 vite.config.d.ts
 supabase/.temp/
+supabase/.branches/
 src/lib/api/
 .DS_Store
 .env

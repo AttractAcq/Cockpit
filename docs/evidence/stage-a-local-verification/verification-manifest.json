@@ -1,0 +1,718 @@
+{
+  "schema_version": "aa.cockpit.stage-a-local-verification.v3",
+  "classification": "locally rebuilt and verified",
+  "generated_at_utc": "2026-08-02T17:46:00.008Z",
+  "transcripts": [
+    {
+      "path": "docs/evidence/stage-a-local-verification/build-transcript.txt",
+      "sha256": "7ecd68b897ff9f9257e7b415c06bf82092971858038bfb9823dbe371deb4d34f",
+      "command": "npm run build",
+      "started_at_utc": "2026-08-02T17:45:49.277Z",
+      "finished_at_utc": "2026-08-02T17:45:55.362Z",
+      "exit_status": 0,
+      "claims": [
+        "production build"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/ci-node20-runtime-transcript.txt",
+      "sha256": "3a211c347501b03f120fc7e236728176b4afffb2c0e2596c1c2df81d32970872",
+      "command": "docker run --rm --mount type=bind,source=[SANITIZED_TEMP_COPY],target=/workspace --workdir /workspace node:20.19.4-bookworm bash -lc [node --version; npm --version; npm ci; npm run typecheck; npm run lint; npm test; npm run build]",
+      "runtime_image": "node:20.19.4-bookworm",
+      "started_at_utc": "2026-08-02T17:45:10.884Z",
+      "finished_at_utc": "2026-08-02T17:45:41.891Z",
+      "exit_status": 0,
+      "component_exit_statuses": {
+        "node_version": 0,
+        "npm_version": 0,
+        "npm_ci": 0,
+        "typecheck": 0,
+        "lint": 0,
+        "test": 0,
+        "build": 0,
+        "cleanup": 0
+      },
+      "execution_input_fingerprint": "13ef4eacd6f1659610f5de183d46c42b34ac5390aa63d3936c9766f3d2bec24a",
+      "evidence_bootstrap_exemption": false,
+      "source_binding": {
+        "schema_version": "aa.cockpit.stage-a-test-source-binding.v1",
+        "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+        "enumeration_rule": "git ls-files --cached --others --exclude-standard -z; sort paths; exclude the generated inventory and local execution outputs",
+        "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+        "sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+        "path_set_sha256": "c0d4cbc30c9285ddae16f8c7b835240d5e34eb4ebbf0b2dda97df43106a10610",
+        "file_count": 513,
+        "test_source_hashes": {
+          "tests/commit-ideation-content-handler.test.ts": "d5cab9912fb68b5b36507c4e71827e62ec13379ba5f34edf7f6cc1e34fdfe01a",
+          "tests/create-ideation-calendar-proposal-handler.test.ts": "4db96c276475404b24ebd15b14ad3c679fb95b3ee065f57315146960f3aad209",
+          "tests/ideation-candidate-fields.test.ts": "e46528b19e2e6f7057aeaacc7589529ac6163a6290182e266e8c2297ca50bd56",
+          "tests/ideation-claim-cards.test.ts": "5fcdb4b3a791eafa58b9af648016865f8089ab5dc9ad5ceaa04abe1423b19964",
+          "tests/ideation-commit-frontend.test.ts": "2febb237c923c3f2f63fa6d1a71bc2a6ecadef55ce6ab3535d846734ef0623c3",
+          "tests/ideation-pr1.test.ts": "fabe82401dba98271815a82c2d0d80aa0bcbdddca6bfd95bbc73bc80ff906a4d",
+          "tests/ideation-provider-reliability.test.ts": "cef2e85bd9d44877a78a360a2170333a995461371c22502a50a82fcf54b1bf05",
+          "tests/ideation-stage2.test.ts": "69cc967a678120e8af8afed3c36ab669e62e936c3799a2c98047262f5bb2b706",
+          "tests/ideation-stage3.test.ts": "340398a23b3a68bb405bce9f08a8f4da3ab676f56889b549e96f55c7f3f28373",
+          "tests/ideation-stage4.test.ts": "3126dc12392a99b97e5a8149665f9443923fdf83ddaf267e6af404aa0b46a8b8",
+          "tests/ideation-support-units.test.ts": "f56869cde4af4a9d55b28d6d73e67b28f0ca583788ef4a2d8edf365fb6c327d4",
+          "tests/reel-studio-phase1.test.ts": "9475e2ed665883b5b338b0d39d7ad9e7c197631b7d13b2889f8efe9dd2a88103",
+          "tests/reel-studio-phase2.test.ts": "b581e1be5a93f9077813b43c8e908f30eb09ea2da8006827c3a44217ae3b4cd8",
+          "tests/reel-studio-phase3.test.ts": "c2dbaa1288d961c97b9ddfb8bcbea118c474f12e8b6ac420eec5c65a2edfe315",
+          "tests/reel-studio-storyboard-narrative.test.ts": "62fcc79e8ca9e931b344e58be5d6f8c96cd940109016bf6cdebf1031cde5bfd4",
+          "tests/run-ideation-handler.test.ts": "5d9c96379e057d3bec64f45448567d6009f656a7adcf6242b4310b0c1586982c",
+          "tests/score-ideation-candidates-handler.test.ts": "e4b6954b9dce25ce04fe7898ab2eaa898e25ca7ca77afa00784f7ab3cd06d334",
+          "tests/stage-a-baseline.test.ts": "48405d5e9c7e40f59391946017289876060d74f4c7bc919698eacc76db8488d5",
+          "tests/stage-a-foundation-remediation.test.ts": "83a6c4d607f037f7744e6b97a6715b3c374eba00dc9ba469bb5cabef32c07ed7",
+          "tests/stage-a-readiness.test.ts": "e4174ab34221b29c14dfc13ac436f13cd5581222477f75d96d156f982ec1e6f3"
+        },
+        "package_and_workflow_hashes": {
+          ".github/workflows/ci.yml": "9d9ddcbedaeb00950f92207ce8dc2f5ccb75bb39460a968003d55482b5f71f93",
+          "package.json": "a63286a6214a07ac70708ca7d5793d5a7ffa936800d7b722445cfb99942840dc",
+          "package-lock.json": "fe62cb32645faf2d4aa05050eeba0730972fa6c23d1c219e82db4a4ff6727a7c"
+        },
+        "exclusions": [
+          {
+            "prefix": "docs/evidence/stage-a-local-verification/",
+            "reason": "execution outputs and their manifest are produced after the commands they describe"
+          }
+        ],
+        "intended_tree_fingerprint_reference": "docs/stage-a-current-state-inventory.json#/repository/inventory_source_identity/sha256"
+      },
+      "raw_stdout_present": true,
+      "raw_stderr_present": true,
+      "claims": [
+        "exact pinned Node 20 CI runtime",
+        "npm ci",
+        "typecheck",
+        "lint",
+        "complete deterministic suite",
+        "production build",
+        "container cleanup"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/disposable-bootstrap-transcript.txt",
+      "sha256": "faae417ee4284125816eee5ae353d2ae8886b443832c44378776163319e6c734",
+      "command": "bash -c \"set -euo pipefail\\nsupabase start --exclude \\\"edge-runtime,gotrue,imgproxy,kong,logflare,mailpit,postgres-meta,postgrest,realtime,storage-api,studio,supavisor,vector\\\" &\\ncli_pid=$!\\ncontainer_started=0\\nfor attempt in {1..120}; do\\n  state=$(docker inspect --format '{{.State.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$state\\\" == \\\"created\\\" ]]; then docker start supabase_db_cockpit; container_started=1; break; fi\\n  if [[ \\\"$state\\\" == \\\"running\\\" ]]; then container_started=1; break; fi\\n  sleep 1\\ndone\\nif [[ \\\"$container_started\\\" != \\\"1\\\" ]]; then kill \\\"$cli_pid\\\" 2>/dev/null || true; wait \\\"$cli_pid\\\" 2>/dev/null || true; exit 1; fi\\ndatabase_healthy=0\\nfor attempt in {1..120}; do\\n  health=$(docker inspect --format '{{.State.Health.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$health\\\" == \\\"healthy\\\" ]]; then database_healthy=1; break; fi\\n  sleep 1\\ndone\\nplatform_schema_ready=0\\nfor attempt in {1..120}; do\\n  ready=$(docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc \\\"select (to_regclass('storage.objects') is not null and to_regclass('auth.users') is not null and exists (select 1 from pg_roles where rolname='service_role'))::int\\\" 2>/dev/null || true)\\n  if [[ \\\"$ready\\\" == \\\"1\\\" ]]; then platform_schema_ready=1; break; fi\\n  sleep 1\\ndone\\npkill -KILL -P \\\"$cli_pid\\\" 2>/dev/null || true\\nkill -KILL \\\"$cli_pid\\\" 2>/dev/null || true\\nwait \\\"$cli_pid\\\" 2>/dev/null || true\\n[[ \\\"$database_healthy\\\" == \\\"1\\\" ]]\\n[[ \\\"$platform_schema_ready\\\" == \\\"1\\\" ]]\\n[[ \\\"$(docker inspect --format '{{.State.Running}}' supabase_db_cockpit)\\\" == \\\"true\\\" ]]\\nprintf 'Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.\\\\n'\"; STAGE_A_DISPOSABLE_CONFIRM=reset-local-cockpit-disposable bash scripts/bootstrap-disposable-supabase.sh; supabase stop --no-backup",
+      "started_at_utc": "2026-08-02T17:40:37.876Z",
+      "finished_at_utc": "2026-08-02T17:41:05.067Z",
+      "exit_status": 0,
+      "tool_versions": {
+        "node --version": {
+          "version": "v25.9.0",
+          "exit_status": 0
+        },
+        "npm --version": {
+          "version": "11.12.1",
+          "exit_status": 0
+        },
+        "supabase --version": {
+          "version": "2.101.0",
+          "exit_status": 0
+        },
+        "docker --version": {
+          "version": "Docker version 29.6.1, build 8900f1d",
+          "exit_status": 0
+        }
+      },
+      "database_source_binding": {
+        "schema_version": "aa.cockpit.stage-a-database-source-binding.v1",
+        "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+        "enumeration_rule": "explicit required database inputs plus every supabase/migrations/*.sql version greater than 20260801000000; unique paths; sort paths; hash exact bytes",
+        "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+        "path_set_sha256": "a9ece1574260bd0a684aef9f54c9b27366b1b9910cd3db9d68b5438ed3fda85b",
+        "sha256": "0ac0c934101c1054382abcc7e3ff7121ce16f491560f5ad6a70fe9ee1a229dcc",
+        "file_count": 24,
+        "included_paths": [
+          "scripts/bootstrap-disposable-supabase.sh",
+          "scripts/compare-stage-a-schema.mjs",
+          "scripts/generate-stage-a-baseline-manifest.mjs",
+          "scripts/generate-stage-a-bootstrap-schema.mjs",
+          "scripts/run-stage-a-local-evidence.mjs",
+          "scripts/stage-a-bootstrap-schema-rules.mjs",
+          "scripts/stage-a-content-fingerprint.mjs",
+          "scripts/stage-a-database-source-binding.mjs",
+          "scripts/stage-a-evidence-lib.mjs",
+          "supabase/baseline/application-schema.sql",
+          "supabase/baseline/bootstrap-data.sql",
+          "supabase/baseline/current-schema.sql",
+          "supabase/baseline/manifest.json",
+          "supabase/baseline/verify-baseline.sql",
+          "supabase/baseline/verify-constraints.sql",
+          "supabase/baseline/verify-foreign-keys.sql",
+          "supabase/baseline/verify-grants.sql",
+          "supabase/baseline/verify-idempotency.sql",
+          "supabase/baseline/verify-isolation.sql",
+          "supabase/baseline/verify-rls.sql",
+          "supabase/baseline/verify-seeds.sql",
+          "supabase/baseline/verify-storage.sql",
+          "supabase/baseline/verify-uniqueness.sql",
+          "supabase/config.toml"
+        ],
+        "file_hashes": {
+          "scripts/bootstrap-disposable-supabase.sh": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12",
+          "scripts/compare-stage-a-schema.mjs": "416f711090484b697df1e748ef6bfc4da8b6be1207d1bae79d73b139991a3cd9",
+          "scripts/generate-stage-a-baseline-manifest.mjs": "7b965a326ec6b16e377c24f03fc8c8dfc7ad94fced7fd499df44d33c883c5aa2",
+          "scripts/generate-stage-a-bootstrap-schema.mjs": "2f085fb98981548ce7ebdc7a8849228c05e9b876a4fc8d1978c51738344034cd",
+          "scripts/run-stage-a-local-evidence.mjs": "1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772",
+          "scripts/stage-a-bootstrap-schema-rules.mjs": "4cabb03b2b583063ad134a86721725d1a21cd143f1adf1780257d67e3156134b",
+          "scripts/stage-a-content-fingerprint.mjs": "4dd373049cf7ce1112578ce5ccf2db688efd99ab9b361c89c971e9576c910751",
+          "scripts/stage-a-database-source-binding.mjs": "7a1707c8413ea57f8d357aadeb8f3c6f59541879e9e8839df220ea5bacad336d",
+          "scripts/stage-a-evidence-lib.mjs": "d5dc98d412cc608b9b5838e410c01c1dc520d8115b28a6b4e2a7b2cb6712371c",
+          "supabase/baseline/application-schema.sql": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df",
+          "supabase/baseline/bootstrap-data.sql": "29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc",
+          "supabase/baseline/current-schema.sql": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a",
+          "supabase/baseline/manifest.json": "f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d",
+          "supabase/baseline/verify-baseline.sql": "4c92d276dbc0f6f76ffe06c00e8c89f5e8f59c031d914b53ecd33e85f0f3966f",
+          "supabase/baseline/verify-constraints.sql": "a84a5c255988360eb6bddeca4f124748e4a440e5c07580903ea5305634986710",
+          "supabase/baseline/verify-foreign-keys.sql": "3754966098564cf90e0e14b65aec916013679baace8ac4cd2d196447ec3dd275",
+          "supabase/baseline/verify-grants.sql": "756896b8c266801f20b80d88705e73f2bba90e27d23c735e3eaa717c1dc2115c",
+          "supabase/baseline/verify-idempotency.sql": "6624e32bf96087b44c8031bcb4fe5ea9a7e460f5e228c2d1bd903739b264d3ab",
+          "supabase/baseline/verify-isolation.sql": "945f2c54771e95c8fe686eb04118236ed5e6e4bebcdbee4ed56e9e4be5438419",
+          "supabase/baseline/verify-rls.sql": "e56b10b42005b848a51a7aa7a7b3f40495d0ac150550275c9ddcc410122c761b",
+          "supabase/baseline/verify-seeds.sql": "eb23e95e4fb69610e3f1ec4d3cfc6aa7a4b0b6d0be8f909f3e3d1f04780592fa",
+          "supabase/baseline/verify-storage.sql": "e96b3798d6b2db4d089ef164b8794a70f14d033a11186c40567af4cc7d096436",
+          "supabase/baseline/verify-uniqueness.sql": "9b1983ce6badbee8ec2c48035835ff7e083d4c7f6e95872b47ac203176b912d5",
+          "supabase/config.toml": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+        },
+        "baseline_cutoff_version": "20260801000000",
+        "applicable_post_cutover_migrations": [],
+        "applicable_post_cutover_migration_hashes": {},
+        "executable_application_schema_sha256": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df",
+        "captured_authority_sha256": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a",
+        "baseline_manifest_sha256": "f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d",
+        "supabase_configuration_sha256": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+      },
+      "database_source_binding_schema_version": "aa.cockpit.stage-a-database-source-binding.v1",
+      "database_source_binding_unchanged_through_execution": true,
+      "component_exit_statuses": {
+        "start": 0,
+        "empty_application_schema": 0,
+        "executable_application_schema": 0,
+        "bootstrap_data": 0,
+        "post_cutover_migrations": 0,
+        "baseline_reconstruction": 0,
+        "baseline_catalogue": 0,
+        "rls": 0,
+        "grants": 0,
+        "storage": 0,
+        "seeds": 0,
+        "symmetric_isolation": 0,
+        "constraints": 0,
+        "foreign_keys": 0,
+        "uniqueness": 0,
+        "database_idempotency": 0,
+        "catalogue_comparison": 0,
+        "bootstrap": 0,
+        "cleanup": 0
+      },
+      "component_commands": {
+        "start": "bash -c \"set -euo pipefail\\nsupabase start --exclude \\\"edge-runtime,gotrue,imgproxy,kong,logflare,mailpit,postgres-meta,postgrest,realtime,storage-api,studio,supavisor,vector\\\" &\\ncli_pid=$!\\ncontainer_started=0\\nfor attempt in {1..120}; do\\n  state=$(docker inspect --format '{{.State.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$state\\\" == \\\"created\\\" ]]; then docker start supabase_db_cockpit; container_started=1; break; fi\\n  if [[ \\\"$state\\\" == \\\"running\\\" ]]; then container_started=1; break; fi\\n  sleep 1\\ndone\\nif [[ \\\"$container_started\\\" != \\\"1\\\" ]]; then kill \\\"$cli_pid\\\" 2>/dev/null || true; wait \\\"$cli_pid\\\" 2>/dev/null || true; exit 1; fi\\ndatabase_healthy=0\\nfor attempt in {1..120}; do\\n  health=$(docker inspect --format '{{.State.Health.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$health\\\" == \\\"healthy\\\" ]]; then database_healthy=1; break; fi\\n  sleep 1\\ndone\\nplatform_schema_ready=0\\nfor attempt in {1..120}; do\\n  ready=$(docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc \\\"select (to_regclass('storage.objects') is not null and to_regclass('auth.users') is not null and exists (select 1 from pg_roles where rolname='service_role'))::int\\\" 2>/dev/null || true)\\n  if [[ \\\"$ready\\\" == \\\"1\\\" ]]; then platform_schema_ready=1; break; fi\\n  sleep 1\\ndone\\npkill -KILL -P \\\"$cli_pid\\\" 2>/dev/null || true\\nkill -KILL \\\"$cli_pid\\\" 2>/dev/null || true\\nwait \\\"$cli_pid\\\" 2>/dev/null || true\\n[[ \\\"$database_healthy\\\" == \\\"1\\\" ]]\\n[[ \\\"$platform_schema_ready\\\" == \\\"1\\\" ]]\\n[[ \\\"$(docker inspect --format '{{.State.Running}}' supabase_db_cockpit)\\\" == \\\"true\\\" ]]\\nprintf 'Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.\\\\n'\"",
+        "empty_application_schema": "docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc select-count-of-public-relations-and-require-exactly-0",
+        "executable_application_schema": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/application-schema.sql",
+        "bootstrap_data": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/bootstrap-data.sql",
+        "post_cutover_migrations": "no SQL command executed; exact bound applicable post-cutover migration set is empty",
+        "baseline_reconstruction": "reset public schema; apply supabase/baseline/application-schema.sql; apply supabase/baseline/bootstrap-data.sql; apply active migrations newer than 20260801000000",
+        "baseline_catalogue": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-baseline.sql",
+        "rls": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-rls.sql",
+        "grants": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-grants.sql",
+        "storage": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-storage.sql",
+        "seeds": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-seeds.sql",
+        "symmetric_isolation": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-isolation.sql",
+        "constraints": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-constraints.sql",
+        "foreign_keys": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-foreign-keys.sql",
+        "uniqueness": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-uniqueness.sql",
+        "database_idempotency": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-idempotency.sql",
+        "catalogue_comparison": "node scripts/compare-stage-a-schema.mjs --catalog [sanitized-temporary-catalogue]",
+        "bootstrap": "STAGE_A_DISPOSABLE_CONFIRM=reset-local-cockpit-disposable bash scripts/bootstrap-disposable-supabase.sh",
+        "cleanup": "supabase stop --no-backup"
+      },
+      "component_evidence": {
+        "start": {
+          "command": "bash -c \"set -euo pipefail\\nsupabase start --exclude \\\"edge-runtime,gotrue,imgproxy,kong,logflare,mailpit,postgres-meta,postgrest,realtime,storage-api,studio,supavisor,vector\\\" &\\ncli_pid=$!\\ncontainer_started=0\\nfor attempt in {1..120}; do\\n  state=$(docker inspect --format '{{.State.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$state\\\" == \\\"created\\\" ]]; then docker start supabase_db_cockpit; container_started=1; break; fi\\n  if [[ \\\"$state\\\" == \\\"running\\\" ]]; then container_started=1; break; fi\\n  sleep 1\\ndone\\nif [[ \\\"$container_started\\\" != \\\"1\\\" ]]; then kill \\\"$cli_pid\\\" 2>/dev/null || true; wait \\\"$cli_pid\\\" 2>/dev/null || true; exit 1; fi\\ndatabase_healthy=0\\nfor attempt in {1..120}; do\\n  health=$(docker inspect --format '{{.State.Health.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$health\\\" == \\\"healthy\\\" ]]; then database_healthy=1; break; fi\\n  sleep 1\\ndone\\nplatform_schema_ready=0\\nfor attempt in {1..120}; do\\n  ready=$(docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc \\\"select (to_regclass('storage.objects') is not null and to_regclass('auth.users') is not null and exists (select 1 from pg_roles where rolname='service_role'))::int\\\" 2>/dev/null || true)\\n  if [[ \\\"$ready\\\" == \\\"1\\\" ]]; then platform_schema_ready=1; break; fi\\n  sleep 1\\ndone\\npkill -KILL -P \\\"$cli_pid\\\" 2>/dev/null || true\\nkill -KILL \\\"$cli_pid\\\" 2>/dev/null || true\\nwait \\\"$cli_pid\\\" 2>/dev/null || true\\n[[ \\\"$database_healthy\\\" == \\\"1\\\" ]]\\n[[ \\\"$platform_schema_ready\\\" == \\\"1\\\" ]]\\n[[ \\\"$(docker inspect --format '{{.State.Running}}' supabase_db_cockpit)\\\" == \\\"true\\\" ]]\\nprintf 'Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.\\\\n'\"",
+          "bound_inputs": [
+            {
+              "path": "scripts/run-stage-a-local-evidence.mjs",
+              "sha256": "1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772"
+            },
+            {
+              "path": "supabase/config.toml",
+              "sha256": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+            }
+          ],
+          "exit_status": 0
+        },
+        "empty_application_schema": {
+          "command": "docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc select-count-of-public-relations-and-require-exactly-0",
+          "bound_inputs": [
+            {
+              "path": "scripts/bootstrap-disposable-supabase.sh",
+              "sha256": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"
+            }
+          ],
+          "exit_status": 0
+        },
+        "executable_application_schema": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/application-schema.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/application-schema.sql",
+              "sha256": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df"
+            }
+          ],
+          "exit_status": 0
+        },
+        "bootstrap_data": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/bootstrap-data.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/bootstrap-data.sql",
+              "sha256": "29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc"
+            }
+          ],
+          "exit_status": 0
+        },
+        "post_cutover_migrations": {
+          "command": "no SQL command executed; exact bound applicable post-cutover migration set is empty",
+          "bound_inputs": [
+            {
+              "path": "scripts/bootstrap-disposable-supabase.sh",
+              "sha256": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"
+            }
+          ],
+          "exit_status": 0
+        },
+        "baseline_reconstruction": {
+          "command": "reset public schema; apply supabase/baseline/application-schema.sql; apply supabase/baseline/bootstrap-data.sql; apply active migrations newer than 20260801000000",
+          "bound_inputs": [
+            {
+              "path": "scripts/bootstrap-disposable-supabase.sh",
+              "sha256": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"
+            },
+            {
+              "path": "supabase/baseline/application-schema.sql",
+              "sha256": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df"
+            },
+            {
+              "path": "supabase/baseline/bootstrap-data.sql",
+              "sha256": "29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc"
+            }
+          ],
+          "exit_status": 0
+        },
+        "baseline_catalogue": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-baseline.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-baseline.sql",
+              "sha256": "4c92d276dbc0f6f76ffe06c00e8c89f5e8f59c031d914b53ecd33e85f0f3966f"
+            }
+          ],
+          "exit_status": 0
+        },
+        "rls": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-rls.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-rls.sql",
+              "sha256": "e56b10b42005b848a51a7aa7a7b3f40495d0ac150550275c9ddcc410122c761b"
+            }
+          ],
+          "exit_status": 0
+        },
+        "grants": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-grants.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-grants.sql",
+              "sha256": "756896b8c266801f20b80d88705e73f2bba90e27d23c735e3eaa717c1dc2115c"
+            }
+          ],
+          "exit_status": 0
+        },
+        "storage": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-storage.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-storage.sql",
+              "sha256": "e96b3798d6b2db4d089ef164b8794a70f14d033a11186c40567af4cc7d096436"
+            }
+          ],
+          "exit_status": 0
+        },
+        "seeds": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-seeds.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-seeds.sql",
+              "sha256": "eb23e95e4fb69610e3f1ec4d3cfc6aa7a4b0b6d0be8f909f3e3d1f04780592fa"
+            }
+          ],
+          "exit_status": 0
+        },
+        "symmetric_isolation": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-isolation.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-isolation.sql",
+              "sha256": "945f2c54771e95c8fe686eb04118236ed5e6e4bebcdbee4ed56e9e4be5438419"
+            }
+          ],
+          "exit_status": 0
+        },
+        "constraints": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-constraints.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-constraints.sql",
+              "sha256": "a84a5c255988360eb6bddeca4f124748e4a440e5c07580903ea5305634986710"
+            }
+          ],
+          "exit_status": 0
+        },
+        "foreign_keys": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-foreign-keys.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-foreign-keys.sql",
+              "sha256": "3754966098564cf90e0e14b65aec916013679baace8ac4cd2d196447ec3dd275"
+            }
+          ],
+          "exit_status": 0
+        },
+        "uniqueness": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-uniqueness.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-uniqueness.sql",
+              "sha256": "9b1983ce6badbee8ec2c48035835ff7e083d4c7f6e95872b47ac203176b912d5"
+            }
+          ],
+          "exit_status": 0
+        },
+        "database_idempotency": {
+          "command": "docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-idempotency.sql",
+          "bound_inputs": [
+            {
+              "path": "supabase/baseline/verify-idempotency.sql",
+              "sha256": "6624e32bf96087b44c8031bcb4fe5ea9a7e460f5e228c2d1bd903739b264d3ab"
+            }
+          ],
+          "exit_status": 0
+        },
+        "catalogue_comparison": {
+          "command": "node scripts/compare-stage-a-schema.mjs --catalog [sanitized-temporary-catalogue]",
+          "bound_inputs": [
+            {
+              "path": "scripts/bootstrap-disposable-supabase.sh",
+              "sha256": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"
+            },
+            {
+              "path": "scripts/compare-stage-a-schema.mjs",
+              "sha256": "416f711090484b697df1e748ef6bfc4da8b6be1207d1bae79d73b139991a3cd9"
+            },
+            {
+              "path": "supabase/baseline/manifest.json",
+              "sha256": "f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d"
+            }
+          ],
+          "exit_status": 0
+        },
+        "bootstrap": {
+          "command": "STAGE_A_DISPOSABLE_CONFIRM=reset-local-cockpit-disposable bash scripts/bootstrap-disposable-supabase.sh",
+          "bound_inputs": [
+            {
+              "path": "scripts/bootstrap-disposable-supabase.sh",
+              "sha256": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"
+            },
+            {
+              "path": "scripts/stage-a-database-source-binding.mjs",
+              "sha256": "7a1707c8413ea57f8d357aadeb8f3c6f59541879e9e8839df220ea5bacad336d"
+            }
+          ],
+          "exit_status": 0
+        },
+        "cleanup": {
+          "command": "supabase stop --no-backup",
+          "bound_inputs": [
+            {
+              "path": "scripts/run-stage-a-local-evidence.mjs",
+              "sha256": "1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772"
+            },
+            {
+              "path": "supabase/config.toml",
+              "sha256": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+            }
+          ],
+          "exit_status": 0
+        }
+      },
+      "named_database_cases": {
+        "symmetric_isolation": [
+          "isolation.client_one_sees_own_exact_record",
+          "isolation.client_one_cannot_see_client_two",
+          "isolation.client_two_sees_own_exact_record",
+          "isolation.client_two_cannot_see_client_one"
+        ],
+        "constraints": [
+          "constraints.clients_name_not_null_rejects_null",
+          "constraints.clients_health_score_check_rejects_101",
+          "constraints.organic_content_type_check_rejects_video",
+          "constraints.client_status_domain_rejects_unknown_state",
+          "constraints.valid_control_row_is_accepted"
+        ],
+        "foreign_keys": [
+          "foreign_keys.organic_valid_client_parent_is_accepted",
+          "foreign_keys.organic_nonexistent_client_is_rejected",
+          "foreign_keys.organic_client_delete_cascades",
+          "foreign_keys.organic_client_update_no_action_rejects"
+        ],
+        "uniqueness": [
+          "uniqueness.clients_slug_first_and_distinct_are_accepted",
+          "uniqueness.clients_slug_duplicate_is_rejected",
+          "uniqueness.organic_same_client_ref_duplicate_is_rejected",
+          "uniqueness.organic_same_ref_for_different_clients_is_accepted",
+          "uniqueness.organic_distinct_ref_for_same_client_is_accepted"
+        ],
+        "database_idempotency": [
+          "idempotency.begin_ideation_run_first_request_creates_one_cycle_seven_runs_one_event",
+          "idempotency.begin_ideation_run_exact_replay_creates_no_duplicates",
+          "idempotency.begin_ideation_run_exact_replay_returns_same_cycle_and_lease",
+          "idempotency.begin_ideation_run_conflicting_hash_reuse_fails_closed"
+        ]
+      },
+      "claims": [
+        "disposable baseline reconstruction",
+        "recorded identifier catalogue comparison",
+        "RLS flags/policy count and representative six-RPC grant verification",
+        "symmetric two-client isolation verification",
+        "representative constraint behavior verification",
+        "representative foreign-key behavior verification",
+        "representative uniqueness behavior verification",
+        "begin_ideation_run database idempotency verification",
+        "disposable stack cleanup"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/final-suite-transcript.txt",
+      "sha256": "7a6835e16d1fd8474fc8ea7b2d52a56ff1f1eacc4411c1bab1140adbe9ed25d2",
+      "command": "npm test",
+      "started_at_utc": "2026-08-02T17:44:10.758Z",
+      "finished_at_utc": "2026-08-02T17:44:16.439Z",
+      "exit_status": 0,
+      "test_totals": {
+        "tests": 628,
+        "pass": 628,
+        "fail": 0,
+        "skipped": 0
+      },
+      "source_binding": {
+        "schema_version": "aa.cockpit.stage-a-test-source-binding.v1",
+        "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+        "enumeration_rule": "git ls-files --cached --others --exclude-standard -z; sort paths; exclude the generated inventory and local execution outputs",
+        "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+        "sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+        "path_set_sha256": "c0d4cbc30c9285ddae16f8c7b835240d5e34eb4ebbf0b2dda97df43106a10610",
+        "file_count": 513,
+        "test_source_hashes": {
+          "tests/commit-ideation-content-handler.test.ts": "d5cab9912fb68b5b36507c4e71827e62ec13379ba5f34edf7f6cc1e34fdfe01a",
+          "tests/create-ideation-calendar-proposal-handler.test.ts": "4db96c276475404b24ebd15b14ad3c679fb95b3ee065f57315146960f3aad209",
+          "tests/ideation-candidate-fields.test.ts": "e46528b19e2e6f7057aeaacc7589529ac6163a6290182e266e8c2297ca50bd56",
+          "tests/ideation-claim-cards.test.ts": "5fcdb4b3a791eafa58b9af648016865f8089ab5dc9ad5ceaa04abe1423b19964",
+          "tests/ideation-commit-frontend.test.ts": "2febb237c923c3f2f63fa6d1a71bc2a6ecadef55ce6ab3535d846734ef0623c3",
+          "tests/ideation-pr1.test.ts": "fabe82401dba98271815a82c2d0d80aa0bcbdddca6bfd95bbc73bc80ff906a4d",
+          "tests/ideation-provider-reliability.test.ts": "cef2e85bd9d44877a78a360a2170333a995461371c22502a50a82fcf54b1bf05",
+          "tests/ideation-stage2.test.ts": "69cc967a678120e8af8afed3c36ab669e62e936c3799a2c98047262f5bb2b706",
+          "tests/ideation-stage3.test.ts": "340398a23b3a68bb405bce9f08a8f4da3ab676f56889b549e96f55c7f3f28373",
+          "tests/ideation-stage4.test.ts": "3126dc12392a99b97e5a8149665f9443923fdf83ddaf267e6af404aa0b46a8b8",
+          "tests/ideation-support-units.test.ts": "f56869cde4af4a9d55b28d6d73e67b28f0ca583788ef4a2d8edf365fb6c327d4",
+          "tests/reel-studio-phase1.test.ts": "9475e2ed665883b5b338b0d39d7ad9e7c197631b7d13b2889f8efe9dd2a88103",
+          "tests/reel-studio-phase2.test.ts": "b581e1be5a93f9077813b43c8e908f30eb09ea2da8006827c3a44217ae3b4cd8",
+          "tests/reel-studio-phase3.test.ts": "c2dbaa1288d961c97b9ddfb8bcbea118c474f12e8b6ac420eec5c65a2edfe315",
+          "tests/reel-studio-storyboard-narrative.test.ts": "62fcc79e8ca9e931b344e58be5d6f8c96cd940109016bf6cdebf1031cde5bfd4",
+          "tests/run-ideation-handler.test.ts": "5d9c96379e057d3bec64f45448567d6009f656a7adcf6242b4310b0c1586982c",
+          "tests/score-ideation-candidates-handler.test.ts": "e4b6954b9dce25ce04fe7898ab2eaa898e25ca7ca77afa00784f7ab3cd06d334",
+          "tests/stage-a-baseline.test.ts": "48405d5e9c7e40f59391946017289876060d74f4c7bc919698eacc76db8488d5",
+          "tests/stage-a-foundation-remediation.test.ts": "83a6c4d607f037f7744e6b97a6715b3c374eba00dc9ba469bb5cabef32c07ed7",
+          "tests/stage-a-readiness.test.ts": "e4174ab34221b29c14dfc13ac436f13cd5581222477f75d96d156f982ec1e6f3"
+        },
+        "package_and_workflow_hashes": {
+          ".github/workflows/ci.yml": "9d9ddcbedaeb00950f92207ce8dc2f5ccb75bb39460a968003d55482b5f71f93",
+          "package.json": "a63286a6214a07ac70708ca7d5793d5a7ffa936800d7b722445cfb99942840dc",
+          "package-lock.json": "fe62cb32645faf2d4aa05050eeba0730972fa6c23d1c219e82db4a4ff6727a7c"
+        },
+        "exclusions": [
+          {
+            "prefix": "docs/evidence/stage-a-local-verification/",
+            "reason": "execution outputs and their manifest are produced after the commands they describe"
+          }
+        ],
+        "intended_tree_fingerprint_reference": "docs/stage-a-current-state-inventory.json#/repository/inventory_source_identity/sha256"
+      },
+      "raw_stdout_present": true,
+      "raw_stderr_present": true,
+      "residue_check": "test process did not mutate any source-bound file; source binding is rechecked below",
+      "claims": [
+        "final standalone complete deterministic suite"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/fresh-checkout-portability-transcript.txt",
+      "sha256": "9a8b39fc6641d2fb6c6529a4861a31f2d6353cf9306bd6fcf7248804bc4bdd04",
+      "command": "node scripts/check-stage-a-evidence.mjs --external-dir \"/Users/alex/Desktop/Cockpit Stage A Live Evidence\"",
+      "started_at_utc": "2026-08-02T17:45:59.001Z",
+      "finished_at_utc": "2026-08-02T17:46:00.007Z",
+      "exit_status": 0,
+      "node_version": "v25.9.0",
+      "npm_version": "11.12.1",
+      "original_intended_tree_sha256": "fb63cd2f43898beec774d9c2c957598d1dc7355e0daa89633b75987d6b00ad05",
+      "copied_intended_tree_sha256": "fb63cd2f43898beec774d9c2c957598d1dc7355e0daa89633b75987d6b00ad05",
+      "original_source_binding_sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+      "copied_source_binding_sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+      "source_binding_schema_version": "aa.cockpit.stage-a-test-source-binding.v1",
+      "evidence_bootstrap_exemption": false,
+      "latest_preserved_transcript_finished_at_utc": "2026-08-02T17:45:55.362Z",
+      "copied_minimum_source_mtime_utc": "2026-08-02T17:45:59.134Z",
+      "copied_maximum_source_mtime_utc": "2026-08-02T17:45:59.134Z",
+      "copied_source_mtimes_newer_than_all_preserved_transcripts": true,
+      "content_fingerprint_match": true,
+      "source_binding_match": true,
+      "path_set_match": true,
+      "raw_stdout_present": true,
+      "raw_stderr_present": true,
+      "cleanup_exit_status": 0,
+      "claims": [
+        "byte-identical intended tree with newer checkout-local mtimes",
+        "exact evidence checker passes without timestamp freshness",
+        "temporary copied tree cleanup"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/read-only-suite-transcript.txt",
+      "sha256": "ca50a1c4239d3c61ef9dc3a705348d4f3701fa9772681614e6cacc448a226348",
+      "command": "TSX_DISABLE_CACHE=1 TMPDIR=[NONEXISTENT_PATH_INSIDE_NONWRITABLE_COPY] TEMP=[same] TMP=[same] npm test",
+      "started_at_utc": "2026-08-02T17:44:20.296Z",
+      "finished_at_utc": "2026-08-02T17:44:26.666Z",
+      "exit_status": 0,
+      "test_totals": {
+        "tests": 628,
+        "pass": 628,
+        "fail": 0,
+        "skipped": 0
+      },
+      "source_binding": {
+        "schema_version": "aa.cockpit.stage-a-test-source-binding.v1",
+        "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+        "enumeration_rule": "git ls-files --cached --others --exclude-standard -z; sort paths; exclude the generated inventory and local execution outputs",
+        "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+        "sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+        "path_set_sha256": "c0d4cbc30c9285ddae16f8c7b835240d5e34eb4ebbf0b2dda97df43106a10610",
+        "file_count": 513,
+        "test_source_hashes": {
+          "tests/commit-ideation-content-handler.test.ts": "d5cab9912fb68b5b36507c4e71827e62ec13379ba5f34edf7f6cc1e34fdfe01a",
+          "tests/create-ideation-calendar-proposal-handler.test.ts": "4db96c276475404b24ebd15b14ad3c679fb95b3ee065f57315146960f3aad209",
+          "tests/ideation-candidate-fields.test.ts": "e46528b19e2e6f7057aeaacc7589529ac6163a6290182e266e8c2297ca50bd56",
+          "tests/ideation-claim-cards.test.ts": "5fcdb4b3a791eafa58b9af648016865f8089ab5dc9ad5ceaa04abe1423b19964",
+          "tests/ideation-commit-frontend.test.ts": "2febb237c923c3f2f63fa6d1a71bc2a6ecadef55ce6ab3535d846734ef0623c3",
+          "tests/ideation-pr1.test.ts": "fabe82401dba98271815a82c2d0d80aa0bcbdddca6bfd95bbc73bc80ff906a4d",
+          "tests/ideation-provider-reliability.test.ts": "cef2e85bd9d44877a78a360a2170333a995461371c22502a50a82fcf54b1bf05",
+          "tests/ideation-stage2.test.ts": "69cc967a678120e8af8afed3c36ab669e62e936c3799a2c98047262f5bb2b706",
+          "tests/ideation-stage3.test.ts": "340398a23b3a68bb405bce9f08a8f4da3ab676f56889b549e96f55c7f3f28373",
+          "tests/ideation-stage4.test.ts": "3126dc12392a99b97e5a8149665f9443923fdf83ddaf267e6af404aa0b46a8b8",
+          "tests/ideation-support-units.test.ts": "f56869cde4af4a9d55b28d6d73e67b28f0ca583788ef4a2d8edf365fb6c327d4",
+          "tests/reel-studio-phase1.test.ts": "9475e2ed665883b5b338b0d39d7ad9e7c197631b7d13b2889f8efe9dd2a88103",
+          "tests/reel-studio-phase2.test.ts": "b581e1be5a93f9077813b43c8e908f30eb09ea2da8006827c3a44217ae3b4cd8",
+          "tests/reel-studio-phase3.test.ts": "c2dbaa1288d961c97b9ddfb8bcbea118c474f12e8b6ac420eec5c65a2edfe315",
+          "tests/reel-studio-storyboard-narrative.test.ts": "62fcc79e8ca9e931b344e58be5d6f8c96cd940109016bf6cdebf1031cde5bfd4",
+          "tests/run-ideation-handler.test.ts": "5d9c96379e057d3bec64f45448567d6009f656a7adcf6242b4310b0c1586982c",
+          "tests/score-ideation-candidates-handler.test.ts": "e4b6954b9dce25ce04fe7898ab2eaa898e25ca7ca77afa00784f7ab3cd06d334",
+          "tests/stage-a-baseline.test.ts": "48405d5e9c7e40f59391946017289876060d74f4c7bc919698eacc76db8488d5",
+          "tests/stage-a-foundation-remediation.test.ts": "83a6c4d607f037f7744e6b97a6715b3c374eba00dc9ba469bb5cabef32c07ed7",
+          "tests/stage-a-readiness.test.ts": "e4174ab34221b29c14dfc13ac436f13cd5581222477f75d96d156f982ec1e6f3"
+        },
+        "package_and_workflow_hashes": {
+          ".github/workflows/ci.yml": "9d9ddcbedaeb00950f92207ce8dc2f5ccb75bb39460a968003d55482b5f71f93",
+          "package.json": "a63286a6214a07ac70708ca7d5793d5a7ffa936800d7b722445cfb99942840dc",
+          "package-lock.json": "fe62cb32645faf2d4aa05050eeba0730972fa6c23d1c219e82db4a4ff6727a7c"
+        },
+        "exclusions": [
+          {
+            "prefix": "docs/evidence/stage-a-local-verification/",
+            "reason": "execution outputs and their manifest are produced after the commands they describe"
+          }
+        ],
+        "intended_tree_fingerprint_reference": "docs/stage-a-current-state-inventory.json#/repository/inventory_source_identity/sha256"
+      },
+      "repository_write_bits": 0,
+      "temporary_fixture_dependency": false,
+      "raw_stdout_present": true,
+      "raw_stderr_present": true,
+      "residue_check": {
+        "copied_repository_removed": true
+      },
+      "claims": [
+        "complete suite in a copied non-writable repository",
+        "no writable temporary fixture dependency"
+      ]
+    },
+    {
+      "path": "docs/evidence/stage-a-local-verification/test-stability-transcript.txt",
+      "sha256": "ff841fa65d82d87cca35ff8a7f23a6c5e88e6c7759732b2bf5fd4d0f29181a8e",
+      "command": "20x node --import tsx --test tests/ideation-provider-reliability.test.ts; 10x npm test",
+      "started_at_utc": "2026-08-02T17:41:24.134Z",
+      "finished_at_utc": "2026-08-02T17:44:10.629Z",
+      "exit_status": 0,
+      "targeted_runs": 20,
+      "full_suite_runs": 10,
+      "full_suite_test_total": 628,
+      "source_binding": {
+        "schema_version": "aa.cockpit.stage-a-test-source-binding.v1",
+        "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+        "enumeration_rule": "git ls-files --cached --others --exclude-standard -z; sort paths; exclude the generated inventory and local execution outputs",
+        "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+        "sha256": "9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79",
+        "path_set_sha256": "c0d4cbc30c9285ddae16f8c7b835240d5e34eb4ebbf0b2dda97df43106a10610",
+        "file_count": 513,
+        "test_source_hashes": {
+          "tests/commit-ideation-content-handler.test.ts": "d5cab9912fb68b5b36507c4e71827e62ec13379ba5f34edf7f6cc1e34fdfe01a",
+          "tests/create-ideation-calendar-proposal-handler.test.ts": "4db96c276475404b24ebd15b14ad3c679fb95b3ee065f57315146960f3aad209",
+          "tests/ideation-candidate-fields.test.ts": "e46528b19e2e6f7057aeaacc7589529ac6163a6290182e266e8c2297ca50bd56",
+          "tests/ideation-claim-cards.test.ts": "5fcdb4b3a791eafa58b9af648016865f8089ab5dc9ad5ceaa04abe1423b19964",
+          "tests/ideation-commit-frontend.test.ts": "2febb237c923c3f2f63fa6d1a71bc2a6ecadef55ce6ab3535d846734ef0623c3",
+          "tests/ideation-pr1.test.ts": "fabe82401dba98271815a82c2d0d80aa0bcbdddca6bfd95bbc73bc80ff906a4d",
+          "tests/ideation-provider-reliability.test.ts": "cef2e85bd9d44877a78a360a2170333a995461371c22502a50a82fcf54b1bf05",
+          "tests/ideation-stage2.test.ts": "69cc967a678120e8af8afed3c36ab669e62e936c3799a2c98047262f5bb2b706",
+          "tests/ideation-stage3.test.ts": "340398a23b3a68bb405bce9f08a8f4da3ab676f56889b549e96f55c7f3f28373",
+          "tests/ideation-stage4.test.ts": "3126dc12392a99b97e5a8149665f9443923fdf83ddaf267e6af404aa0b46a8b8",
+          "tests/ideation-support-units.test.ts": "f56869cde4af4a9d55b28d6d73e67b28f0ca583788ef4a2d8edf365fb6c327d4",
+          "tests/reel-studio-phase1.test.ts": "9475e2ed665883b5b338b0d39d7ad9e7c197631b7d13b2889f8efe9dd2a88103",
+          "tests/reel-studio-phase2.test.ts": "b581e1be5a93f9077813b43c8e908f30eb09ea2da8006827c3a44217ae3b4cd8",
+          "tests/reel-studio-phase3.test.ts": "c2dbaa1288d961c97b9ddfb8bcbea118c474f12e8b6ac420eec5c65a2edfe315",
+          "tests/reel-studio-storyboard-narrative.test.ts": "62fcc79e8ca9e931b344e58be5d6f8c96cd940109016bf6cdebf1031cde5bfd4",
+          "tests/run-ideation-handler.test.ts": "5d9c96379e057d3bec64f45448567d6009f656a7adcf6242b4310b0c1586982c",
+          "tests/score-ideation-candidates-handler.test.ts": "e4b6954b9dce25ce04fe7898ab2eaa898e25ca7ca77afa00784f7ab3cd06d334",
+          "tests/stage-a-baseline.test.ts": "48405d5e9c7e40f59391946017289876060d74f4c7bc919698eacc76db8488d5",
+          "tests/stage-a-foundation-remediation.test.ts": "83a6c4d607f037f7744e6b97a6715b3c374eba00dc9ba469bb5cabef32c07ed7",
+          "tests/stage-a-readiness.test.ts": "e4174ab34221b29c14dfc13ac436f13cd5581222477f75d96d156f982ec1e6f3"
+        },
+        "package_and_workflow_hashes": {
+          ".github/workflows/ci.yml": "9d9ddcbedaeb00950f92207ce8dc2f5ccb75bb39460a968003d55482b5f71f93",
+          "package.json": "a63286a6214a07ac70708ca7d5793d5a7ffa936800d7b722445cfb99942840dc",
+          "package-lock.json": "fe62cb32645faf2d4aa05050eeba0730972fa6c23d1c219e82db4a4ff6727a7c"
+        },
+        "exclusions": [
+          {
+            "prefix": "docs/evidence/stage-a-local-verification/",
+            "reason": "execution outputs and their manifest are produced after the commands they describe"
+          }
+        ],
+        "intended_tree_fingerprint_reference": "docs/stage-a-current-state-inventory.json#/repository/inventory_source_identity/sha256"
+      },
+      "raw_stdout_present": true,
+      "raw_stderr_present": true,
+      "claims": [
+        "provider reliability repeated stability",
+        "complete deterministic suite repeated stability"
+      ]
+    }
+  ]
+}

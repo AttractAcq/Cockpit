@@ -1,0 +1,1936 @@
+Stage A disposable Route B reconstruction execution evidence
+Classification: locally rebuilt and verified
+Safety boundary: fixed local project slug cockpit; production ref rejected before startup and again by the bootstrap; no linked command is accepted.
+Database source-binding schema: aa.cockpit.stage-a-database-source-binding.v1
+Frozen source baseline: 7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e
+Database input path-set SHA-256: a9ece1574260bd0a684aef9f54c9b27366b1b9910cd3db9d68b5438ed3fda85b
+Database input aggregate SHA-256: 0ac0c934101c1054382abcc7e3ff7121ce16f491560f5ad6a70fe9ee1a229dcc
+Database input file count: 24
+Executable application schema SHA-256: ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df
+Captured authority SHA-256: 09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a
+Baseline manifest SHA-256: f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d
+Supabase configuration SHA-256: 8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd
+Applicable post-cutover migration count: 0
+Applicable post-cutover migration identities: none
+Timestamps record execution provenance only; filesystem times do not participate in database evidence validity.
+--- database source binding JSON ---
+{
+  "schema_version": "aa.cockpit.stage-a-database-source-binding.v1",
+  "frozen_source_baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+  "enumeration_rule": "explicit required database inputs plus every supabase/migrations/*.sql version greater than 20260801000000; unique paths; sort paths; hash exact bytes",
+  "algorithm": "sha256(path NUL exact-bytes NUL, sorted paths)",
+  "path_set_sha256": "a9ece1574260bd0a684aef9f54c9b27366b1b9910cd3db9d68b5438ed3fda85b",
+  "sha256": "0ac0c934101c1054382abcc7e3ff7121ce16f491560f5ad6a70fe9ee1a229dcc",
+  "file_count": 24,
+  "included_paths": [
+    "scripts/bootstrap-disposable-supabase.sh",
+    "scripts/compare-stage-a-schema.mjs",
+    "scripts/generate-stage-a-baseline-manifest.mjs",
+    "scripts/generate-stage-a-bootstrap-schema.mjs",
+    "scripts/run-stage-a-local-evidence.mjs",
+    "scripts/stage-a-bootstrap-schema-rules.mjs",
+    "scripts/stage-a-content-fingerprint.mjs",
+    "scripts/stage-a-database-source-binding.mjs",
+    "scripts/stage-a-evidence-lib.mjs",
+    "supabase/baseline/application-schema.sql",
+    "supabase/baseline/bootstrap-data.sql",
+    "supabase/baseline/current-schema.sql",
+    "supabase/baseline/manifest.json",
+    "supabase/baseline/verify-baseline.sql",
+    "supabase/baseline/verify-constraints.sql",
+    "supabase/baseline/verify-foreign-keys.sql",
+    "supabase/baseline/verify-grants.sql",
+    "supabase/baseline/verify-idempotency.sql",
+    "supabase/baseline/verify-isolation.sql",
+    "supabase/baseline/verify-rls.sql",
+    "supabase/baseline/verify-seeds.sql",
+    "supabase/baseline/verify-storage.sql",
+    "supabase/baseline/verify-uniqueness.sql",
+    "supabase/config.toml"
+  ],
+  "file_hashes": {
+    "scripts/bootstrap-disposable-supabase.sh": "ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12",
+    "scripts/compare-stage-a-schema.mjs": "416f711090484b697df1e748ef6bfc4da8b6be1207d1bae79d73b139991a3cd9",
+    "scripts/generate-stage-a-baseline-manifest.mjs": "7b965a326ec6b16e377c24f03fc8c8dfc7ad94fced7fd499df44d33c883c5aa2",
+    "scripts/generate-stage-a-bootstrap-schema.mjs": "2f085fb98981548ce7ebdc7a8849228c05e9b876a4fc8d1978c51738344034cd",
+    "scripts/run-stage-a-local-evidence.mjs": "1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772",
+    "scripts/stage-a-bootstrap-schema-rules.mjs": "4cabb03b2b583063ad134a86721725d1a21cd143f1adf1780257d67e3156134b",
+    "scripts/stage-a-content-fingerprint.mjs": "4dd373049cf7ce1112578ce5ccf2db688efd99ab9b361c89c971e9576c910751",
+    "scripts/stage-a-database-source-binding.mjs": "7a1707c8413ea57f8d357aadeb8f3c6f59541879e9e8839df220ea5bacad336d",
+    "scripts/stage-a-evidence-lib.mjs": "d5dc98d412cc608b9b5838e410c01c1dc520d8115b28a6b4e2a7b2cb6712371c",
+    "supabase/baseline/application-schema.sql": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df",
+    "supabase/baseline/bootstrap-data.sql": "29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc",
+    "supabase/baseline/current-schema.sql": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a",
+    "supabase/baseline/manifest.json": "f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d",
+    "supabase/baseline/verify-baseline.sql": "4c92d276dbc0f6f76ffe06c00e8c89f5e8f59c031d914b53ecd33e85f0f3966f",
+    "supabase/baseline/verify-constraints.sql": "a84a5c255988360eb6bddeca4f124748e4a440e5c07580903ea5305634986710",
+    "supabase/baseline/verify-foreign-keys.sql": "3754966098564cf90e0e14b65aec916013679baace8ac4cd2d196447ec3dd275",
+    "supabase/baseline/verify-grants.sql": "756896b8c266801f20b80d88705e73f2bba90e27d23c735e3eaa717c1dc2115c",
+    "supabase/baseline/verify-idempotency.sql": "6624e32bf96087b44c8031bcb4fe5ea9a7e460f5e228c2d1bd903739b264d3ab",
+    "supabase/baseline/verify-isolation.sql": "945f2c54771e95c8fe686eb04118236ed5e6e4bebcdbee4ed56e9e4be5438419",
+    "supabase/baseline/verify-rls.sql": "e56b10b42005b848a51a7aa7a7b3f40495d0ac150550275c9ddcc410122c761b",
+    "supabase/baseline/verify-seeds.sql": "eb23e95e4fb69610e3f1ec4d3cfc6aa7a4b0b6d0be8f909f3e3d1f04780592fa",
+    "supabase/baseline/verify-storage.sql": "e96b3798d6b2db4d089ef164b8794a70f14d033a11186c40567af4cc7d096436",
+    "supabase/baseline/verify-uniqueness.sql": "9b1983ce6badbee8ec2c48035835ff7e083d4c7f6e95872b47ac203176b912d5",
+    "supabase/config.toml": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+  },
+  "baseline_cutoff_version": "20260801000000",
+  "applicable_post_cutover_migrations": [],
+  "applicable_post_cutover_migration_hashes": {},
+  "executable_application_schema_sha256": "ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df",
+  "captured_authority_sha256": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a",
+  "baseline_manifest_sha256": "f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d",
+  "supabase_configuration_sha256": "8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"
+}
+--- end database source binding JSON ---
+Relevant tool versions
+node --version: v25.9.0 (exit 0)
+npm --version: 11.12.1 (exit 0)
+supabase --version: 2.101.0 (exit 0)
+docker --version: Docker version 29.6.1, build 8900f1d (exit 0)
+
+UTC start: 2026-08-02T17:40:37.876Z
+Command: bash -c "set -euo pipefail\nsupabase start --exclude \"edge-runtime,gotrue,imgproxy,kong,logflare,mailpit,postgres-meta,postgrest,realtime,storage-api,studio,supavisor,vector\" &\ncli_pid=$!\ncontainer_started=0\nfor attempt in {1..120}; do\n  state=$(docker inspect --format '{{.State.Status}}' supabase_db_cockpit 2>/dev/null || true)\n  if [[ \"$state\" == \"created\" ]]; then docker start supabase_db_cockpit; container_started=1; break; fi\n  if [[ \"$state\" == \"running\" ]]; then container_started=1; break; fi\n  sleep 1\ndone\nif [[ \"$container_started\" != \"1\" ]]; then kill \"$cli_pid\" 2>/dev/null || true; wait \"$cli_pid\" 2>/dev/null || true; exit 1; fi\ndatabase_healthy=0\nfor attempt in {1..120}; do\n  health=$(docker inspect --format '{{.State.Health.Status}}' supabase_db_cockpit 2>/dev/null || true)\n  if [[ \"$health\" == \"healthy\" ]]; then database_healthy=1; break; fi\n  sleep 1\ndone\nplatform_schema_ready=0\nfor attempt in {1..120}; do\n  ready=$(docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc \"select (to_regclass('storage.objects') is not null and to_regclass('auth.users') is not null and exists (select 1 from pg_roles where rolname='service_role'))::int\" 2>/dev/null || true)\n  if [[ \"$ready\" == \"1\" ]]; then platform_schema_ready=1; break; fi\n  sleep 1\ndone\npkill -KILL -P \"$cli_pid\" 2>/dev/null || true\nkill -KILL \"$cli_pid\" 2>/dev/null || true\nwait \"$cli_pid\" 2>/dev/null || true\n[[ \"$database_healthy\" == \"1\" ]]\n[[ \"$platform_schema_ready\" == \"1\" ]]\n[[ \"$(docker inspect --format '{{.State.Running}}' supabase_db_cockpit)\" == \"true\" ]]\nprintf 'Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.\\n'"
+--- output ---
+
+
+╭───────────────────────────────────────────────────────────────╮
+│ ⛁ Database                                                    │
+├─────┬─────────────────────────────────────────────────────────┤
+│ URL │ [REDACTED_DATABASE_URL] │
+╰─────┴─────────────────────────────────────────────────────────╯
+
+
+
+Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.
+ db Skipped - Image is already present locally
+Starting database...
+Initialising schema...
+Seeding globals from roles.sql...
+Starting containers...
+Waiting for health checks...
+Started supabase local development setup.
+
+Local dev security notice
+All services bind to 0.0.0.0 (network-accessible, not just localhost)
+API keys and JWT secrets are shared defaults. Do not use in production
+Studio, pgMeta (/pg/*), and analytics have no authentication
+
+A new version of Supabase CLI is available: v2.111.0 (currently installed v2.101.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
+--- result ---
+Exit status: 0
+UTC finish: 2026-08-02T17:40:52.025Z
+
+UTC start: 2026-08-02T17:40:52.026Z
+Command: STAGE_A_DISPOSABLE_CONFIRM=reset-local-cockpit-disposable bash scripts/bootstrap-disposable-supabase.sh
+--- output ---
+Resetting only the public application schema and the two application storage buckets in supabase_db_cockpit.
+STAGE_A_COMPONENT_EXIT|empty_application_schema|0|docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc select-count-of-public-relations-and-require-exactly-0
+STAGE_A_COMPONENT_INPUT|empty_application_schema|scripts/bootstrap-disposable-supabase.sh|ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12
+SET
+SET
+SET
+SET
+SET
+ set_config
+------------
+
+(1 row)
+
+SET
+SET
+SET
+SET
+CREATE SCHEMA
+ALTER SCHEMA
+COMMENT
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE FUNCTION
+ALTER FUNCTION
+SET
+SET
+CREATE TABLE
+ALTER TABLE
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+COMMENT
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE FUNCTION
+ALTER FUNCTION
+CREATE FUNCTION
+ALTER FUNCTION
+COMMENT
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE VIEW
+ALTER VIEW
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+COMMENT
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+STAGE_A_COMPONENT_EXIT|executable_application_schema|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/application-schema.sql
+STAGE_A_COMPONENT_INPUT|executable_application_schema|supabase/baseline/application-schema.sql|ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df
+SET
+DO
+INSERT 0 2
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+INSERT 0 1
+INSERT 0 1
+STAGE_A_COMPONENT_EXIT|bootstrap_data|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/bootstrap-data.sql
+STAGE_A_COMPONENT_INPUT|bootstrap_data|supabase/baseline/bootstrap-data.sql|29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc
+STAGE_A_COMPONENT_EXIT|post_cutover_migrations|0|no SQL command executed; exact bound applicable post-cutover migration set is empty
+STAGE_A_COMPONENT_INPUT|post_cutover_migrations|scripts/bootstrap-disposable-supabase.sh|ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12
+STAGE_A_COMPONENT_EXIT|baseline_reconstruction|0|reset public schema; apply supabase/baseline/application-schema.sql; apply supabase/baseline/bootstrap-data.sql; apply active migrations newer than 20260801000000
+STAGE_A_COMPONENT_INPUT|baseline_reconstruction|scripts/bootstrap-disposable-supabase.sh|ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12
+STAGE_A_COMPONENT_INPUT|baseline_reconstruction|supabase/baseline/application-schema.sql|ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df
+STAGE_A_COMPONENT_INPUT|baseline_reconstruction|supabase/baseline/bootstrap-data.sql|29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc
+Verifying the recorded identifier catalogue/counts, RLS flags/policy count, representative grants, storage, seeds, and held-object absence.
+DO
+DO
+STAGE_A_COMPONENT_EXIT|baseline_catalogue|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-baseline.sql
+STAGE_A_COMPONENT_INPUT|baseline_catalogue|supabase/baseline/verify-baseline.sql|4c92d276dbc0f6f76ffe06c00e8c89f5e8f59c031d914b53ecd33e85f0f3966f
+DO
+STAGE_A_CASE rls.all_80_public_tables_have_rls_enabled PASS
+STAGE_A_COMPONENT_EXIT|rls|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-rls.sql
+STAGE_A_COMPONENT_INPUT|rls|supabase/baseline/verify-rls.sql|e56b10b42005b848a51a7aa7a7b3f40495d0ac150550275c9ddcc410122c761b
+DO
+STAGE_A_CASE grants.six_restricted_rpcs_are_service_role_only PASS
+STAGE_A_COMPONENT_EXIT|grants|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-grants.sql
+STAGE_A_COMPONENT_INPUT|grants|supabase/baseline/verify-grants.sql|756896b8c266801f20b80d88705e73f2bba90e27d23c735e3eaa717c1dc2115c
+DO
+STAGE_A_CASE storage.two_private_buckets_and_eight_policies_exist PASS
+STAGE_A_COMPONENT_EXIT|storage|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-storage.sql
+STAGE_A_COMPONENT_INPUT|storage|supabase/baseline/verify-storage.sql|e96b3798d6b2db4d089ef164b8794a70f14d033a11186c40567af4cc7d096436
+DO
+STAGE_A_CASE seeds.brand_dna_v1_and_brand_sting_v1_exist PASS
+STAGE_A_COMPONENT_EXIT|seeds|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-seeds.sql
+STAGE_A_COMPONENT_INPUT|seeds|supabase/baseline/verify-seeds.sql|eb23e95e4fb69610e3f1ec4d3cfc6aa7a4b0b6d0be8f909f3e3d1f04780592fa
+Verifying transactional symmetric two-client RLS isolation (all synthetic rows roll back).
+BEGIN
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+SET
+              set_config
+--------------------------------------
+ a1000000-0000-0000-0000-000000000001
+(1 row)
+
+                              set_config
+-----------------------------------------------------------------------
+ {"sub":"a1000000-0000-0000-0000-000000000001","role":"authenticated"}
+(1 row)
+
+DO
+RESET
+SET
+              set_config
+--------------------------------------
+ a1000000-0000-0000-0000-000000000002
+(1 row)
+
+                              set_config
+-----------------------------------------------------------------------
+ {"sub":"a1000000-0000-0000-0000-000000000002","role":"authenticated"}
+(1 row)
+
+DO
+RESET
+ROLLBACK
+STAGE_A_CASE isolation.client_one_sees_own_exact_record PASS
+STAGE_A_CASE isolation.client_one_cannot_see_client_two PASS
+STAGE_A_CASE isolation.client_two_sees_own_exact_record PASS
+STAGE_A_CASE isolation.client_two_cannot_see_client_one PASS
+STAGE_A_COMPONENT_EXIT|symmetric_isolation|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-isolation.sql
+STAGE_A_COMPONENT_INPUT|symmetric_isolation|supabase/baseline/verify-isolation.sql|945f2c54771e95c8fe686eb04118236ed5e6e4bebcdbee4ed56e9e4be5438419
+Verifying representative constraint behavior (all synthetic rows roll back).
+BEGIN
+INSERT 0 1
+DO
+ROLLBACK
+STAGE_A_CASE constraints.clients_name_not_null_rejects_null PASS
+STAGE_A_CASE constraints.clients_health_score_check_rejects_101 PASS
+STAGE_A_CASE constraints.organic_content_type_check_rejects_video PASS
+STAGE_A_CASE constraints.client_status_domain_rejects_unknown_state PASS
+STAGE_A_CASE constraints.valid_control_row_is_accepted PASS
+STAGE_A_COMPONENT_EXIT|constraints|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-constraints.sql
+STAGE_A_COMPONENT_INPUT|constraints|supabase/baseline/verify-constraints.sql|a84a5c255988360eb6bddeca4f124748e4a440e5c07580903ea5305634986710
+Verifying representative foreign-key behavior (all synthetic rows roll back).
+BEGIN
+INSERT 0 2
+INSERT 0 2
+DO
+ROLLBACK
+STAGE_A_CASE foreign_keys.organic_valid_client_parent_is_accepted PASS
+STAGE_A_CASE foreign_keys.organic_nonexistent_client_is_rejected PASS
+STAGE_A_CASE foreign_keys.organic_client_delete_cascades PASS
+STAGE_A_CASE foreign_keys.organic_client_update_no_action_rejects PASS
+STAGE_A_COMPONENT_EXIT|foreign_keys|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-foreign-keys.sql
+STAGE_A_COMPONENT_INPUT|foreign_keys|supabase/baseline/verify-foreign-keys.sql|3754966098564cf90e0e14b65aec916013679baace8ac4cd2d196447ec3dd275
+Verifying representative global and client-scoped uniqueness (all synthetic rows roll back).
+BEGIN
+INSERT 0 2
+DO
+INSERT 0 3
+DO
+ROLLBACK
+STAGE_A_CASE uniqueness.clients_slug_first_and_distinct_are_accepted PASS
+STAGE_A_CASE uniqueness.clients_slug_duplicate_is_rejected PASS
+STAGE_A_CASE uniqueness.organic_same_client_ref_duplicate_is_rejected PASS
+STAGE_A_CASE uniqueness.organic_same_ref_for_different_clients_is_accepted PASS
+STAGE_A_CASE uniqueness.organic_distinct_ref_for_same_client_is_accepted PASS
+STAGE_A_COMPONENT_EXIT|uniqueness|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-uniqueness.sql
+STAGE_A_COMPONENT_INPUT|uniqueness|supabase/baseline/verify-uniqueness.sql|9b1983ce6badbee8ec2c48035835ff7e083d4c7f6e95872b47ac203176b912d5
+Verifying the begin_ideation_run database idempotency contract (all synthetic rows roll back).
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DO
+ROLLBACK
+STAGE_A_CASE idempotency.begin_ideation_run_first_request_creates_one_cycle_seven_runs_one_event PASS
+STAGE_A_CASE idempotency.begin_ideation_run_exact_replay_creates_no_duplicates PASS
+STAGE_A_CASE idempotency.begin_ideation_run_exact_replay_returns_same_cycle_and_lease PASS
+STAGE_A_CASE idempotency.begin_ideation_run_conflicting_hash_reuse_fails_closed PASS
+STAGE_A_COMPONENT_EXIT|database_idempotency|0|docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-idempotency.sql
+STAGE_A_COMPONENT_INPUT|database_idempotency|supabase/baseline/verify-idempotency.sql|6624e32bf96087b44c8031bcb4fe5ea9a7e460f5e228c2d1bd903739b264d3ab
+Comparing rebuilt catalogue with the deterministic Route B manifest.
+Stage A rebuilt identifier catalogue comparison passed (2912 name/value/flag entries; definitions and ACLs are outside this comparison scope).
+STAGE_A_COMPONENT_EXIT|catalogue_comparison|0|node scripts/compare-stage-a-schema.mjs --catalog [sanitized-temporary-catalogue]
+STAGE_A_COMPONENT_INPUT|catalogue_comparison|scripts/bootstrap-disposable-supabase.sh|ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12
+STAGE_A_COMPONENT_INPUT|catalogue_comparison|scripts/compare-stage-a-schema.mjs|416f711090484b697df1e748ef6bfc4da8b6be1207d1bae79d73b139991a3cd9
+STAGE_A_COMPONENT_INPUT|catalogue_comparison|supabase/baseline/manifest.json|f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d
+Stage A disposable bootstrap passed: empty public schema, baseline, 0 post-cutover migration(s), catalogue, grants, RLS, storage, seeds, symmetric isolation, constraints, foreign keys, uniqueness, and database idempotency verified.
+NOTICE:  policy "client_assets_storage_staff_select" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "client_assets_storage_staff_insert" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "client_assets_storage_staff_update" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "client_assets_storage_staff_delete" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "video_assets_storage_staff_select" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "video_assets_storage_staff_insert" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "video_assets_storage_staff_update" for relation "storage.objects" does not exist, skipping
+NOTICE:  policy "video_assets_storage_staff_delete" for relation "storage.objects" does not exist, skipping
+--- result ---
+Exit status: 0
+UTC finish: 2026-08-02T17:40:54.048Z
+
+UTC start: 2026-08-02T17:40:54.048Z
+Command: supabase stop --no-backup
+--- output ---
+Stopping containers...
+Stopped supabase local development setup.
+A new version of Supabase CLI is available: v2.111.0 (currently installed v2.101.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
+--- result ---
+Exit status: 0
+UTC finish: 2026-08-02T17:41:05.067Z
+
+Required database components: empty_application_schema, executable_application_schema, bootstrap_data, post_cutover_migrations, baseline_reconstruction, baseline_catalogue, rls, grants, storage, seeds, symmetric_isolation, constraints, foreign_keys, uniqueness, database_idempotency, catalogue_comparison
+Missing database components: none
+Failed database components: none
+Database binding unchanged through execution: true
+Every component input matches the pre-execution binding: true
+STAGE_A_BOUND_COMPONENT {"name":"start","command":"bash -c \"set -euo pipefail\\nsupabase start --exclude \\\"edge-runtime,gotrue,imgproxy,kong,logflare,mailpit,postgres-meta,postgrest,realtime,storage-api,studio,supavisor,vector\\\" &\\ncli_pid=$!\\ncontainer_started=0\\nfor attempt in {1..120}; do\\n  state=$(docker inspect --format '{{.State.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$state\\\" == \\\"created\\\" ]]; then docker start supabase_db_cockpit; container_started=1; break; fi\\n  if [[ \\\"$state\\\" == \\\"running\\\" ]]; then container_started=1; break; fi\\n  sleep 1\\ndone\\nif [[ \\\"$container_started\\\" != \\\"1\\\" ]]; then kill \\\"$cli_pid\\\" 2>/dev/null || true; wait \\\"$cli_pid\\\" 2>/dev/null || true; exit 1; fi\\ndatabase_healthy=0\\nfor attempt in {1..120}; do\\n  health=$(docker inspect --format '{{.State.Health.Status}}' supabase_db_cockpit 2>/dev/null || true)\\n  if [[ \\\"$health\\\" == \\\"healthy\\\" ]]; then database_healthy=1; break; fi\\n  sleep 1\\ndone\\nplatform_schema_ready=0\\nfor attempt in {1..120}; do\\n  ready=$(docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc \\\"select (to_regclass('storage.objects') is not null and to_regclass('auth.users') is not null and exists (select 1 from pg_roles where rolname='service_role'))::int\\\" 2>/dev/null || true)\\n  if [[ \\\"$ready\\\" == \\\"1\\\" ]]; then platform_schema_ready=1; break; fi\\n  sleep 1\\ndone\\npkill -KILL -P \\\"$cli_pid\\\" 2>/dev/null || true\\nkill -KILL \\\"$cli_pid\\\" 2>/dev/null || true\\nwait \\\"$cli_pid\\\" 2>/dev/null || true\\n[[ \\\"$database_healthy\\\" == \\\"1\\\" ]]\\n[[ \\\"$platform_schema_ready\\\" == \\\"1\\\" ]]\\n[[ \\\"$(docker inspect --format '{{.State.Running}}' supabase_db_cockpit)\\\" == \\\"true\\\" ]]\\nprintf 'Disposable database container is healthy; auxiliary Supabase services were intentionally excluded.\\\\n'\"","bound_inputs":[{"path":"scripts/run-stage-a-local-evidence.mjs","sha256":"1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772"},{"path":"supabase/config.toml","sha256":"8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"empty_application_schema","command":"docker exec supabase_db_cockpit psql -X -U postgres -d postgres -Atqc select-count-of-public-relations-and-require-exactly-0","bound_inputs":[{"path":"scripts/bootstrap-disposable-supabase.sh","sha256":"ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"executable_application_schema","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/application-schema.sql","bound_inputs":[{"path":"supabase/baseline/application-schema.sql","sha256":"ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"bootstrap_data","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/bootstrap-data.sql","bound_inputs":[{"path":"supabase/baseline/bootstrap-data.sql","sha256":"29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"post_cutover_migrations","command":"no SQL command executed; exact bound applicable post-cutover migration set is empty","bound_inputs":[{"path":"scripts/bootstrap-disposable-supabase.sh","sha256":"ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"baseline_reconstruction","command":"reset public schema; apply supabase/baseline/application-schema.sql; apply supabase/baseline/bootstrap-data.sql; apply active migrations newer than 20260801000000","bound_inputs":[{"path":"scripts/bootstrap-disposable-supabase.sh","sha256":"ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"},{"path":"supabase/baseline/application-schema.sql","sha256":"ba2d17adfcd91358fc6950eae41386178863c02fefe2770e4981af13b3a0e8df"},{"path":"supabase/baseline/bootstrap-data.sql","sha256":"29ac4b5fc46789e09e6c64975cb7975990805b4dbf390538dbba312f1b3f33cc"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"baseline_catalogue","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-baseline.sql","bound_inputs":[{"path":"supabase/baseline/verify-baseline.sql","sha256":"4c92d276dbc0f6f76ffe06c00e8c89f5e8f59c031d914b53ecd33e85f0f3966f"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"rls","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-rls.sql","bound_inputs":[{"path":"supabase/baseline/verify-rls.sql","sha256":"e56b10b42005b848a51a7aa7a7b3f40495d0ac150550275c9ddcc410122c761b"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"grants","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-grants.sql","bound_inputs":[{"path":"supabase/baseline/verify-grants.sql","sha256":"756896b8c266801f20b80d88705e73f2bba90e27d23c735e3eaa717c1dc2115c"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"storage","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-storage.sql","bound_inputs":[{"path":"supabase/baseline/verify-storage.sql","sha256":"e96b3798d6b2db4d089ef164b8794a70f14d033a11186c40567af4cc7d096436"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"seeds","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-seeds.sql","bound_inputs":[{"path":"supabase/baseline/verify-seeds.sql","sha256":"eb23e95e4fb69610e3f1ec4d3cfc6aa7a4b0b6d0be8f909f3e3d1f04780592fa"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"symmetric_isolation","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-isolation.sql","bound_inputs":[{"path":"supabase/baseline/verify-isolation.sql","sha256":"945f2c54771e95c8fe686eb04118236ed5e6e4bebcdbee4ed56e9e4be5438419"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"constraints","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-constraints.sql","bound_inputs":[{"path":"supabase/baseline/verify-constraints.sql","sha256":"a84a5c255988360eb6bddeca4f124748e4a440e5c07580903ea5305634986710"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"foreign_keys","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-foreign-keys.sql","bound_inputs":[{"path":"supabase/baseline/verify-foreign-keys.sql","sha256":"3754966098564cf90e0e14b65aec916013679baace8ac4cd2d196447ec3dd275"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"uniqueness","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-uniqueness.sql","bound_inputs":[{"path":"supabase/baseline/verify-uniqueness.sql","sha256":"9b1983ce6badbee8ec2c48035835ff7e083d4c7f6e95872b47ac203176b912d5"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"database_idempotency","command":"docker exec -i supabase_db_cockpit psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/baseline/verify-idempotency.sql","bound_inputs":[{"path":"supabase/baseline/verify-idempotency.sql","sha256":"6624e32bf96087b44c8031bcb4fe5ea9a7e460f5e228c2d1bd903739b264d3ab"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"catalogue_comparison","command":"node scripts/compare-stage-a-schema.mjs --catalog [sanitized-temporary-catalogue]","bound_inputs":[{"path":"scripts/bootstrap-disposable-supabase.sh","sha256":"ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"},{"path":"scripts/compare-stage-a-schema.mjs","sha256":"416f711090484b697df1e748ef6bfc4da8b6be1207d1bae79d73b139991a3cd9"},{"path":"supabase/baseline/manifest.json","sha256":"f7747f7b241b575b0c684084105cd9a35107aef62cab41fe256926e97df7f14d"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"bootstrap","command":"STAGE_A_DISPOSABLE_CONFIRM=reset-local-cockpit-disposable bash scripts/bootstrap-disposable-supabase.sh","bound_inputs":[{"path":"scripts/bootstrap-disposable-supabase.sh","sha256":"ac3d5fd5260c9151dcfe5538ffc50f0fb534eb77f34b5da997d7e417ad84aa12"},{"path":"scripts/stage-a-database-source-binding.mjs","sha256":"7a1707c8413ea57f8d357aadeb8f3c6f59541879e9e8839df220ea5bacad336d"}],"exit_status":0}
+STAGE_A_BOUND_COMPONENT {"name":"cleanup","command":"supabase stop --no-backup","bound_inputs":[{"path":"scripts/run-stage-a-local-evidence.mjs","sha256":"1bf79a51b348fd0b9c419ccefe8dba271979327df369275d4479fc5ee6fa8772"},{"path":"supabase/config.toml","sha256":"8200357110842fd21c4c3dea532b499c3690aea350a9a85e53a23dff5c88a7dd"}],"exit_status":0}
+
+Overall exit status: 0

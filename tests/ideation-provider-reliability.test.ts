@@ -3,8 +3,9 @@
 //   competitor-objections      -> ANTHROPIC_TIMEOUT   (35s correction deadline)
 //
 // No test in this file performs a real provider call. The Anthropic boundary is
-// exercised through an injected fetch, and every environment value is injected
-// through a replaced Deno global.
+// exercised through an injected fetch, every environment value is injected
+// through a replaced Deno global, and boundary-time fixtures replace Date.now
+// only for the duration of their own test action.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -93,6 +94,16 @@ async function withProvider<T>(
   } finally {
     globals.Deno = originalDeno;
     globals.fetch = originalFetch;
+  }
+}
+
+async function withDateNow<T>(now: () => number, run: () => Promise<T>): Promise<T> {
+  const originalNow = Date.now;
+  Date.now = now;
+  try {
+    return await run();
+  } finally {
+    Date.now = originalNow;
   }
 }
 
@@ -526,12 +537,17 @@ test("stop_reason max_tokens always fails, even when the JSON parses cleanly", a
 
 test("a truncation correction receives the permitted increased budget exactly once", async () => {
   const budgets: number[] = [];
-  const result = await withProvider({}, (init) => {
+  const result = await withDateNow(() => 10_000, () => withProvider({
+    // The 150 s setting is clamped to the containing 45 s deadline. With no
+    // elapsed time, exactly 45,000 ms remains and one correction is affordable.
+    AA_IDEATION_TECHNIQUE_DEADLINE_MS: "45000",
+    AA_IDEATION_MIN_CORRECTION_BUDGET_MS: "150000",
+  }, (init) => {
     budgets.push(requestedMaxTokens(init));
     return budgets.length === 1
       ? providerResponse({ structured_findings: FINDINGS, candidates: [groundedCandidate()] }, "max_tokens")
       : providerResponse({ structured_findings: FINDINGS, candidates: [groundedCandidate()] });
-  }, () => generateTechniqueCandidates(promptInput()));
+  }, () => generateTechniqueCandidates(promptInput())));
 
   assert.equal(result.ok, true);
   if (result.ok) assert.equal(result.retried, true);
@@ -567,14 +583,18 @@ test("a provider timeout is returned as a typed retryable failure without a seco
 
 test("the correction is skipped when the technique deadline cannot absorb it", async () => {
   let calls = 0;
-  const result = await withProvider({
+  let now = 10_000;
+  const result = await withDateNow(() => now, () => withProvider({
     // A deadline smaller than the minimum correction budget leaves no room.
     AA_IDEATION_TECHNIQUE_DEADLINE_MS: "45000",
     AA_IDEATION_MIN_CORRECTION_BUDGET_MS: "150000",
   }, () => {
     calls += 1;
+    // Advance only the local test clock during the first provider call. The
+    // next attempt sees 44,999 ms: one less than the required 45,000 ms.
+    now += 1;
     return providerResponse({ structured_findings: FINDINGS, candidates: [groundedCandidate()] }, "max_tokens");
-  }, () => generateTechniqueCandidates(promptInput()));
+  }, () => generateTechniqueCandidates(promptInput())));
 
   assert.equal(calls, 1, "never issue a correction the deadline cannot afford");
   assert.equal(result.ok, false);

@@ -98,14 +98,27 @@ end-to-end golden paths; and production rollout.
 
 ---
 
-## Next programme action
+## Programme execution status
 
-Readiness is confirmed in
+Pre-Stage-A readiness is confirmed in
 [`../PRE_STAGE_A_REPOSITORY_READINESS_REPORT.md`](../PRE_STAGE_A_REPOSITORY_READINESS_REPORT.md).
+Stage A implementation evidence is recorded in
+[`../STAGE_A_IMPLEMENTATION_REPORT.md`](../STAGE_A_IMPLEMENTATION_REPORT.md),
+with the current machine-readable inventory in
+[`../stage-a-current-state-inventory.json`](../stage-a-current-state-inventory.json).
 
-The immediate next programme action is **Programme Stage A — Repository
-Reconciliation and Frozen Baseline**, using the Stage A prompt in
-`Cockpit_Build_Plan_Prompts_Rendered.md` against the scope and exit gate defined
-in `Cockpit_Build_Plan.md`.
+The Programme Stage A repository implementation and evidence gates are complete
+and awaiting the Programme Orchestrator's independent verification, owned
+snapshot commit, and integration. The live Supabase ledger, dry run, database
+lint, Edge Function list, production schema snapshot, and GitHub Pages state are
+captured in the sanitized evidence summary; version-controlled, hashed local
+transcripts show the production build and the Route B baseline rebuilt and
+verified in a disposable local Supabase stack. The database transcript is also
+bound to the exact versioned runner, SQL, configuration, manifest, and applicable
+migration bytes that produced it. **Programme Stage B must
+not begin until Programme Stage A has passed independent verification,
+received human approval, and its approved snapshot has been integrated by the
+Programme Orchestrator.**
 
-No Stage A work has been performed yet.
+Once those Stage A exit-gate actions are recorded, the next programme action is
+**Programme Stage B — Canonical Architecture and Data Spine**.

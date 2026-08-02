@@ -1,4 +1,14 @@
 project_id = "cockpit"
 
+# Route B owns fresh local reconstruction through the guarded baseline script.
+# Replaying the historical directory at `supabase start` would execute the
+# intentionally preserved comment-only foundation stub before the baseline can
+# exist. Linked migration commands are unaffected by this local-stack setting.
+[db.migrations]
+enabled = false
+
+[db.seed]
+enabled = false
+
 [functions.collect-instagram-insights]
 verify_jwt = false

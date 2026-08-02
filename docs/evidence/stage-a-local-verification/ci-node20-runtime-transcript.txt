@@ -1,0 +1,3267 @@
+Stage A exact Node 20 CI-runtime execution evidence
+Classification: CI-runtime-confirmed
+Runtime image: node:20.19.4-bookworm
+UTC start: 2026-08-02T17:45:10.884Z
+Source-tree execution-input fingerprint: 13ef4eacd6f1659610f5de183d46c42b34ac5390aa63d3936c9766f3d2bec24a
+Test-source binding fingerprint: 9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79
+Evidence bootstrap exemption: false
+Exact container command: docker run --rm --mount type=bind,source=[SANITIZED_TEMP_COPY],target=/workspace --workdir /workspace node:20.19.4-bookworm bash -lc [RECORDED_COMPONENT_SCRIPT]
+--- raw stdout ---
+STAGE_A_CI_COMPONENT_START|node_version|2026-08-02T17:45:11Z|node --version
+v20.19.4
+STAGE_A_CI_COMPONENT_EXIT|node_version|0|2026-08-02T17:45:11Z
+STAGE_A_CI_COMPONENT_START|npm_version|2026-08-02T17:45:11Z|npm --version
+10.8.2
+STAGE_A_CI_COMPONENT_EXIT|npm_version|0|2026-08-02T17:45:11Z
+STAGE_A_CI_COMPONENT_START|npm_ci|2026-08-02T17:45:11Z|npm ci
+
+added 400 packages, and audited 401 packages in 6s
+
+148 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+STAGE_A_CI_COMPONENT_EXIT|npm_ci|0|2026-08-02T17:45:17Z
+STAGE_A_CI_COMPONENT_START|typecheck|2026-08-02T17:45:17Z|npm run typecheck
+
+> aa-cockpit@0.1.0 typecheck
+> tsc --noEmit
+
+STAGE_A_CI_COMPONENT_EXIT|typecheck|0|2026-08-02T17:45:23Z
+STAGE_A_CI_COMPONENT_START|lint|2026-08-02T17:45:23Z|npm run lint
+
+> aa-cockpit@0.1.0 lint
+> eslint . --report-unused-disable-directives
+
+
+/workspace/src/components/client/ContentCreationPanel.tsx
+  104:208  warning  React Hook useEffect has a missing dependency: 'active'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/workspace/src/components/client/MastersPanel.tsx
+  277:7  warning  React Hook useMemo has a missing dependency: 'lifecycleContext'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/workspace/src/components/client/ReelStudioPanel.tsx
+  386:6  warning  React Hook useEffect has a missing dependency: 'shot'. Either include it or remove the dependency array           react-hooks/exhaustive-deps
+  504:6  warning  React Hook useCallback has a missing dependency: 'deliverable'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+✖ 4 problems (0 errors, 4 warnings)
+
+STAGE_A_CI_COMPONENT_EXIT|lint|0|2026-08-02T17:45:27Z
+STAGE_A_CI_COMPONENT_START|test|2026-08-02T17:45:27Z|npm test
+
+> aa-cockpit@0.1.0 test
+> node --import tsx --test tests/*.test.ts
+
+TAP version 13
+# Subtest: a confirmed commit creates every operational row exactly once
+ok 1 - a confirmed commit creates every operational row exactly once
+  ---
+  duration_ms: 21.451458
+  ...
+# Subtest: a completed commit replays as a success and creates nothing new
+ok 2 - a completed commit replays as a success and creates nothing new
+  ---
+  duration_ms: 0.576125
+  ...
+# Subtest: a second identical request after a commit still creates nothing
+ok 3 - a second identical request after a commit still creates nothing
+  ---
+  duration_ms: 6.028417
+  ...
+# Subtest: a non-POST method is refused
+ok 4 - a non-POST method is refused
+  ---
+  duration_ms: 0.493125
+  ...
+# Subtest: a malformed body is refused before any load
+ok 5 - a malformed body is refused before any load
+  ---
+  duration_ms: 0.639375
+  ...
+# Subtest: an unexpected field is rejected rather than ignored
+ok 6 - an unexpected field is rejected rather than ignored
+  ---
+  duration_ms: 2.240083
+  ...
+# Subtest: caller-supplied content, refs, and targets are all rejected
+ok 7 - caller-supplied content, refs, and targets are all rejected
+  ---
+  duration_ms: 3.593541
+  ...
+# Subtest: a missing or non-integer expected_edit_revision is refused
+ok 8 - a missing or non-integer expected_edit_revision is refused
+  ---
+  duration_ms: 4.023833
+  ...
+# Subtest: a commit without explicit confirmation is refused
+ok 9 - a commit without explicit confirmation is refused
+  ---
+  duration_ms: 1.786208
+  ...
+# Subtest: an invalid client_id or proposal_id is refused before authorization
+ok 10 - an invalid client_id or proposal_id is refused before authorization
+  ---
+  duration_ms: 0.286916
+  ...
+# Subtest: an unauthenticated caller is refused and nothing is loaded
+ok 11 - an unauthenticated caller is refused and nothing is loaded
+  ---
+  duration_ms: 0.201542
+  ...
+# Subtest: an unsupported role is refused
+ok 12 - an unsupported role is refused
+  ---
+  duration_ms: 0.158625
+  ...
+# Subtest: a caller without access to the client is refused
+ok 13 - a caller without access to the client is refused
+  ---
+  duration_ms: 0.198
+  ...
+# Subtest: authorization runs before the commit is confirmed
+ok 14 - authorization runs before the commit is confirmed
+  ---
+  duration_ms: 0.320834
+  ...
+# Subtest: an unapproved proposal is refused with no operational write
+ok 15 - an unapproved proposal is refused with no operational write
+  ---
+  duration_ms: 0.3745
+  ...
+# Subtest: a superseded proposal is refused
+ok 16 - a superseded proposal is refused
+  ---
+  duration_ms: 0.194208
+  ...
+# Subtest: a stale revision is refused and reports the current revision
+ok 17 - a stale revision is refused and reports the current revision
+  ---
+  duration_ms: 0.1815
+  ...
+# Subtest: authority drift is refused before the transaction opens
+ok 18 - authority drift is refused before the transaction opens
+  ---
+  duration_ms: 0.348333
+  ...
+# Subtest: Calendar drift is refused before the transaction opens
+ok 19 - Calendar drift is refused before the transaction opens
+  ---
+  duration_ms: 0.283333
+  ...
+# Subtest: a rolled-back transaction reports a typed failure and creates nothing
+ok 20 - a rolled-back transaction reports a typed failure and creates nothing
+  ---
+  duration_ms: 10.349167
+  ...
+# Subtest: every documented database marker maps to its typed code
+ok 21 - every documented database marker maps to its typed code
+  ---
+  duration_ms: 0.264542
+  ...
+# Subtest: a serialization failure or deadlock is a concurrent-commit conflict
+ok 22 - a serialization failure or deadlock is a concurrent-commit conflict
+  ---
+  duration_ms: 0.117792
+  ...
+# Subtest: an unrecognised database error never leaks its raw text
+ok 23 - an unrecognised database error never leaks its raw text
+  ---
+  duration_ms: 2.865542
+  ...
+# Subtest: a thrown persistence error is reported without a stack trace or token
+ok 24 - a thrown persistence error is reported without a stack trace or token
+  ---
+  duration_ms: 0.504125
+  ...
+# Subtest: only genuine infrastructure faults are retryable
+ok 25 - only genuine infrastructure faults are retryable
+  ---
+  duration_ms: 0.056375
+  ...
+# Subtest: the failure payload carries the full documented contract
+ok 26 - the failure payload carries the full documented contract
+  ---
+  duration_ms: 0.06525
+  ...
+# Subtest: CORS preflight is answered without touching persistence
+ok 27 - CORS preflight is answered without touching persistence
+  ---
+  duration_ms: 0.218958
+  ...
+# Subtest: admin and account manager are allowed; every other caller is denied
+ok 28 - admin and account manager are allowed; every other caller is denied
+  ---
+  duration_ms: 31.64975
+  ...
+# Subtest: unknown request fields and malformed bodies are rejected outright
+ok 29 - unknown request fields and malformed bodies are rejected outright
+  ---
+  duration_ms: 8.94725
+  ...
+# Subtest: ineligible cycles and scoring runs are rejected before any proposal is created
+ok 30 - ineligible cycles and scoring runs are rejected before any proposal is created
+  ---
+  duration_ms: 2.399167
+  ...
+# Subtest: drifted authority fails closed before any proposal is created
+ok 31 - drifted authority fails closed before any proposal is created
+  ---
+  duration_ms: 0.288333
+  ...
+# Subtest: an unconfigured provider fails closed before any proposal is created
+ok 32 - an unconfigured provider fails closed before any proposal is created
+  ---
+  duration_ms: 0.169958
+  ...
+# Subtest: a full proposal plans an exact manifest, batches, and completes as a draft
+ok 33 - a full proposal plans an exact manifest, batches, and completes as a draft
+  ---
+  duration_ms: 3.318
+  ...
+# Subtest: the proposal identity is server-derived and cannot be supplied by the caller
+ok 34 - the proposal identity is server-derived and cannot be supplied by the caller
+  ---
+  duration_ms: 1.673833
+  ...
+# Subtest: Calendar occupancy is read and classified onto the manifest
+ok 35 - Calendar occupancy is read and classified onto the manifest
+  ---
+  duration_ms: 1.099125
+  ...
+# Subtest: successful assignments persist during a partial failure and the proposal is retryable
+ok 36 - successful assignments persist during a partial failure and the proposal is retryable
+  ---
+  duration_ms: 2.282542
+  ...
+# Subtest: a retry proposes only the outstanding slots
+ok 37 - a retry proposes only the outstanding slots
+  ---
+  duration_ms: 1.483209
+  ...
+# Subtest: a non-retryable failure is terminal and mixed outcomes stay terminal
+ok 38 - a non-retryable failure is terminal and mixed outcomes stay terminal
+  ---
+  duration_ms: 3.366084
+  ...
+# Subtest: a lost lease during persistence prevents completion
+ok 39 - a lost lease during persistence prevents completion
+  ---
+  duration_ms: 0.94425
+  ...
+# Subtest: an active proposal is refused and a completed one replays with no provider call
+ok 40 - an active proposal is refused and a completed one replays with no provider call
+  ---
+  duration_ms: 2.583166
+  ...
+# Subtest: a terminal proposal replays as a structured non-retryable failure
+ok 41 - a terminal proposal replays as a structured non-retryable failure
+  ---
+  duration_ms: 0.725333
+  ...
+# Subtest: a regeneration names its predecessor and yields a distinct identity
+ok 42 - a regeneration names its predecessor and yields a distinct identity
+  ---
+  duration_ms: 1.898333
+  ...
+# Subtest: every edit action passes its ownership identity and expected revision
+ok 43 - every edit action passes its ownership identity and expected revision
+  ---
+  duration_ms: 0.54475
+  ...
+# Subtest: edits require a proposal id, a revision, and matching client ownership
+ok 44 - edits require a proposal id, a revision, and matching client ownership
+  ---
+  duration_ms: 0.359708
+  ...
+# Subtest: typed edit conflicts map to precise, non-retryable failures
+ok 45 - typed edit conflicts map to precise, non-retryable failures
+  ---
+  duration_ms: 1.064333
+  ...
+# Subtest: conflict refresh re-reads the Calendar and advances the revision
+ok 46 - conflict refresh re-reads the Calendar and advances the revision
+  ---
+  duration_ms: 3.577708
+  ...
+# Subtest: approval passes the live Calendar digest and the loaded revision
+ok 47 - approval passes the live Calendar digest and the loaded revision
+  ---
+  duration_ms: 1.143791
+  ...
+# Subtest: approval blockers surface as typed non-retryable failures
+ok 48 - approval blockers surface as typed non-retryable failures
+  ---
+  duration_ms: 4.923958
+  ...
+# Subtest: a proposal belonging to another client is refused for every edit action
+ok 49 - a proposal belonging to another client is refused for every edit action
+  ---
+  duration_ms: 0.647
+  ...
+# Subtest: proposal responses never leak credentials, prompts, or lease owners
+ok 50 - proposal responses never leak credentials, prompts, or lease owners
+  ---
+  duration_ms: 0.864792
+  ...
+# Subtest: 1. a supported bullet proposition is accepted
+ok 51 - 1. a supported bullet proposition is accepted
+  ---
+  duration_ms: 11.799542
+  ...
+# Subtest: 2. a supported table proposition is accepted
+ok 52 - 2. a supported table proposition is accepted
+  ---
+  duration_ms: 1.593667
+  ...
+# Subtest: 3. a supported key-value proposition is accepted
+ok 53 - 3. a supported key-value proposition is accepted
+  ---
+  duration_ms: 6.711458
+  ...
+# Subtest: 4. a supported prose proposition is accepted
+ok 54 - 4. a supported prose proposition is accepted
+  ---
+  duration_ms: 8.005834
+  ...
+# Subtest: 5. an unsupported proposition is rejected
+ok 55 - 5. an unsupported proposition is rejected
+  ---
+  duration_ms: 1.757166
+  ...
+# Subtest: 6. an unsupported outcome proposition is rejected
+ok 56 - 6. an unsupported outcome proposition is rejected
+  ---
+  duration_ms: 2.73575
+  ...
+# Subtest: 7. an unsupported number in a proposition is rejected
+ok 57 - 7. an unsupported number in a proposition is rejected
+  ---
+  duration_ms: 0.578667
+  ...
+# Subtest: 8. unsupported causality in a proposition is rejected
+ok 58 - 8. unsupported causality in a proposition is rejected
+  ---
+  duration_ms: 3.71525
+  ...
+# Subtest: 9. an altered exact quote is rejected
+ok 59 - 9. an altered exact quote is rejected
+  ---
+  duration_ms: 1.046875
+  ...
+# Subtest: 10. a cross-source support unit is rejected
+ok 60 - 10. a cross-source support unit is rejected
+  ---
+  duration_ms: 1.696583
+  ...
+# Subtest: 11. a field citing another candidate's proposition id is rejected
+ok 61 - 11. a field citing another candidate's proposition id is rejected
+  ---
+  duration_ms: 0.899334
+  ...
+# Subtest: 12. an unknown proposition id is rejected, and duplicates fail
+ok 62 - 12. an unknown proposition id is rejected, and duplicates fail
+  ---
+  duration_ms: 1.267458
+  ...
+# Subtest: 13. a creative title using ordinary connective language is accepted
+ok 63 - 13. a creative title using ordinary connective language is accepted
+  ---
+  duration_ms: 0.785458
+  ...
+# Subtest: 14. a creative question hook is accepted when it adds no fact
+ok 64 - 14. a creative question hook is accepted when it adds no fact
+  ---
+  duration_ms: 0.759916
+  ...
+# Subtest: 15. an imperative CTA is accepted when it adds no promise
+ok 65 - 15. an imperative CTA is accepted when it adds no promise
+  ---
+  duration_ms: 0.984833
+  ...
+# Subtest: 16. a creative contrast is accepted where both sides are grounded
+ok 66 - 16. a creative contrast is accepted where both sides are grounded
+  ---
+  duration_ms: 1.136875
+  ...
+# Subtest: 17. an unsupported result in a hook is rejected
+ok 67 - 17. an unsupported result in a hook is rejected
+  ---
+  duration_ms: 3.4685
+  ...
+# Subtest: 18. an unsupported number in a title is rejected
+ok 68 - 18. an unsupported number in a title is rejected
+  ---
+  duration_ms: 1.063458
+  ...
+# Subtest: 19. an unsupported guarantee in a CTA is rejected
+ok 69 - 19. an unsupported guarantee in a CTA is rejected
+  ---
+  duration_ms: 0.696125
+  ...
+# Subtest: 20. an unsupported audience fact is rejected
+ok 70 - 20. an unsupported audience fact is rejected
+  ---
+  duration_ms: 1.28575
+  ...
+# Subtest: 21. a field unrelated to its cited proposition is rejected
+ok 71 - 21. a field unrelated to its cited proposition is rejected
+  ---
+  duration_ms: 2.050084
+  ...
+# Subtest: 22. one generic shared word remains insufficient
+ok 72 - 22. one generic shared word remains insufficient
+  ---
+  duration_ms: 5.100167
+  ...
+# Subtest: 23. contradictory framing is rejected
+ok 73 - 23. contradictory framing is rejected
+  ---
+  duration_ms: 1.736792
+  ...
+# Subtest: 24. a valid proposition does not license an unrelated claim
+ok 74 - 24. a valid proposition does not license an unrelated claim
+  ---
+  duration_ms: 1.1825
+  ...
+# Subtest: 25-26. a direct supported core message is accepted and may combine propositions
+ok 75 - 25-26. a direct supported core message is accepted and may combine propositions
+  ---
+  duration_ms: 3.170584
+  ...
+# Subtest: 27-29. an unsupported conclusion or causal link in core_message is rejected
+ok 76 - 27-29. an unsupported conclusion or causal link in core_message is rejected
+  ---
+  duration_ms: 2.733083
+  ...
+# Subtest: 30. a numerical core message requires exact support
+ok 77 - 30. a numerical core message requires exact support
+  ---
+  duration_ms: 2.920792
+  ...
+# Subtest: 31. every allowed taxonomy code is accepted for a compatible technique
+ok 78 - 31. every allowed taxonomy code is accepted for a compatible technique
+  ---
+  duration_ms: 14.206125
+  ...
+# Subtest: 32-33. an unknown code or free text falls back to the technique default
+ok 79 - 32-33. an unknown code or free text falls back to the technique default
+  ---
+  duration_ms: 2.554958
+  ...
+# Subtest: 34-35. a technique-incompatible code falls back, a compatible one is kept
+ok 80 - 34-35. a technique-incompatible code falls back, a compatible one is kept
+  ---
+  duration_ms: 7.293333
+  ...
+# Subtest: 36-37. the persisted label is server-owned and the taxonomy version is recorded
+ok 81 - 36-37. the persisted label is server-owned and the taxonomy version is recorded
+  ---
+  duration_ms: 0.680167
+  ...
+# Subtest: 38. a classification does not need literal authority vocabulary
+ok 82 - 38. a classification does not need literal authority vocabulary
+  ---
+  duration_ms: 0.068459
+  ...
+# Subtest: 39. a classification cannot smuggle a factual claim
+ok 83 - 39. a classification cannot smuggle a factual claim
+  ---
+  duration_ms: 0.607583
+  ...
+# Subtest: 40. the deterministic default exists for every technique and asserts no fact
+ok 84 - 40. the deterministic default exists for every technique and asserts no fact
+  ---
+  duration_ms: 0.319792
+  ...
+# Subtest: 41. a neutral action CTA is accepted
+ok 85 - 41. a neutral action CTA is accepted
+  ---
+  duration_ms: 1.87075
+  ...
+# Subtest: 42-43. unsupported urgency and scarcity are rejected
+ok 86 - 42-43. unsupported urgency and scarcity are rejected
+  ---
+  duration_ms: 0.8235
+  ...
+# Subtest: 44-45. an unsupported offer claim is rejected and a supported one accepted
+ok 87 - 44-45. an unsupported offer claim is rejected and a supported one accepted
+  ---
+  duration_ms: 1.343333
+  ...
+# Subtest: 46. an unsupported result promise is rejected
+ok 88 - 46. an unsupported result promise is rejected
+  ---
+  duration_ms: 1.37675
+  ...
+# Subtest: the field policy is code-owned, versioned, and semantically classified
+ok 89 - the field policy is code-owned, versioned, and semantically classified
+  ---
+  duration_ms: 0.078292
+  ...
+# Subtest: the persisted candidate keeps exactly the shape Stages 2-4 consume
+ok 90 - the persisted candidate keeps exactly the shape Stages 2-4 consume
+  ---
+  duration_ms: 0.945875
+  ...
+# Subtest: 47-48. one invalid field is repaired and valid fields are preserved byte-for-byte
+ok 91 - 47-48. one invalid field is repaired and valid fields are preserved byte-for-byte
+  ---
+  duration_ms: 0.190333
+  ...
+# Subtest: 49. multiple invalid fields are repaired in one bounded call
+ok 92 - 49. multiple invalid fields are repaired in one bounded call
+  ---
+  duration_ms: 0.04575
+  ...
+# Subtest: 50. an unknown repair field is rejected
+ok 93 - 50. an unknown repair field is rejected
+  ---
+  duration_ms: 0.033167
+  ...
+# Subtest: 51-53. a repair cannot change asset type, candidate index, or technique
+ok 94 - 51-53. a repair cannot change asset type, candidate index, or technique
+  ---
+  duration_ms: 0.058916
+  ...
+# Subtest: 54-55. a repair cannot introduce support units or silently alter propositions
+ok 95 - 54-55. a repair cannot introduce support units or silently alter propositions
+  ---
+  duration_ms: 0.030459
+  ...
+# Subtest: 56. a repaired field must still pass the normal validator
+ok 96 - 56. a repaired field must still pass the normal validator
+  ---
+  duration_ms: 6.199708
+  ...
+# Subtest: 57. a malformed or empty repair response is rejected
+ok 97 - 57. a malformed or empty repair response is rejected
+  ---
+  duration_ms: 0.090833
+  ...
+# Subtest: 61-62. the repair prompt carries no unrelated authority and no excerpt bodies
+ok 98 - 61-62. the repair prompt carries no unrelated authority and no excerpt bodies
+  ---
+  duration_ms: 0.200125
+  ...
+# Subtest: a repair may never author or modify a claim — the server owns the factual layer
+ok 99 - a repair may never author or modify a claim — the server owns the factual layer
+  ---
+  duration_ms: 0.202542
+  ...
+# Subtest: 63. the repair policy participates in the configuration manifest
+ok 100 - 63. the repair policy participates in the configuration manifest
+  ---
+  duration_ms: 0.0255
+  ...
+# Subtest: 1-3. bullet, prose, and key-value units each create a deterministic direct card
+ok 101 - 1-3. bullet, prose, and key-value units each create a deterministic direct card
+  ---
+  duration_ms: 12.860209
+  ...
+# Subtest: 4-5. a table row creates a table card whose meaning is reproducible
+ok 102 - 4-5. a table row creates a table card whose meaning is reproducible
+  ---
+  duration_ms: 2.620583
+  ...
+# Subtest: 6. table normalized meaning is never quotable
+ok 103 - 6. table normalized meaning is never quotable
+  ---
+  duration_ms: 1.587167
+  ...
+# Subtest: 7-9. card identity is deterministic and scoped to its source
+ok 104 - 7-9. card identity is deterministic and scoped to its source
+  ---
+  duration_ms: 1.035875
+  ...
+# Subtest: 10. raw support hashes stay traceable to the units
+ok 105 - 10. raw support hashes stay traceable to the units
+  ---
+  duration_ms: 2.12375
+  ...
+# Subtest: 11-13. a card introduces no new word, number, or causality
+ok 106 - 11-13. a card introduces no new word, number, or causality
+  ---
+  duration_ms: 11.363167
+  ...
+# Subtest: 14. a bundle never combines units from different sources
+ok 107 - 14. a bundle never combines units from different sources
+  ---
+  duration_ms: 1.236625
+  ...
+# Subtest: 14b. a same-source bundle preserves each component and creates no new relationship
+ok 108 - 14b. a same-source bundle preserves each component and creates no new relationship
+  ---
+  duration_ms: 0.567875
+  ...
+# Subtest: 15. derived cards are disabled, and headings never become cards
+ok 109 - 15. derived cards are disabled, and headings never become cards
+  ---
+  duration_ms: 2.52425
+  ...
+# Subtest: markdown transport markers are stripped without changing vocabulary
+ok 110 - markdown transport markers are stripped without changing vocabulary
+  ---
+  duration_ms: 0.349083
+  ...
+# Subtest: 16. an exact source number is permitted
+ok 111 - 16. an exact source number is permitted
+  ---
+  duration_ms: 0.263041
+  ...
+# Subtest: 17-20. metadata numbers never become permissions
+ok 112 - 17-20. metadata numbers never become permissions
+  ---
+  duration_ms: 0.088709
+  ...
+# Subtest: 21-23. percentage, currency, and range permissions are exact
+ok 113 - 21-23. percentage, currency, and range permissions are exact
+  ---
+  duration_ms: 2.134708
+  ...
+# Subtest: 24-27. outcome, causal, guarantee, and competitor permissions require direct support
+ok 114 - 24-27. outcome, causal, guarantee, and competitor permissions require direct support
+  ---
+  duration_ms: 0.984625
+  ...
+# Subtest: 28. generic overlap creates no permission
+ok 115 - 28. generic overlap creates no permission
+  ---
+  duration_ms: 1.050709
+  ...
+# Subtest: 29. a registered card id is accepted
+ok 116 - 29. a registered card id is accepted
+  ---
+  duration_ms: 3.485209
+  ...
+# Subtest: 30-31. unknown and duplicate card ids are rejected
+ok 117 - 30-31. unknown and duplicate card ids are rejected
+  ---
+  duration_ms: 1.248916
+  ...
+# Subtest: 32. a cross-source card bundle is rejected
+ok 118 - 32. a cross-source card bundle is rejected
+  ---
+  duration_ms: 6.178958
+  ...
+# Subtest: 33. a card not supplied to the model is rejected
+ok 119 - 33. a card not supplied to the model is rejected
+  ---
+  duration_ms: 11.5325
+  ...
+# Subtest: 34-36. model-authored facts, spans, and evidence metadata are rejected
+ok 120 - 34-36. model-authored facts, spans, and evidence metadata are rejected
+  ---
+  duration_ms: 3.142
+  ...
+# Subtest: 37-38. an empty or oversized card selection is rejected
+ok 121 - 37-38. an empty or oversized card selection is rejected
+  ---
+  duration_ms: 4.049416
+  ...
+# Subtest: 39-40. the exact candidate result set is required
+ok 122 - 39-40. the exact candidate result set is required
+  ---
+  duration_ms: 1.080666
+  ...
+# Subtest: 41-44. creative title, question hook, neutral CTA, and compatible core message pass
+ok 123 - 41-44. creative title, question hook, neutral CTA, and compatible core message pass
+  ---
+  duration_ms: 1.539
+  ...
+# Subtest: 45-46. an unsupported number is rejected, and a candidate index does not authorize it
+ok 124 - 45-46. an unsupported number is rejected, and a candidate index does not authorize it
+  ---
+  duration_ms: 1.919334
+  ...
+# Subtest: 47-51. unsupported outcome, causality, guarantee, comparison, and leadership are rejected
+ok 125 - 47-51. unsupported outcome, causality, guarantee, comparison, and leadership are rejected
+  ---
+  duration_ms: 6.455291
+  ...
+# Subtest: 52-54. unsupported urgency, scarcity, and offer details are rejected
+ok 126 - 52-54. unsupported urgency, scarcity, and offer details are rejected
+  ---
+  duration_ms: 1.01225
+  ...
+# Subtest: 55-56. an unrelated field and a contradiction are rejected
+ok 127 - 55-56. an unrelated field and a contradiction are rejected
+  ---
+  duration_ms: 0.705833
+  ...
+# Subtest: 57-59. supported numbers, outcomes, and table values are accepted
+ok 128 - 57-59. supported numbers, outcomes, and table values are accepted
+  ---
+  duration_ms: 0.768917
+  ...
+# Subtest: 60. a claim about the wrong table row is rejected
+ok 129 - 60. a claim about the wrong table row is rejected
+  ---
+  duration_ms: 0.418041
+  ...
+# Subtest: 61. one generic shared word remains insufficient
+ok 130 - 61. one generic shared word remains insufficient
+  ---
+  duration_ms: 1.000666
+  ...
+# Subtest: 62-64. the angle needs no authority phrase; unknown and incompatible codes fall back
+ok 131 - 62-64. the angle needs no authority phrase; unknown and incompatible codes fall back
+  ---
+  duration_ms: 1.075583
+  ...
+# Subtest: 65-68. one repair removes an invalid field and leaves valid fields byte-identical
+ok 132 - 65-68. one repair removes an invalid field and leaves valid fields byte-identical
+  ---
+  duration_ms: 0.171792
+  ...
+# Subtest: 67b. an invalid angle can be replaced by an allowed code
+ok 133 - 67b. an invalid angle can be replaced by an allowed code
+  ---
+  duration_ms: 0.142292
+  ...
+# Subtest: 69-72. a repair cannot author a claim, create a card, change allocation, or add evidence
+ok 134 - 69-72. a repair cannot author a claim, create a card, change allocation, or add evidence
+  ---
+  duration_ms: 0.078833
+  ...
+# Subtest: 73-74. a repaired field is normally validated and a still-invalid repair stays rejected
+ok 135 - 73-74. a repaired field is normally validated and a still-invalid repair stays rejected
+  ---
+  duration_ms: 0.960125
+  ...
+# Subtest: 75-77. malformed, empty, and out-of-scope repairs are rejected
+ok 136 - 75-77. malformed, empty, and out-of-scope repairs are rejected
+  ---
+  duration_ms: 0.166333
+  ...
+# Subtest: 78. every material version is recorded in the manifest
+ok 137 - 78. every material version is recorded in the manifest
+  ---
+  duration_ms: 0.029542
+  ...
+# Subtest: the persisted candidate keeps the shape Stages 2-4 consume, with card provenance
+ok 138 - the persisted candidate keeps the shape Stages 2-4 consume, with card provenance
+  ---
+  duration_ms: 0.610666
+  ...
+# Subtest: the serialized registry states each card's permissions and never invents one
+ok 139 - the serialized registry states each card's permissions and never invents one
+  ---
+  duration_ms: 0.351416
+  ...
+# Subtest: canonicalFactualText is reproducible from the registered unit
+ok 140 - canonicalFactualText is reproducible from the registered unit
+  ---
+  duration_ms: 0.262125
+  ...
+# Subtest: a duplicate commit click while one is in flight is blocked
+ok 141 - a duplicate commit click while one is in flight is blocked
+  ---
+  duration_ms: 0.739167
+  ...
+# Subtest: a commit does not block an unrelated proposal action
+ok 142 - a commit does not block an unrelated proposal action
+  ---
+  duration_ms: 0.096458
+  ...
+# Subtest: a stale client-A success cannot update client B
+ok 143 - a stale client-A success cannot update client B
+  ---
+  duration_ms: 0.10225
+  ...
+# Subtest: a stale client-A failure cannot update client B
+ok 144 - a stale client-A failure cannot update client B
+  ---
+  duration_ms: 0.080416
+  ...
+# Subtest: a completion after unmount is ignored
+ok 145 - a completion after unmount is ignored
+  ---
+  duration_ms: 0.2605
+  ...
+# Subtest: a client change invalidates the active commit token
+ok 146 - a client change invalidates the active commit token
+  ---
+  duration_ms: 0.05875
+  ...
+# Subtest: a commit for a client that is no longer selected never starts
+ok 147 - a commit for a client that is no longer selected never starts
+  ---
+  duration_ms: 0.108916
+  ...
+# Subtest: after a commit completes, a new commit may begin
+ok 148 - after a commit completes, a new commit may begin
+  ---
+  duration_ms: 0.632875
+  ...
+# Subtest: the panel treats a refresh failure as a warning, never as a failed commit
+ok 149 - the panel treats a refresh failure as a warning, never as a failed commit
+  ---
+  duration_ms: 8.409666
+  ...
+# Subtest: the panel only ever sends the four contract fields
+ok 150 - the panel only ever sends the four contract fields
+  ---
+  duration_ms: 4.585917
+  ...
+# Subtest: the commit action disappears once a commit has completed
+ok 151 - the commit action disappears once a commit has completed
+  ---
+  duration_ms: 0.101458
+  ...
+# Subtest: the confirmation states counts, dates, and both operational effects
+ok 152 - the confirmation states counts, dates, and both operational effects
+  ---
+  duration_ms: 3.981209
+  ...
+# Subtest: the confirm label names the exact number of items
+ok 153 - the confirm label names the exact number of items
+  ---
+  duration_ms: 1.046375
+  ...
+# Subtest: the confirmation confirms the revision captured when it opened
+ok 154 - the confirmation confirms the revision captured when it opened
+  ---
+  duration_ms: 4.507083
+  ...
+# Subtest: the plan summary drives the confirmation, so its counts cannot drift
+ok 155 - the plan summary drives the confirmation, so its counts cannot drift
+  ---
+  duration_ms: 10.932125
+  ...
+# Subtest: the commit action is a semantic button with an announced status
+ok 156 - the commit action is a semantic button with an announced status
+  ---
+  duration_ms: 6.368958
+  ...
+# Subtest: the confirmation traps focus, restores it, and names its initial focus
+ok 157 - the confirmation traps focus, restores it, and names its initial focus
+  ---
+  duration_ms: 1.42925
+  ...
+# Subtest: committed counts and refs are readable without colour
+ok 158 - committed counts and refs are readable without colour
+  ---
+  duration_ms: 1.620125
+  ...
+# Subtest: navigation to the created records uses semantic buttons
+ok 159 - navigation to the created records uses semantic buttons
+  ---
+  duration_ms: 1.7475
+  ...
+# Subtest: the result region and every failure are announced
+ok 160 - the result region and every failure are announced
+  ---
+  duration_ms: 5.334291
+  ...
+# Subtest: ARIA ids introduced by Stage 4 are unique
+ok 161 - ARIA ids introduced by Stage 4 are unique
+  ---
+  duration_ms: 4.456625
+  ...
+# Subtest: a non-retryable failure shows a recovery action rather than a blind retry
+ok 162 - a non-retryable failure shows a recovery action rather than a blind retry
+  ---
+  duration_ms: 3.594167
+  ...
+# Subtest: period boundaries agree for one, two, and three touched months
+ok 163 - period boundaries agree for one, two, and three touched months
+  ---
+  duration_ms: 6.194625
+  ...
+# Subtest: deterministic quantity contract calculates one day, one week, month, and custom range
+ok 164 - deterministic quantity contract calculates one day, one week, month, and custom range
+  ---
+  duration_ms: 0.558416
+  ...
+# Subtest: Stage 1 UI exposes selectable day/week dates and all seven technique-run states
+ok 165 - Stage 1 UI exposes selectable day/week dates and all seven technique-run states
+  ---
+  duration_ms: 7.44275
+  ...
+# Subtest: quantity is resolved per month and preserves different approved quotas
+ok 166 - quantity is resolved per month and preserves different approved quotas
+  ---
+  duration_ms: 0.207208
+  ...
+# Subtest: quantity parser ignores incidental prose and rejects missing, malformed, or duplicate contracts
+ok 167 - quantity parser ignores incidental prose and rejects missing, malformed, or duplicate contracts
+  ---
+  duration_ms: 0.284167
+  ...
+# Subtest: non-default quantity contract is honored without a silent fallback
+ok 168 - non-default quantity contract is honored without a silent fallback
+  ---
+  duration_ms: 0.10625
+  ...
+# Subtest: authority readiness still blocks missing Context and canonical Execution files
+ok 169 - authority readiness still blocks missing Context and canonical Execution files
+  ---
+  duration_ms: 0.219708
+  ...
+# Subtest: Phase 1 strategic playbooks are classified separately from business context
+ok 170 - Phase 1 strategic playbooks are classified separately from business context
+  ---
+  duration_ms: 0.147375
+  ...
+# Subtest: Ideation authority snapshot retains separate Context, strategic, and Execution provenance
+ok 171 - Ideation authority snapshot retains separate Context, strategic, and Execution provenance
+  ---
+  duration_ms: 13.184875
+  ...
+# Subtest: grounded evidence accepts valid paraphrase, exact quotation, and derived claim
+ok 172 - grounded evidence accepts valid paraphrase, exact quotation, and derived claim
+  ---
+  duration_ms: 3.445792
+  ...
+# Subtest: grounding rejects unsupported outcomes and single-generic-token overlap
+ok 173 - grounding rejects unsupported outcomes and single-generic-token overlap
+  ---
+  duration_ms: 1.232583
+  ...
+# Subtest: grounding accepts proposition-level paraphrases and directly supported business outcomes
+ok 174 - grounding accepts proposition-level paraphrases and directly supported business outcomes
+  ---
+  duration_ms: 2.765542
+  ...
+# Subtest: grounding rejects unsupported causal language while retaining exact numeric validation
+ok 175 - grounding rejects unsupported causal language while retaining exact numeric validation
+  ---
+  duration_ms: 1.212042
+  ...
+# Subtest: grounding validates structured findings, support notes, and reasoning metadata
+ok 176 - grounding validates structured findings, support notes, and reasoning metadata
+  ---
+  duration_ms: 2.298541
+  ...
+# Subtest: grounding rejects fabricated identifiers, altered quotes, unsupported URLs and numerical claims
+ok 177 - grounding rejects fabricated identifiers, altered quotes, unsupported URLs and numerical claims
+  ---
+  duration_ms: 1.601417
+  ...
+# Subtest: grounding rejects unrelated paraphrase spans, numeric substrings, and unsupported high-risk claims
+ok 178 - grounding rejects unrelated paraphrase spans, numeric substrings, and unsupported high-risk claims
+  ---
+  duration_ms: 1.013084
+  ...
+# Subtest: prompt trust hierarchy follows Execution constraints and rejects external instructions
+ok 179 - prompt trust hierarchy follows Execution constraints and rejects external instructions
+  ---
+  duration_ms: 11.885834
+  ...
+# Subtest: canonical configuration and stable hashing are deterministic
+ok 180 - canonical configuration and stable hashing are deterministic
+  ---
+  duration_ms: 1.086333
+  ...
+# Subtest: configuration hash covers client, focus, authority selection, prompt, evidence, and model inputs
+ok 181 - configuration hash covers client, focus, authority selection, prompt, evidence, and model inputs
+  ---
+  duration_ms: 5.989666
+  ...
+# Subtest: Anthropic timeout covers a stalled response body and provider JSON is typed
+ok 182 - Anthropic timeout covers a stalled response body and provider JSON is typed
+  ---
+  duration_ms: 26.815917
+  ...
+# Subtest: request coordinator rejects stale generation, retry, failure, refresh, duplicate, and unmounted completions
+ok 183 - request coordinator rejects stale generation, retry, failure, refresh, duplicate, and unmounted completions
+  ---
+  duration_ms: 0.204959
+  ...
+# Subtest: structured Ideation failures retain persisted run state and explicit retryability
+ok 184 - structured Ideation failures retain persisted run state and explicit retryability
+  ---
+  duration_ms: 0.162167
+  ...
+# Subtest: malformed Ideation request bodies fail closed before property access
+ok 185 - malformed Ideation request bodies fail closed before property access
+  ---
+  duration_ms: 0.117958
+  ...
+# Subtest: complete transitive Ideation runtime and RPC migration contain no prohibited downstream tables
+ok 186 - complete transitive Ideation runtime and RPC migration contain no prohibited downstream tables
+  ---
+  duration_ms: 27.835208
+  ...
+# Subtest: migration encodes domain-separated technique runs, leases, exact run sets, and three months
+ok 187 - migration encodes domain-separated technique runs, leases, exact run sets, and three months
+  ---
+  duration_ms: 2.281417
+  ...
+# Subtest: frozen Phase 1 manifests and Ideation strategic classification are exhaustive and synchronized
+ok 188 - frozen Phase 1 manifests and Ideation strategic classification are exhaustive and synchronized
+  ---
+  duration_ms: 8.1865
+  ...
+# Subtest: default provider deadlines exceed the old 35s constraint and stay bounded
+ok 189 - default provider deadlines exceed the old 35s constraint and stay bounded
+  ---
+  duration_ms: 0.491625
+  ...
+# Subtest: valid environment overrides are accepted for every bounded deadline
+ok 190 - valid environment overrides are accepted for every bounded deadline
+  ---
+  duration_ms: 0.102708
+  ...
+# Subtest: malformed environment overrides fall back to the documented default
+ok 191 - malformed environment overrides fall back to the documented default
+  ---
+  duration_ms: 0.104708
+  ...
+# Subtest: out-of-range overrides are clamped to the documented minimum and maximum
+ok 192 - out-of-range overrides are clamped to the documented minimum and maximum
+  ---
+  duration_ms: 0.084875
+  ...
+# Subtest: a call deadline may never exceed the technique deadline that contains it
+ok 193 - a call deadline may never exceed the technique deadline that contains it
+  ---
+  duration_ms: 0.124708
+  ...
+# Subtest: the request-establishment deadline is opt-in and explicitly disablable
+ok 194 - the request-establishment deadline is opt-in and explicitly disablable
+  ---
+  duration_ms: 0.132334
+  ...
+# Subtest: lease duration and heartbeat cadence safely cover the configured model deadline
+ok 195 - lease duration and heartbeat cadence safely cover the configured model deadline
+  ---
+  duration_ms: 0.079125
+  ...
+# Subtest: request-establishment timeout is a distinct typed retryable failure
+ok 196 - request-establishment timeout is a distinct typed retryable failure
+  ---
+  duration_ms: 30.899042
+  ...
+# Subtest: response-body timeout remains the typed retryable whole-call failure
+ok 197 - response-body timeout remains the typed retryable whole-call failure
+  ---
+  duration_ms: 60.792667
+  ...
+# Subtest: abort timers are always cleaned up, on success and on timeout
+ok 198 - abort timers are always cleaned up, on success and on timeout
+  ---
+  duration_ms: 22.143583
+  ...
+# Subtest: a one-slot technique receives the required minimum output budget
+ok 199 - a one-slot technique receives the required minimum output budget
+  ---
+  duration_ms: 0.119875
+  ...
+# Subtest: multi-slot techniques receive a larger deterministic budget
+ok 200 - multi-slot techniques receive a larger deterministic budget
+  ---
+  duration_ms: 0.052542
+  ...
+# Subtest: the output budget is capped and the correction allowance cannot grow without limit
+ok 201 - the output budget is capped and the correction allowance cannot grow without limit
+  ---
+  duration_ms: 0.132792
+  ...
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":0,"correction_reason":"none","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":4000,"configured_call_timeout_ms":95000,"configured_connect_timeout_ms":0,"technique_deadline_ms":135000,"elapsed_ms":1,"remaining_budget_ms":134999,"outcome":"provider_failure","stop_reason":"max_tokens","failure_code":"ANTHROPIC_TRUNCATED","retryable":true}
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":1,"correction_reason":"truncation","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":6000,"configured_call_timeout_ms":95000,"configured_connect_timeout_ms":0,"technique_deadline_ms":135000,"elapsed_ms":0,"remaining_budget_ms":134999,"outcome":"provider_failure","stop_reason":"max_tokens","failure_code":"ANTHROPIC_TRUNCATED","retryable":true}
+# Subtest: stop_reason max_tokens always fails, even when the JSON parses cleanly
+ok 202 - stop_reason max_tokens always fails, even when the JSON parses cleanly
+  ---
+  duration_ms: 13.329542
+  ...
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":0,"correction_reason":"none","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":4000,"configured_call_timeout_ms":40000,"configured_connect_timeout_ms":0,"technique_deadline_ms":45000,"elapsed_ms":0,"remaining_budget_ms":45000,"outcome":"provider_failure","stop_reason":"max_tokens","failure_code":"ANTHROPIC_TRUNCATED","retryable":true}
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":1,"correction_reason":"truncation","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":6000,"configured_call_timeout_ms":40000,"configured_connect_timeout_ms":0,"technique_deadline_ms":45000,"elapsed_ms":0,"remaining_budget_ms":45000,"outcome":"ok","stop_reason":null,"failure_code":null,"retryable":null}
+# Subtest: a truncation correction receives the permitted increased budget exactly once
+ok 203 - a truncation correction receives the permitted increased budget exactly once
+  ---
+  duration_ms: 9.439125
+  ...
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":0,"correction_reason":"none","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":4000,"configured_call_timeout_ms":40000,"configured_connect_timeout_ms":5000,"technique_deadline_ms":45000,"elapsed_ms":5016,"remaining_budget_ms":39984,"outcome":"provider_failure","stop_reason":null,"failure_code":"ANTHROPIC_CONNECT_TIMEOUT","retryable":true}
+# Subtest: a provider timeout is returned as a typed retryable failure without a second call
+ok 204 - a provider timeout is returned as a typed retryable failure without a second call
+  ---
+  duration_ms: 5020.972877
+  ...
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":0,"correction_reason":"none","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":4000,"configured_call_timeout_ms":40000,"configured_connect_timeout_ms":0,"technique_deadline_ms":45000,"elapsed_ms":1,"remaining_budget_ms":44999,"outcome":"provider_failure","stop_reason":"max_tokens","failure_code":"ANTHROPIC_TRUNCATED","retryable":true}
+# Subtest: the correction is skipped when the technique deadline cannot absorb it
+ok 205 - the correction is skipped when the technique deadline cannot absorb it
+  ---
+  duration_ms: 12.720916
+  ...
+# Subtest: effective provider and token configuration participate in the idempotency hash
+ok 206 - effective provider and token configuration participate in the idempotency hash
+  ---
+  duration_ms: 10.690459
+  ...
+# Subtest: duplicate authority excerpts are supplied once and provenance is preserved
+ok 207 - duplicate authority excerpts are supplied once and provenance is preserved
+  ---
+  duration_ms: 4.069292
+  ...
+# Subtest: compaction materially shrinks the prompt without dropping any source
+ok 208 - compaction materially shrinks the prompt without dropping any source
+  ---
+  duration_ms: 28.894542
+  ...
+# Subtest: prompt construction is deterministic and ordering is stable
+ok 209 - prompt construction is deterministic and ordering is stable
+  ---
+  duration_ms: 4.348875
+  ...
+# Subtest: required authority is never silently omitted — an oversized prompt fails closed
+ok 210 - required authority is never silently omitted — an oversized prompt fails closed
+  ---
+  duration_ms: 130.28175
+  ...
+# Subtest: conflicting content for one source_id fails closed rather than picking a copy
+ok 211 - conflicting content for one source_id fails closed rather than picking a copy
+  ---
+  duration_ms: 0.23725
+  ...
+# {"event":"ideation.provider","kind":"provider_call","cycle_id":null,"technique_slug":"unknown","attempt_number":0,"call_index":0,"correction_reason":"none","requested_slot_count":1,"prompt_chars":8417,"approximate_prompt_tokens":2105,"selected_source_count":3,"research_result_count":1,"configured_output_tokens":4000,"configured_call_timeout_ms":95000,"configured_connect_timeout_ms":0,"technique_deadline_ms":135000,"elapsed_ms":1,"remaining_budget_ms":134999,"outcome":"provider_failure","stop_reason":null,"failure_code":"ANTHROPIC_HTTP_ERROR","retryable":true}
+# Subtest: provider failures never leak keys, prompts, authority, or provider payloads
+ok 212 - provider failures never leak keys, prompts, authority, or provider payloads
+  ---
+  duration_ms: 1.92625
+  ...
+# Subtest: timeout and truncation failures stay decodable by the frontend failure decoder
+ok 213 - timeout and truncation failures stay decodable by the frontend failure decoder
+  ---
+  duration_ms: 0.206125
+  ...
+# Subtest: the rubric is exactly ten weighted dimensions totalling 100
+ok 214 - the rubric is exactly ten weighted dimensions totalling 100
+  ---
+  duration_ms: 0.634208
+  ...
+# Subtest: dimension scores accept integers 0-10 and reject everything else
+ok 215 - dimension scores accept integers 0-10 and reject everything else
+  ---
+  duration_ms: 0.260208
+  ...
+# Subtest: the server calculates the overall score from the dimensions alone
+ok 216 - the server calculates the overall score from the dimensions alone
+  ---
+  duration_ms: 0.112042
+  ...
+# Subtest: a model-supplied overall score, band, or rank can never override the calculation
+ok 217 - a model-supplied overall score, band, or rank can never override the calculation
+  ---
+  duration_ms: 0.638333
+  ...
+# Subtest: priority bands are derived correctly, including at every boundary
+ok 218 - priority bands are derived correctly, including at every boundary
+  ---
+  duration_ms: 0.231542
+  ...
+# Subtest: ranking follows the exact tie-break sequence and is deterministic
+ok 219 - ranking follows the exact tie-break sequence and is deterministic
+  ---
+  duration_ms: 5.135125
+  ...
+# Subtest: the same complete score set always produces the same gap-free ranking
+ok 220 - the same complete score set always produces the same gap-free ranking
+  ---
+  duration_ms: 0.236291
+  ...
+# Subtest: a completed exact cycle is accepted and canonically ordered
+ok 221 - a completed exact cycle is accepted and canonically ordered
+  ---
+  duration_ms: 0.124458
+  ...
+# Subtest: partial, retryable, failed, running, and mis-counted cycles are all rejected
+ok 222 - partial, retryable, failed, running, and mis-counted cycles are all rejected
+  ---
+  duration_ms: 0.174666
+  ...
+# Subtest: missing, duplicate, cross-client, and cross-cycle candidates are rejected
+ok 223 - missing, duplicate, cross-client, and cross-cycle candidates are rejected
+  ---
+  duration_ms: 0.33425
+  ...
+# Subtest: a batch whose result set exactly matches its candidates succeeds
+ok 224 - a batch whose result set exactly matches its candidates succeeds
+  ---
+  duration_ms: 0.170083
+  ...
+# Subtest: missing, extra, duplicate, and partial batch result sets all fail
+ok 225 - missing, extra, duplicate, and partial batch result sets all fail
+  ---
+  duration_ms: 0.421166
+  ...
+# Subtest: unknown authority references, unknown evidence references, and unknown fields fail
+ok 226 - unknown authority references, unknown evidence references, and unknown fields fail
+  ---
+  duration_ms: 0.166583
+  ...
+# Subtest: malformed dimensions, arrays, and oversized rationale fail
+ok 227 - malformed dimensions, arrays, and oversized rationale fail
+  ---
+  duration_ms: 0.201125
+  ...
+# Subtest: batching is deterministic, bounded, and covers every candidate exactly once
+ok 228 - batching is deterministic, bounded, and covers every candidate exactly once
+  ---
+  duration_ms: 0.187125
+  ...
+# Subtest: authority is reconstructed only when every version and hash still matches
+ok 229 - authority is reconstructed only when every version and hash still matches
+  ---
+  duration_ms: 14.43775
+  ...
+# Subtest: semantically equivalent scoring configuration hashes identically
+ok 230 - semantically equivalent scoring configuration hashes identically
+  ---
+  duration_ms: 5.400875
+  ...
+# Subtest: candidate text, evidence, model, and cycle changes all change the hash
+ok 231 - candidate text, evidence, model, and cycle changes all change the hash
+  ---
+  duration_ms: 11.295917
+  ...
+# Subtest: rubric, prompt, and authority identity all participate in the hash
+ok 232 - rubric, prompt, and authority identity all participate in the hash
+  ---
+  duration_ms: 1.602417
+  ...
+# Subtest: the scoring prompt separates authority, keeps candidates non-authoritative, and compacts
+ok 233 - the scoring prompt separates authority, keeps candidates non-authoritative, and compacts
+  ---
+  duration_ms: 0.644167
+  ...
+# Subtest: completed scoring defaults to rank order and the audit view keeps original order
+ok 234 - completed scoring defaults to rank order and the audit view keeps original order
+  ---
+  duration_ms: 0.286791
+  ...
+# Subtest: scoring run selection, history, and action availability follow run state
+ok 235 - scoring run selection, history, and action availability follow run state
+  ---
+  duration_ms: 0.180708
+  ...
+# Subtest: score presentation never relies on colour alone
+ok 236 - score presentation never relies on colour alone
+  ---
+  duration_ms: 0.067916
+  ...
+# Subtest: scoring mutations are client-owned and cannot be duplicated or applied stale
+ok 237 - scoring mutations are client-owned and cannot be duplicated or applied stale
+  ---
+  duration_ms: 0.104375
+  ...
+# Subtest: structured scoring failures decode for the frontend without leaking internals
+ok 238 - structured scoring failures decode for the frontend without leaking internals
+  ---
+  duration_ms: 0.104583
+  ...
+# Subtest: the complete Stage 2 runtime and migration reach no prohibited downstream domain
+ok 239 - the complete Stage 2 runtime and migration reach no prohibited downstream domain
+  ---
+  duration_ms: 10.222333
+  ...
+# Subtest: the Stage 2 migration is additive and preserves frozen Stage 1 objects
+ok 240 - the Stage 2 migration is additive and preserves frozen Stage 1 objects
+  ---
+  duration_ms: 2.252458
+  ...
+# Subtest: the rubric manifest records that the server owns score, band, and rank
+ok 241 - the rubric manifest records that the server owns score, band, and rank
+  ---
+  duration_ms: 0.073542
+  ...
+# Subtest: inclusive date enumeration is UTC-safe and rejects an inverted period
+ok 242 - inclusive date enumeration is UTC-safe and rejects an inverted period
+  ---
+  duration_ms: 0.873625
+  ...
+# Subtest: the slot manifest reconciles exactly with the quantity allocation
+ok 243 - the slot manifest reconciles exactly with the quantity allocation
+  ---
+  duration_ms: 5.182416
+  ...
+# Subtest: slot planning is deterministic across identical inputs
+ok 244 - slot planning is deterministic across identical inputs
+  ---
+  duration_ms: 0.73225
+  ...
+# Subtest: one-day, one-week, custom-range, and full-month periods all reconcile
+ok 245 - one-day, one-week, custom-range, and full-month periods all reconcile
+  ---
+  duration_ms: 0.412041
+  ...
+# Subtest: explicit Execution scheduling authority takes precedence over the default
+ok 246 - explicit Execution scheduling authority takes precedence over the default
+  ---
+  duration_ms: 0.397583
+  ...
+# Subtest: the deterministic fallback spreads placements and never leaves the period
+ok 247 - the deterministic fallback spreads placements and never leaves the period
+  ---
+  duration_ms: 0.143917
+  ...
+# Subtest: Calendar conflicts classify protected, occupied, and clear placements
+ok 248 - Calendar conflicts classify protected, occupied, and clear placements
+  ---
+  duration_ms: 5.516167
+  ...
+# Subtest: the Calendar snapshot digest detects drift and is order-independent
+ok 249 - the Calendar snapshot digest detects drift and is order-independent
+  ---
+  duration_ms: 1.687166
+  ...
+# Subtest: a complete cycle and complete scoring run are accepted
+ok 250 - a complete cycle and complete scoring run are accepted
+  ---
+  duration_ms: 0.677042
+  ...
+# Subtest: ineligible cycles and scoring runs are rejected with typed codes
+ok 251 - ineligible cycles and scoring runs are rejected with typed codes
+  ---
+  duration_ms: 0.546459
+  ...
+# Subtest: an exact slot and candidate result set is accepted
+ok 252 - an exact slot and candidate result set is accepted
+  ---
+  duration_ms: 0.390666
+  ...
+# Subtest: missing, extra, duplicate, and mismatched assignments all fail
+ok 253 - missing, extra, duplicate, and mismatched assignments all fail
+  ---
+  duration_ms: 0.366667
+  ...
+# Subtest: an asset-type mismatch is rejected
+ok 254 - an asset-type mismatch is rejected
+  ---
+  duration_ms: 0.3225
+  ...
+# Subtest: a slot dated outside the period is rejected
+ok 255 - a slot dated outside the period is rejected
+  ---
+  duration_ms: 0.321875
+  ...
+# Subtest: server-owned and unexpected fields are rejected outright
+ok 256 - server-owned and unexpected fields are rejected outright
+  ---
+  duration_ms: 0.220166
+  ...
+# Subtest: unknown authority references, unknown evidence, and bad warnings are rejected
+ok 257 - unknown authority references, unknown evidence, and bad warnings are rejected
+  ---
+  duration_ms: 0.18825
+  ...
+# Subtest: proposal batching is deterministic and bounded
+ok 258 - proposal batching is deterministic and bounded
+  ---
+  duration_ms: 0.098375
+  ...
+# Subtest: the Ideation display reference is deterministic and never imitates a master ref
+ok 259 - the Ideation display reference is deterministic and never imitates a master ref
+  ---
+  duration_ms: 0.223041
+  ...
+# Subtest: equivalent proposal configuration hashes identically
+ok 260 - equivalent proposal configuration hashes identically
+  ---
+  duration_ms: 6.322584
+  ...
+# Subtest: every material proposal input changes the configuration hash
+ok 261 - every material proposal input changes the configuration hash
+  ---
+  duration_ms: 18.5715
+  ...
+# Subtest: the proposal prompt separates authority, fixes the manifest, and compacts
+ok 262 - the proposal prompt separates authority, fixes the manifest, and compacts
+  ---
+  duration_ms: 0.775166
+  ...
+# Subtest: the review view groups chronologically and offers a stable score-order audit
+ok 263 - the review view groups chronologically and offers a stable score-order audit
+  ---
+  duration_ms: 0.220625
+  ...
+# Subtest: the unassigned pool derives from the immutable snapshot
+ok 264 - the unassigned pool derives from the immutable snapshot
+  ---
+  duration_ms: 0.137042
+  ...
+# Subtest: edit targets respect asset-type compatibility
+ok 265 - edit targets respect asset-type compatibility
+  ---
+  duration_ms: 0.143125
+  ...
+# Subtest: proposal action availability follows proposal state
+ok 266 - proposal action availability follows proposal state
+  ---
+  duration_ms: 0.178
+  ...
+# Subtest: approval is blocked by unassigned candidates and unresolved conflicts
+ok 267 - approval is blocked by unassigned candidates and unresolved conflicts
+  ---
+  duration_ms: 0.180209
+  ...
+# Subtest: proposal mutations are client-owned and cannot be duplicated or applied stale
+ok 268 - proposal mutations are client-owned and cannot be duplicated or applied stale
+  ---
+  duration_ms: 0.12675
+  ...
+# Subtest: structured proposal failures decode without leaking internals
+ok 269 - structured proposal failures decode without leaking internals
+  ---
+  duration_ms: 0.113291
+  ...
+# Subtest: Stage 3 never writes the operational Calendar, a master, or any downstream domain
+ok 270 - Stage 3 never writes the operational Calendar, a master, or any downstream domain
+  ---
+  duration_ms: 13.665042
+  ...
+# Subtest: the Stage 3 migration is additive and preserves frozen objects
+ok 271 - the Stage 3 migration is additive and preserves frozen objects
+  ---
+  duration_ms: 4.214042
+  ...
+# Subtest: the slot planner manifest records its precedence and determinism
+ok 272 - the slot planner manifest records its precedence and determinism
+  ---
+  duration_ms: 0.086083
+  ...
+# Subtest: reel, carousel, and static map to organic_master
+ok 273 - reel, carousel, and static map to organic_master
+  ---
+  duration_ms: 0.374167
+  ...
+# Subtest: story maps to story_master and is never coerced into organic_master
+ok 274 - story maps to story_master and is never coerced into organic_master
+  ---
+  duration_ms: 0.07725
+  ...
+# Subtest: every target maps to the canonical Phase 3 type code and Calendar lane
+ok 275 - every target maps to the canonical Phase 3 type code and Calendar lane
+  ---
+  duration_ms: 0.28075
+  ...
+# Subtest: no target maps to ads_master and the AD type code is absent
+ok 276 - no target maps to ads_master and the AD type code is absent
+  ---
+  duration_ms: 0.0605
+  ...
+# Subtest: unknown and unsupported asset types resolve to null, never a guess
+ok 277 - unknown and unsupported asset types resolve to null, never a guess
+  ---
+  duration_ms: 0.0545
+  ...
+# Subtest: unsupported slots are identified with their slot key
+ok 278 - unsupported slots are identified with their slot key
+  ---
+  duration_ms: 0.068917
+  ...
+# Subtest: the frozen manifest records that Stage 4 makes no model call and starts nothing downstream
+ok 279 - the frozen manifest records that Stage 4 makes no model call and starts nothing downstream
+  ---
+  duration_ms: 0.101917
+  ...
+# Subtest: the SQL mapping function matches the TypeScript manifest exactly
+ok 280 - the SQL mapping function matches the TypeScript manifest exactly
+  ---
+  duration_ms: 8.578292
+  ...
+# Subtest: an approved, active, fully assigned proposal is eligible
+ok 281 - an approved, active, fully assigned proposal is eligible
+  ---
+  duration_ms: 0.557542
+  ...
+# Subtest: a draft, failed, retryable, or running proposal is rejected
+ok 282 - a draft, failed, retryable, or running proposal is rejected
+  ---
+  duration_ms: 0.273667
+  ...
+# Subtest: a superseded proposal is rejected by status or by a superseding row
+ok 283 - a superseded proposal is rejected by status or by a superseding row
+  ---
+  duration_ms: 0.084667
+  ...
+# Subtest: an already-committed proposal reports the existing commit run
+ok 284 - an already-committed proposal reports the existing commit run
+  ---
+  duration_ms: 0.05625
+  ...
+# Subtest: a proposal belonging to another client is rejected
+ok 285 - a proposal belonging to another client is rejected
+  ---
+  duration_ms: 0.065625
+  ...
+# Subtest: a missing proposal is rejected before anything else
+ok 286 - a missing proposal is rejected before anything else
+  ---
+  duration_ms: 0.12025
+  ...
+# Subtest: an incomplete cycle is rejected
+ok 287 - an incomplete cycle is rejected
+  ---
+  duration_ms: 0.08425
+  ...
+# Subtest: an incomplete scoring run is rejected
+ok 288 - an incomplete scoring run is rejected
+  ---
+  duration_ms: 0.072625
+  ...
+# Subtest: a missing proposal slot is rejected
+ok 289 - a missing proposal slot is rejected
+  ---
+  duration_ms: 0.058
+  ...
+# Subtest: an unassigned candidate is rejected
+ok 290 - an unassigned candidate is rejected
+  ---
+  duration_ms: 0.190792
+  ...
+# Subtest: an unresolved conflict is rejected
+ok 291 - an unresolved conflict is rejected
+  ---
+  duration_ms: 0.060625
+  ...
+# Subtest: a stale proposal revision is rejected and reports both revisions
+ok 292 - a stale proposal revision is rejected and reports both revisions
+  ---
+  duration_ms: 0.057292
+  ...
+# Subtest: authority drift is rejected and reports why
+ok 293 - authority drift is rejected and reports why
+  ---
+  duration_ms: 0.135791
+  ...
+# Subtest: authority verification is supplied by the caller, never taken from the proposal
+ok 294 - authority verification is supplied by the caller, never taken from the proposal
+  ---
+  duration_ms: 3.108292
+  ...
+# Subtest: candidate drift is rejected
+ok 295 - candidate drift is rejected
+  ---
+  duration_ms: 0.114458
+  ...
+# Subtest: a candidate whose asset type changed is rejected
+ok 296 - a candidate whose asset type changed is rejected
+  ---
+  duration_ms: 0.061958
+  ...
+# Subtest: score drift is rejected for rank, score, and hash alike
+ok 297 - score drift is rejected for rank, score, and hash alike
+  ---
+  duration_ms: 0.114041
+  ...
+# Subtest: Calendar drift is rejected
+ok 298 - Calendar drift is rejected
+  ---
+  duration_ms: 0.207791
+  ...
+# Subtest: an unsupported asset type is rejected and names the slot
+ok 299 - an unsupported asset type is rejected and names the slot
+  ---
+  duration_ms: 0.093916
+  ...
+# Subtest: a slot whose Calendar lane contradicts the manifest is rejected
+ok 300 - a slot whose Calendar lane contradicts the manifest is rejected
+  ---
+  duration_ms: 0.062333
+  ...
+# Subtest: a date outside the period is rejected
+ok 301 - a date outside the period is rejected
+  ---
+  duration_ms: 0.072792
+  ...
+# Subtest: a candidate assigned to two slots is rejected
+ok 302 - a candidate assigned to two slots is rejected
+  ---
+  duration_ms: 0.063208
+  ...
+# Subtest: identical configurations hash identically
+ok 303 - identical configurations hash identically
+  ---
+  duration_ms: 7.918
+  ...
+# Subtest: slot order does not change the configuration hash
+ok 304 - slot order does not change the configuration hash
+  ---
+  duration_ms: 0.444625
+  ...
+# Subtest: every material input changes the configuration hash
+ok 305 - every material input changes the configuration hash
+  ---
+  duration_ms: 9.281917
+  ...
+# Subtest: the mapping version participates in the configuration snapshot
+ok 306 - the mapping version participates in the configuration snapshot
+  ---
+  duration_ms: 0.215625
+  ...
+# Subtest: the snapshot excludes volatile inputs and every authority body
+ok 307 - the snapshot excludes volatile inputs and every authority body
+  ---
+  duration_ms: 0.171542
+  ...
+# Subtest: the idempotency key is derived from the proposal and configuration only
+ok 308 - the idempotency key is derived from the proposal and configuration only
+  ---
+  duration_ms: 0.097792
+  ...
+# Subtest: the request contract accepts no configuration hash or content from the caller
+ok 309 - the request contract accepts no configuration hash or content from the caller
+  ---
+  duration_ms: 3.985625
+  ...
+# Subtest: the commit action shows only for an approved, uncommitted proposal
+ok 310 - the commit action shows only for an approved, uncommitted proposal
+  ---
+  duration_ms: 0.250334
+  ...
+# Subtest: the plan summary reports totals, split, dates, and conflicts
+ok 311 - the plan summary reports totals, split, dates, and conflicts
+  ---
+  duration_ms: 0.300375
+  ...
+# Subtest: integrity failures are non-retryable and never offer a blind retry
+ok 312 - integrity failures are non-retryable and never offer a blind retry
+  ---
+  duration_ms: 0.141459
+  ...
+# Subtest: each typed failure maps to its one correct recovery action
+ok 313 - each typed failure maps to its one correct recovery action
+  ---
+  duration_ms: 0.071709
+  ...
+# Subtest: committed refs group by domain and by date
+ok 314 - committed refs group by domain and by date
+  ---
+  duration_ms: 0.28875
+  ...
+# Subtest: the failure decoder reads only the documented envelope
+ok 315 - the failure decoder reads only the documented envelope
+  ---
+  duration_ms: 0.22925
+  ...
+# Subtest: Stage 4 imports no model provider anywhere
+ok 316 - Stage 4 imports no model provider anywhere
+  ---
+  duration_ms: 11.164083
+  ...
+# Subtest: Stage 4 writes no prohibited operational domain
+ok 317 - Stage 4 writes no prohibited operational domain
+  ---
+  duration_ms: 4.289958
+  ...
+# Subtest: the Stage 4 migration writes only the two canonical masters and calendar_cells
+ok 318 - the Stage 4 migration writes only the two canonical masters and calendar_cells
+  ---
+  duration_ms: 2.20325
+  ...
+# Subtest: the Stage 4 migration alters no operational or frozen table
+ok 319 - the Stage 4 migration alters no operational or frozen table
+  ---
+  duration_ms: 1.27625
+  ...
+# Subtest: no earlier stage imports the Stage 4 commit runtime
+ok 320 - no earlier stage imports the Stage 4 commit runtime
+  ---
+  duration_ms: 3.904708
+  ...
+# Subtest: Stage 4 depends on neither playbooks nor playbook_runs
+ok 321 - Stage 4 depends on neither playbooks nor playbook_runs
+  ---
+  duration_ms: 1.538208
+  ...
+# Subtest: the commit RPC and its audit helpers are service-role only
+ok 322 - the commit RPC and its audit helpers are service-role only
+  ---
+  duration_ms: 1.436708
+  ...
+# Subtest: every Stage 4 SECURITY DEFINER function pins its search_path
+ok 323 - every Stage 4 SECURITY DEFINER function pins its search_path
+  ---
+  duration_ms: 1.00825
+  ...
+# Subtest: commit tables enable RLS with staff-select-only policies
+ok 324 - commit tables enable RLS with staff-select-only policies
+  ---
+  duration_ms: 1.721208
+  ...
+# Subtest: committed masters use the canonical unapproved review state
+ok 325 - committed masters use the canonical unapproved review state
+  ---
+  duration_ms: 2.060333
+  ...
+# Subtest: Stage 4 reuses the existing canonical reference allocator
+ok 326 - Stage 4 reuses the existing canonical reference allocator
+  ---
+  duration_ms: 1.071791
+  ...
+# Subtest: the Ideation display reference is never used as an operational ref
+ok 327 - the Ideation display reference is never used as an operational ref
+  ---
+  duration_ms: 1.4345
+  ...
+# Subtest: the committed Story type is the neutral canonical default, and implies nothing stronger
+ok 328 - the committed Story type is the neutral canonical default, and implies nothing stronger
+  ---
+  duration_ms: 2.135916
+  ...
+# Subtest: Stage 5 closes the Ideation system and starts no Stage 6 or next feature
+ok 329 - Stage 5 closes the Ideation system and starts no Stage 6 or next feature
+  ---
+  duration_ms: 3.680292
+  ...
+# Subtest: IDEATION-D1 remains documented as open and deferred to Stage 5
+ok 330 - IDEATION-D1 remains documented as open and deferred to Stage 5
+  ---
+  duration_ms: 1.749292
+  ...
+# Subtest: 1. a prose sentence creates a registered unit
+ok 331 - 1. a prose sentence creates a registered unit
+  ---
+  duration_ms: 6.98225
+  ...
+# Subtest: 2. a bullet creates a registered unit without its marker
+ok 332 - 2. a bullet creates a registered unit without its marker
+  ---
+  duration_ms: 0.752083
+  ...
+# Subtest: 3. a multi-line bullet remains one bounded unit
+ok 333 - 3. a multi-line bullet remains one bounded unit
+  ---
+  duration_ms: 0.714041
+  ...
+# Subtest: 4. a numbered item creates a registered unit
+ok 334 - 4. a numbered item creates a registered unit
+  ---
+  duration_ms: 0.375583
+  ...
+# Subtest: 5. a key-value line creates a registered unit
+ok 335 - 5. a key-value line creates a registered unit
+  ---
+  duration_ms: 0.418875
+  ...
+# Subtest: 6. a table row binds to its header
+ok 336 - 6. a table row binds to its header
+  ---
+  duration_ms: 5.190375
+  ...
+# Subtest: 6b. a multi-column table pairs every header cell
+ok 337 - 6b. a multi-column table pairs every header cell
+  ---
+  duration_ms: 0.749292
+  ...
+# Subtest: 6c. an empty table cell is skipped, never invented
+ok 338 - 6c. an empty table cell is skipped, never invented
+  ---
+  duration_ms: 0.485583
+  ...
+# Subtest: 7. a table header alone cannot support a row-specific claim
+ok 339 - 7. a table header alone cannot support a row-specific claim
+  ---
+  duration_ms: 2.861333
+  ...
+# Subtest: 7b. a heading registers but cannot support a claim on its own
+ok 340 - 7b. a heading registers but cannot support a claim on its own
+  ---
+  duration_ms: 1.218834
+  ...
+# Subtest: 7c. a heading provides context to a table row too
+ok 341 - 7c. a heading provides context to a table row too
+  ---
+  duration_ms: 1.311375
+  ...
+# Subtest: 8. every unit's raw text is an exact source substring
+ok 342 - 8. every unit's raw text is an exact source substring
+  ---
+  duration_ms: 17.320542
+  ...
+# Subtest: 9. offsets resolve to exactly the unit's own span
+ok 343 - 9. offsets resolve to exactly the unit's own span
+  ---
+  duration_ms: 7.694416
+  ...
+# Subtest: 10. equivalent input produces identical unit ids and ordering
+ok 344 - 10. equivalent input produces identical unit ids and ordering
+  ---
+  duration_ms: 0.55
+  ...
+# Subtest: 11. a source content change changes support-unit identity
+ok 345 - 11. a source content change changes support-unit identity
+  ---
+  duration_ms: 0.314833
+  ...
+# Subtest: 12. duplicate text in different sources stays source-scoped
+ok 346 - 12. duplicate text in different sources stays source-scoped
+  ---
+  duration_ms: 3.537708
+  ...
+# Subtest: 13. malformed Markdown falls back deterministically and safely
+ok 347 - 13. malformed Markdown falls back deterministically and safely
+  ---
+  duration_ms: 0.332333
+  ...
+# Subtest: 13b. an incidental pipe is not treated as a table
+ok 348 - 13b. an incidental pipe is not treated as a table
+  ---
+  duration_ms: 0.338375
+  ...
+# Subtest: 13c. CRLF input normalizes without changing any word
+ok 349 - 13c. CRLF input normalizes without changing any word
+  ---
+  duration_ms: 0.3315
+  ...
+# Subtest: 13d. unicode punctuation survives normalization intact
+ok 350 - 13d. unicode punctuation survives normalization intact
+  ---
+  duration_ms: 0.207875
+  ...
+# Subtest: 13e. an oversized span is chunked, never dropped
+ok 351 - 13e. an oversized span is chunked, never dropped
+  ---
+  duration_ms: 3.73475
+  ...
+# Subtest: 14. the parser never creates prose that is not in the source
+ok 352 - 14. the parser never creates prose that is not in the source
+  ---
+  duration_ms: 3.618125
+  ...
+# Subtest: 14b. every fixture is fully covered — no authority is silently dropped
+ok 353 - 14b. every fixture is fully covered — no authority is silently dropped
+  ---
+  duration_ms: 4.506833
+  ...
+# Subtest: 14c. parseSupportUnitDrafts is pure and order-stable
+ok 354 - 14c. parseSupportUnitDrafts is pure and order-stable
+  ---
+  duration_ms: 0.119875
+  ...
+# Subtest: 15. an exact bullet quotation is accepted
+ok 355 - 15. an exact bullet quotation is accepted
+  ---
+  duration_ms: 2.969584
+  ...
+# Subtest: 16. an altered bullet quotation is rejected
+ok 356 - 16. an altered bullet quotation is rejected
+  ---
+  duration_ms: 0.545916
+  ...
+# Subtest: 17. a supported bullet paraphrase is accepted
+ok 357 - 17. a supported bullet paraphrase is accepted
+  ---
+  duration_ms: 1.079667
+  ...
+# Subtest: 18. an unsupported bullet paraphrase is rejected
+ok 358 - 18. an unsupported bullet paraphrase is rejected
+  ---
+  duration_ms: 0.532666
+  ...
+# Subtest: 19. a supported table claim is accepted
+ok 359 - 19. a supported table claim is accepted
+  ---
+  duration_ms: 1.133209
+  ...
+# Subtest: 20. a table claim citing the wrong row is rejected
+ok 360 - 20. a table claim citing the wrong row is rejected
+  ---
+  duration_ms: 1.169916
+  ...
+# Subtest: 21. a claim citing an unknown table header is rejected
+ok 361 - 21. a claim citing an unknown table header is rejected
+  ---
+  duration_ms: 1.249958
+  ...
+# Subtest: 22. a supported percentage is accepted
+ok 362 - 22. a supported percentage is accepted
+  ---
+  duration_ms: 0.702334
+  ...
+# Subtest: 23. an unsupported percentage is rejected
+ok 363 - 23. an unsupported percentage is rejected
+  ---
+  duration_ms: 1.903083
+  ...
+# Subtest: 24. a supported currency figure is accepted
+ok 364 - 24. a supported currency figure is accepted
+  ---
+  duration_ms: 1.270917
+  ...
+# Subtest: 25. an unsupported currency figure is rejected
+ok 365 - 25. an unsupported currency figure is rejected
+  ---
+  duration_ms: 0.512542
+  ...
+# Subtest: 26. a supported range is accepted
+ok 366 - 26. a supported range is accepted
+  ---
+  duration_ms: 0.626042
+  ...
+# Subtest: 27. an unsupported range is rejected
+ok 367 - 27. an unsupported range is rejected
+  ---
+  duration_ms: 0.284083
+  ...
+# Subtest: 28. heading-only evidence is rejected
+ok 368 - 28. heading-only evidence is rejected
+  ---
+  duration_ms: 0.346917
+  ...
+# Subtest: 29. one generic shared token remains insufficient
+ok 369 - 29. one generic shared token remains insufficient
+  ---
+  duration_ms: 0.39625
+  ...
+# Subtest: 30. an unsupported outcome claim remains rejected
+ok 370 - 30. an unsupported outcome claim remains rejected
+  ---
+  duration_ms: 0.438042
+  ...
+# Subtest: 30b. revenue growth without revenue support remains rejected
+ok 371 - 30b. revenue growth without revenue support remains rejected
+  ---
+  duration_ms: 0.819833
+  ...
+# Subtest: 31. unsupported causal language remains rejected
+ok 372 - 31. unsupported causal language remains rejected
+  ---
+  duration_ms: 0.397166
+  ...
+# Subtest: 32. an unsupported guarantee remains rejected
+ok 373 - 32. an unsupported guarantee remains rejected
+  ---
+  duration_ms: 0.76675
+  ...
+# Subtest: 32b. unsupported category leadership remains rejected
+ok 374 - 32b. unsupported category leadership remains rejected
+  ---
+  duration_ms: 0.460083
+  ...
+# Subtest: 32c. an unsupported universal claim remains rejected
+ok 375 - 32c. an unsupported universal claim remains rejected
+  ---
+  duration_ms: 0.653375
+  ...
+# Subtest: 32d. an unsupported competitor claim remains rejected
+ok 376 - 32d. an unsupported competitor claim remains rejected
+  ---
+  duration_ms: 2.33825
+  ...
+# Subtest: 33. an unknown support_unit_id is rejected
+ok 377 - 33. an unknown support_unit_id is rejected
+  ---
+  duration_ms: 0.5185
+  ...
+# Subtest: 34. a cross-source support_unit_id is rejected
+ok 378 - 34. a cross-source support_unit_id is rejected
+  ---
+  duration_ms: 0.454334
+  ...
+# Subtest: 35. a unit from a source outside the allowed registry is rejected
+ok 379 - 35. a unit from a source outside the allowed registry is rejected
+  ---
+  duration_ms: 0.519375
+  ...
+# Subtest: 36. a unit whose source content changed is rejected
+ok 380 - 36. a unit whose source content changed is rejected
+  ---
+  duration_ms: 0.617083
+  ...
+# Subtest: 37. an arbitrary support note is rejected
+ok 381 - 37. an arbitrary support note is rejected
+  ---
+  duration_ms: 0.401792
+  ...
+# Subtest: 37b. a model-supplied support_span is rejected outright
+ok 382 - 37b. a model-supplied support_span is rejected outright
+  ---
+  duration_ms: 0.353375
+  ...
+# Subtest: 38-40. the server persists its own span and the cited unit ids
+ok 383 - 38-40. the server persists its own span and the cited unit ids
+  ---
+  duration_ms: 0.4495
+  ...
+# Subtest: a paraphrase may cite up to three units from one source, but no more
+ok 384 - a paraphrase may cite up to three units from one source, but no more
+  ---
+  duration_ms: 1.10275
+  ...
+# Subtest: an exact quotation may still cite only one unit
+ok 385 - an exact quotation may still cite only one unit
+  ---
+  duration_ms: 0.449875
+  ...
+# Subtest: 41-43. policy, parser, and selection versions are all in the manifest
+ok 386 - 41-43. policy, parser, and selection versions are all in the manifest
+  ---
+  duration_ms: 0.042541
+  ...
+# Subtest: 44. the v2 policy identifier cannot collide with v1
+ok 387 - 44. the v2 policy identifier cannot collide with v1
+  ---
+  duration_ms: 0.025083
+  ...
+# Subtest: 45. equivalent support registries serialize identically
+ok 388 - 45. equivalent support registries serialize identically
+  ---
+  duration_ms: 3.119417
+  ...
+# Subtest: 46. the serialized registry carries ids and raw text, never a fabricated quote
+ok 389 - 46. the serialized registry carries ids and raw text, never a fabricated quote
+  ---
+  duration_ms: 0.323208
+  ...
+# Subtest: the frozen manifest records that the server owns every span
+ok 390 - the frozen manifest records that the server owns every span
+  ---
+  duration_ms: 0.042458
+  ...
+# Subtest: valid exact production brief binding passes
+ok 391 - valid exact production brief binding passes
+  ---
+  duration_ms: 0.387041
+  ...
+# Subtest: wrong-client production brief is rejected
+ok 392 - wrong-client production brief is rejected
+  ---
+  duration_ms: 0.108625
+  ...
+# Subtest: wrong source table and row are rejected
+ok 393 - wrong source table and row are rejected
+  ---
+  duration_ms: 0.057958
+  ...
+# Subtest: non-approved and non-reel production briefs are rejected
+ok 394 - non-approved and non-reel production briefs are rejected
+  ---
+  duration_ms: 0.051333
+  ...
+# Subtest: legacy brief resolution succeeds only for one exact approved match
+ok 395 - legacy brief resolution succeeds only for one exact approved match
+  ---
+  duration_ms: 0.067125
+  ...
+# Subtest: valid complete storyboard contract passes and remains pending-input shaped
+ok 396 - valid complete storyboard contract passes and remains pending-input shaped
+  ---
+  duration_ms: 0.43575
+  ...
+# Subtest: storyboard missing a required field fails
+ok 397 - storyboard missing a required field fails
+  ---
+  duration_ms: 0.130125
+  ...
+# Subtest: storyboard invalid enum fails
+ok 398 - storyboard invalid enum fails
+  ---
+  duration_ms: 0.121292
+  ...
+# Subtest: storyboard empty prompt fails
+ok 399 - storyboard empty prompt fails
+  ---
+  duration_ms: 0.107291
+  ...
+# Subtest: storyboard duplicate or non-contiguous shot numbers fail
+ok 400 - storyboard duplicate or non-contiguous shot numbers fail
+  ---
+  duration_ms: 0.155791
+  ...
+# Subtest: storyboard cannot invent provider motion IDs
+ok 401 - storyboard cannot invent provider motion IDs
+  ---
+  duration_ms: 0.056917
+  ...
+# Subtest: manual shot contract accepts a selected motion and validates strength
+ok 402 - manual shot contract accepts a selected motion and validates strength
+  ---
+  duration_ms: 0.065083
+  ...
+# Subtest: single-shot regeneration preserves number/tier contract and returns planning-only patch
+ok 403 - single-shot regeneration preserves number/tier contract and returns planning-only patch
+  ---
+  duration_ms: 0.135
+  ...
+# Subtest: brief-origin UI locks source and removes split pipeline pass-through
+ok 404 - brief-origin UI locks source and removes split pipeline pass-through
+  ---
+  duration_ms: 10.675959
+  ...
+# Subtest: project API and backend carry and validate the exact production brief ID
+ok 405 - project API and backend carry and validate the exact production brief ID
+  ---
+  duration_ms: 3.347542
+  ...
+# Subtest: storyboard validates before one atomic insert and returns inserted rows
+ok 406 - storyboard validates before one atomic insert and returns inserted rows
+  ---
+  duration_ms: 1.032084
+  ...
+# Subtest: database RPC serializes storyboard creation and inserts only pending rows
+ok 407 - database RPC serializes storyboard creation and inserts only pending rows
+  ---
+  duration_ms: 4.664333
+  ...
+# Subtest: regeneration uses optimistic concurrency and preserves the existing row
+ok 408 - regeneration uses optimistic concurrency and preserves the existing row
+  ---
+  duration_ms: 1.593709
+  ...
+# Subtest: delete is one pending-shot server mutation with activity logging
+ok 409 - delete is one pending-shot server mutation with activity logging
+  ---
+  duration_ms: 1.823458
+  ...
+# Subtest: still submission validates and conditionally claims the latest persisted prompt
+ok 410 - still submission validates and conditionally claims the latest persisted prompt
+  ---
+  duration_ms: 3.040083
+  ...
+# Subtest: production modes are human, ai and hybrid
+ok 411 - production modes are human, ai and hybrid
+  ---
+  duration_ms: 0.5795
+  ...
+# Subtest: an AI Reel brief requires AI sections and must NOT require human-only instructions
+ok 412 - an AI Reel brief requires AI sections and must NOT require human-only instructions
+  ---
+  duration_ms: 0.083959
+  ...
+# Subtest: reel_video is no longer declared human-only and routes AI to Reel Studio
+ok 413 - reel_video is no longer declared human-only and routes AI to Reel Studio
+  ---
+  duration_ms: 0.058834
+  ...
+# Subtest: section validation is mode-aware
+ok 414 - section validation is mode-aware
+  ---
+  duration_ms: 0.228542
+  ...
+# Subtest: a brief whose text still reads human-only is contradictory under an AI mode
+ok 415 - a brief whose text still reads human-only is contradictory under an AI mode
+  ---
+  duration_ms: 0.189292
+  ...
+# Subtest: a clean AI brief resolves without confirmation and permits Reel Studio
+ok 416 - a clean AI brief resolves without confirmation and permits Reel Studio
+  ---
+  duration_ms: 0.058125
+  ...
+# Subtest: an unassigned or unrecognised mode requires explicit confirmation
+ok 417 - an unassigned or unrecognised mode requires explicit confirmation
+  ---
+  duration_ms: 0.053625
+  ...
+# Subtest: mode transitions persist only when deliberate and never overwrite approved authority silently
+ok 418 - mode transitions persist only when deliberate and never overwrite approved authority silently
+  ---
+  duration_ms: 0.118625
+  ...
+# Subtest: an eligible Organic Reel with an approved AI brief passes
+ok 419 - an eligible Organic Reel with an approved AI brief passes
+  ---
+  duration_ms: 0.158291
+  ...
+# Subtest: Ads sources are permanently ineligible — the action must be hidden, not offered
+ok 420 - Ads sources are permanently ineligible — the action must be hidden, not offered
+  ---
+  duration_ms: 0.075375
+  ...
+# Subtest: a non-Reel Organic row is permanently ineligible
+ok 421 - a non-Reel Organic row is permanently ineligible
+  ---
+  duration_ms: 0.056083
+  ...
+# Subtest: resolvable brief-state reasons are reported as non-permanent
+ok 422 - resolvable brief-state reasons are reported as non-permanent
+  ---
+  duration_ms: 0.073167
+  ...
+# Subtest: a human-only brief cannot enter Reel Studio without an explicit mode change
+ok 423 - a human-only brief cannot enter Reel Studio without an explicit mode change
+  ---
+  duration_ms: 0.104208
+  ...
+# Subtest: a standalone project is reported as brief-less rather than crashing
+ok 424 - a standalone project is reported as brief-less rather than crashing
+  ---
+  duration_ms: 0.138834
+  ...
+# Subtest: one resolver produces the same decision for the project and source entry points
+ok 425 - one resolver produces the same decision for the project and source entry points
+  ---
+  duration_ms: 0.069458
+  ...
+# Subtest: failure classification distinguishes the still and video phases
+ok 426 - failure classification distinguishes the still and video phases
+  ---
+  duration_ms: 0.086125
+  ...
+# Subtest: pre-Phase-2 failures with no recorded stage are derived from job/media state
+ok 427 - pre-Phase-2 failures with no recorded stage are derived from job/media state
+  ---
+  duration_ms: 0.054792
+  ...
+# Subtest: a failed still submission and a failed still render are both retryable
+ok 428 - a failed still submission and a failed still render are both retryable
+  ---
+  duration_ms: 0.211792
+  ...
+# Subtest: an active job is CHECKED, never retried — so no duplicate job is created
+ok 429 - an active job is CHECKED, never retried — so no duplicate job is created
+  ---
+  duration_ms: 0.070708
+  ...
+# Subtest: an existing successful still prevents a still reset
+ok 430 - an existing successful still prevents a still reset
+  ---
+  duration_ms: 0.102417
+  ...
+# Subtest: video state prevents an unsafe still reset
+ok 431 - video state prevents an unsafe still reset
+  ---
+  duration_ms: 0.101875
+  ...
+# Subtest: a failed video is retryable and explicitly preserves the still and motion
+ok 432 - a failed video is retryable and explicitly preserves the still and motion
+  ---
+  duration_ms: 0.065458
+  ...
+# Subtest: a still-phase failure cannot use the video retry
+ok 433 - a still-phase failure cannot use the video retry
+  ---
+  duration_ms: 0.039333
+  ...
+# Subtest: a video failure with no stored still is redirected to the image retry
+ok 434 - a video failure with no stored still is redirected to the image retry
+  ---
+  duration_ms: 0.6115
+  ...
+# Subtest: an existing clip prevents any retry
+ok 435 - an existing clip prevents any retry
+  ---
+  duration_ms: 0.066084
+  ...
+# Subtest: a project that has left generation disables provider retries
+ok 436 - a project that has left generation disables provider retries
+  ---
+  duration_ms: 0.049666
+  ...
+# Subtest: recovery RPCs are concurrency-safe and stage-specific in SQL
+ok 437 - recovery RPCs are concurrency-safe and stage-specific in SQL
+  ---
+  duration_ms: 14.557333
+  ...
+# Subtest: retry uses the latest persisted prompt and never rewrites planning fields
+ok 438 - retry uses the latest persisted prompt and never rewrites planning fields
+  ---
+  duration_ms: 5.651084
+  ...
+# Subtest: provider functions record which phase failed
+ok 439 - provider functions record which phase failed
+  ---
+  duration_ms: 17.157417
+  ...
+# Subtest: provider retry stays distinct from Phase 1 planning regeneration
+ok 440 - provider retry stays distinct from Phase 1 planning regeneration
+  ---
+  duration_ms: 3.095958
+  ...
+# Subtest: MP4 assets classify as video from their MIME type, never from asset_format
+ok 441 - MP4 assets classify as video from their MIME type, never from asset_format
+  ---
+  duration_ms: 1.389042
+  ...
+# Subtest: Assets renders a video player for MP4 and an img only for images
+ok 442 - Assets renders a video player for MP4 and an img only for images
+  ---
+  duration_ms: 2.1585
+  ...
+# Subtest: MP4 download preserves the original file and never offers PNG conversion
+ok 443 - MP4 download preserves the original file and never offers PNG conversion
+  ---
+  duration_ms: 3.439542
+  ...
+# Subtest: video groups keep review, ordering and group metadata, and say 'shot clip'
+ok 444 - video groups keep review, ordering and group metadata, and say 'shot clip'
+  ---
+  duration_ms: 1.915875
+  ...
+# Subtest: Reels, reel_video and video media are unsupported without a final Reel
+ok 445 - Reels, reel_video and video media are unsupported without a final Reel
+  ---
+  duration_ms: 0.203584
+  ...
+# Subtest: supported image, carousel and Story publication is unchanged
+ok 446 - supported image, carousel and Story publication is unchanged
+  ---
+  duration_ms: 0.216584
+  ...
+# Subtest: a stored Reel Studio distribution record resolves as unsupported
+ok 447 - a stored Reel Studio distribution record resolves as unsupported
+  ---
+  duration_ms: 0.0985
+  ...
+# Subtest: the UI blocks unsupported scheduling and publishing
+ok 448 - the UI blocks unsupported scheduling and publishing
+  ---
+  duration_ms: 1.121666
+  ...
+# Subtest: the server enforces the same restriction even if the frontend is bypassed
+ok 449 - the server enforces the same restriction even if the frontend is bypassed
+  ---
+  duration_ms: 2.816958
+  ...
+# Subtest: approving a Reel Studio group does not manufacture an unschedulable draft
+ok 450 - approving a Reel Studio group does not manufacture an unschedulable draft
+  ---
+  duration_ms: 7.193
+  ...
+# Subtest: Phase 1 binding, storyboard and lifecycle protections are still in force
+ok 451 - Phase 1 binding, storyboard and lifecycle protections are still in force
+  ---
+  duration_ms: 4.222459
+  ...
+# Subtest: every Phase 2 migration is additive and no historical migration was edited
+ok 452 - every Phase 2 migration is additive and no historical migration was edited
+  ---
+  duration_ms: 7.063167
+  ...
+# Subtest: no Phase 3 final-Reel or publishing functionality was introduced
+ok 453 - no Phase 3 final-Reel or publishing functionality was introduced
+  ---
+  duration_ms: 2.620667
+  ...
+# Subtest: a valid MP4 upload request passes
+ok 454 - a valid MP4 upload request passes
+  ---
+  duration_ms: 0.50075
+  ...
+# Subtest: wrong MIME type, wrong extension, empty and oversized files are rejected
+ok 455 - wrong MIME type, wrong extension, empty and oversized files are rejected
+  ---
+  duration_ms: 0.1125
+  ...
+# Subtest: filenames cannot escape the server-built path
+ok 456 - filenames cannot escape the server-built path
+  ---
+  duration_ms: 0.178791
+  ...
+# Subtest: storage paths are server-built and client/project scoped
+ok 457 - storage paths are server-built and client/project scoped
+  ---
+  duration_ms: 0.071917
+  ...
+# Subtest: media metadata is never fabricated
+ok 458 - media metadata is never fabricated
+  ---
+  duration_ms: 0.328583
+  ...
+# Subtest: Instagram spec warnings are advisory and derived from the documented limits
+ok 459 - Instagram spec warnings are advisory and derived from the documented limits
+  ---
+  duration_ms: 0.124334
+  ...
+# Subtest: first upload has no predecessor; later uploads supersede the current version
+ok 460 - first upload has no predecessor; later uploads supersede the current version
+  ---
+  duration_ms: 0.076125
+  ...
+# Subtest: a publishing or published version can never be silently replaced
+ok 461 - a publishing or published version can never be silently replaced
+  ---
+  duration_ms: 0.056959
+  ...
+# Subtest: replacing an approved but unpublished version requires deliberate confirmation
+ok 462 - replacing an approved but unpublished version requires deliberate confirmation
+  ---
+  duration_ms: 0.096917
+  ...
+# Subtest: the database enforces one current version and one version number per project
+ok 463 - the database enforces one current version and one version number per project
+  ---
+  duration_ms: 11.801458
+  ...
+# Subtest: the current final Reel can be approved when its file exists
+ok 464 - the current final Reel can be approved when its file exists
+  ---
+  duration_ms: 0.345125
+  ...
+# Subtest: approval requires the storage object to still exist
+ok 465 - approval requires the storage object to still exist
+  ---
+  duration_ms: 0.114625
+  ...
+# Subtest: a non-current version cannot be reviewed or become publishable
+ok 466 - a non-current version cannot be reviewed or become publishable
+  ---
+  duration_ms: 0.113625
+  ...
+# Subtest: revision requires actionable feedback and preserves the version
+ok 467 - revision requires actionable feedback and preserves the version
+  ---
+  duration_ms: 0.273542
+  ...
+# Subtest: review never deletes media and the RPC keeps history
+ok 468 - review never deletes media and the RPC keeps history
+  ---
+  duration_ms: 4.518
+  ...
+# Subtest: an approved current final Reel is publishable
+ok 469 - an approved current final Reel is publishable
+  ---
+  duration_ms: 0.124291
+  ...
+# Subtest: every blocked case reports its specific reason
+ok 470 - every blocked case reports its specific reason
+  ---
+  duration_ms: 0.116792
+  ...
+# Subtest: a shot clip is permanently unpublishable
+ok 471 - a shot clip is permanently unpublishable
+  ---
+  duration_ms: 0.142917
+  ...
+# Subtest: REELS without a final-Reel context fails closed
+ok 472 - REELS without a final-Reel context fails closed
+  ---
+  duration_ms: 0.100625
+  ...
+# Subtest: REELS with an approved current final Reel is now supported
+ok 473 - REELS with an approved current final Reel is now supported
+  ---
+  duration_ms: 0.054375
+  ...
+# Subtest: REELS with an unapproved or superseded final Reel stays blocked
+ok 474 - REELS with an unapproved or superseded final Reel stays blocked
+  ---
+  duration_ms: 0.094125
+  ...
+# Subtest: a stored Reel record resolves through the same wrapper
+ok 475 - a stored Reel record resolves through the same wrapper
+  ---
+  duration_ms: 0.066959
+  ...
+# Subtest: Phase 2 image, carousel and Story publication is completely unchanged
+ok 476 - Phase 2 image, carousel and Story publication is completely unchanged
+  ---
+  duration_ms: 0.062125
+  ...
+# Subtest: container creation uses the verified Meta REELS contract and persists the id immediately
+ok 477 - container creation uses the verified Meta REELS contract and persists the id immediately
+  ---
+  duration_ms: 0.248334
+  ...
+# Subtest: an existing container is never recreated
+ok 478 - an existing container is never recreated
+  ---
+  duration_ms: 0.079583
+  ...
+# Subtest: a FINISHED container publishes exactly once and persists the media id first
+ok 479 - a FINISHED container publishes exactly once and persists the media id first
+  ---
+  duration_ms: 0.072667
+  ...
+# Subtest: a record that already has a media id is never republished
+ok 480 - a record that already has a media id is never republished
+  ---
+  duration_ms: 0.042791
+  ...
+# Subtest: timeout after container creation resumes without a duplicate container
+ok 481 - timeout after container creation resumes without a duplicate container
+  ---
+  duration_ms: 0.071334
+  ...
+# Subtest: timeout after publication reconciles without a second post
+ok 482 - timeout after publication reconciles without a second post
+  ---
+  duration_ms: 0.046542
+  ...
+# Subtest: ERROR and EXPIRED containers stop permanently
+ok 483 - ERROR and EXPIRED containers stop permanently
+  ---
+  duration_ms: 0.079542
+  ...
+# Subtest: an expired container window and a poll ceiling both stop permanently
+ok 484 - an expired container window and a poll ceiling both stop permanently
+  ---
+  duration_ms: 0.059208
+  ...
+# Subtest: a PUBLISHED container with no local media id demands reconciliation, never a republish
+ok 485 - a PUBLISHED container with no local media id demands reconciliation, never a republish
+  ---
+  duration_ms: 0.079083
+  ...
+# Subtest: a signed-URL failure is transient, not a permanent media defect
+ok 486 - a signed-URL failure is transient, not a permanent media defect
+  ---
+  duration_ms: 0.152667
+  ...
+# Subtest: unknown container statuses are treated as transient, never as success
+ok 487 - unknown container statuses are treated as transient, never as success
+  ---
+  duration_ms: 0.0595
+  ...
+# Subtest: no disposition ever leaks the signed URL or the access token
+ok 488 - no disposition ever leaks the signed URL or the access token
+  ---
+  duration_ms: 0.076291
+  ...
+# Subtest: the worker advances Reels one step per run and never holds the invocation open
+ok 489 - the worker advances Reels one step per run and never holds the invocation open
+  ---
+  duration_ms: 7.43575
+  ...
+# Subtest: the worker re-proves eligibility every step and resolves stranded records
+ok 490 - the worker re-proves eligibility every step and resolves stranded records
+  ---
+  duration_ms: 3.131791
+  ...
+# Subtest: stale-publishing recovery does not mistake a processing container for a lost post
+ok 491 - stale-publishing recovery does not mistake a processing container for a lost post
+  ---
+  duration_ms: 3.516583
+  ...
+# Subtest: the claim RPC skips ineligible records instead of aborting the batch
+ok 492 - the claim RPC skips ineligible records instead of aborting the batch
+  ---
+  duration_ms: 0.954791
+  ...
+# Subtest: SQL capability allows an approved current final Reel and blocks everything else
+ok 493 - SQL capability allows an approved current final Reel and blocks everything else
+  ---
+  duration_ms: 0.861375
+  ...
+# Subtest: draft creation is server-proved, idempotent and shot-clip proof
+ok 494 - draft creation is server-proved, idempotent and shot-clip proof
+  ---
+  duration_ms: 3.070458
+  ...
+# Subtest: Reels are scheduled, never published inline, and shot clips are refused outright
+ok 495 - Reels are scheduled, never published inline, and shot clips are refused outright
+  ---
+  duration_ms: 0.771375
+  ...
+# Subtest: upload paths are server-built and never taken from the request
+ok 496 - upload paths are server-built and never taken from the request
+  ---
+  duration_ms: 1.50225
+  ...
+# Subtest: completion verifies the object, its ownership and its real size
+ok 497 - completion verifies the object, its ownership and its real size
+  ---
+  duration_ms: 1.002541
+  ...
+# Subtest: every Phase 3 Edge Function enforces auth, staff role and client ownership
+ok 498 - every Phase 3 Edge Function enforces auth, staff role and client ownership
+  ---
+  duration_ms: 5.938875
+  ...
+# Subtest: the shot package reports completeness honestly
+ok 499 - the shot package reports completeness honestly
+  ---
+  duration_ms: 0.139625
+  ...
+# Subtest: no in-browser editor, compositing or assembly was introduced
+ok 500 - no in-browser editor, compositing or assembly was introduced
+  ---
+  duration_ms: 1.711875
+  ...
+# Subtest: no additional publishing platform was added
+ok 501 - no additional publishing platform was added
+  ---
+  duration_ms: 2.76325
+  ...
+# Subtest: the Phase 3 migration is additive and preserves history
+ok 502 - the Phase 3 migration is additive and preserves history
+  ---
+  duration_ms: 0.930083
+  ...
+# Subtest: Phase 1 and Phase 2 contracts are untouched by Phase 3
+ok 503 - Phase 1 and Phase 2 contracts are untouched by Phase 3
+  ---
+  duration_ms: 2.079667
+  ...
+# Subtest: the exact bound production brief supplies the script, CTA and production notes
+ok 504 - the exact bound production brief supplies the script, CTA and production notes
+  ---
+  duration_ms: 1.102542
+  ...
+# Subtest: approved context and execution files are included and categorised
+ok 505 - approved context and execution files are included and categorised
+  ---
+  duration_ms: 0.276667
+  ...
+# Subtest: unapproved, rejected, archived and superseded authority is excluded
+ok 506 - unapproved, rejected, archived and superseded authority is excluded
+  ---
+  duration_ms: 0.527584
+  ...
+# Subtest: another client's approved context is excluded
+ok 507 - another client's approved context is excluded
+  ---
+  duration_ms: 0.087792
+  ...
+# Subtest: context files irrelevant to a Reel are excluded even when approved
+ok 508 - context files irrelevant to a Reel are excluded even when approved
+  ---
+  duration_ms: 0.081833
+  ...
+# Subtest: the active brand block is the visual authority and is recorded by version
+ok 509 - the active brand block is the visual authority and is recorded by version
+  ---
+  duration_ms: 0.137083
+  ...
+# Subtest: mandatory brief sections survive budgeting even beside a huge context file
+ok 510 - mandatory brief sections survive budgeting even beside a huge context file
+  ---
+  duration_ms: 0.176
+  ...
+# Subtest: a mandatory category with no approved authority is reported, not silently skipped
+ok 511 - a mandatory category with no approved authority is reported, not silently skipped
+  ---
+  duration_ms: 0.116084
+  ...
+# Subtest: sections are admitted whole or trimmed at a boundary, never head-sliced
+ok 512 - sections are admitted whole or trimmed at a boundary, never head-sliced
+  ---
+  duration_ms: 0.389458
+  ...
+# Subtest: no blind first-N-character truncation of the brief remains in the generator
+ok 513 - no blind first-N-character truncation of the brief remains in the generator
+  ---
+  duration_ms: 14.184625
+  ...
+# Subtest: the rendered pack names its gaps rather than inviting invention
+ok 514 - the rendered pack names its gaps rather than inviting invention
+  ---
+  duration_ms: 0.200375
+  ...
+# Subtest: a complete strategy carries hook, progression and ending
+ok 515 - a complete strategy carries hook, progression and ending
+  ---
+  duration_ms: 0.144958
+  ...
+# Subtest: a strategy missing the core message is rejected
+ok 516 - a strategy missing the core message is rejected
+  ---
+  duration_ms: 0.100084
+  ...
+# Subtest: a strategy missing the ending or the payoff is rejected
+ok 517 - a strategy missing the ending or the payoff is rejected
+  ---
+  duration_ms: 0.151375
+  ...
+# Subtest: planned shot count must respect the target duration
+ok 518 - planned shot count must respect the target duration
+  ---
+  duration_ms: 0.124458
+  ...
+# Subtest: a flat progression list is rejected
+ok 519 - a flat progression list is rejected
+  ---
+  duration_ms: 0.045666
+  ...
+# Subtest: a continuity plan requires concrete recurring anchors
+ok 520 - a continuity plan requires concrete recurring anchors
+  ---
+  duration_ms: 0.072666
+  ...
+# Subtest: malformed structured output is rejected rather than coerced
+ok 521 - malformed structured output is rejected rather than coerced
+  ---
+  duration_ms: 0.13525
+  ...
+# Subtest: a well-formed sequence passes every flow rule
+ok 522 - a well-formed sequence passes every flow rule
+  ---
+  duration_ms: 0.980333
+  ...
+# Subtest: every shot carries a story role and the numbers are ordered and unique
+ok 523 - every shot carries a story role and the numbers are ordered and unique
+  ---
+  duration_ms: 0.4405
+  ...
+# Subtest: shot 1 must be the hook and it must be the only one
+ok 524 - shot 1 must be the hook and it must be the only one
+  ---
+  duration_ms: 0.281834
+  ...
+# Subtest: the final shot must resolve the opening
+ok 525 - the final shot must resolve the opening
+  ---
+  duration_ms: 0.187916
+  ...
+# Subtest: every non-first shot states what changed, and every non-final shot sets up the next
+ok 526 - every non-first shot states what changed, and every non-final shot sets up the next
+  ---
+  duration_ms: 0.087625
+  ...
+# Subtest: redundant beats and repeated messages are rejected
+ok 527 - redundant beats and repeated messages are rejected
+  ---
+  duration_ms: 1.796166
+  ...
+# Subtest: three consecutive shots doing the same job is stalling, not building
+ok 528 - three consecutive shots doing the same job is stalling, not building
+  ---
+  duration_ms: 0.304
+  ...
+# Subtest: the sequence length must match the approved strategy and the duration
+ok 529 - the sequence length must match the approved strategy and the duration
+  ---
+  duration_ms: 0.177083
+  ...
+# Subtest: an invalid flow inserts zero shots because validation precedes the RPC
+ok 530 - an invalid flow inserts zero shots because validation precedes the RPC
+  ---
+  duration_ms: 6.362959
+  ...
+# Subtest: storyboard insertion remains a single atomic RPC that refuses a non-empty project
+ok 531 - storyboard insertion remains a single atomic RPC that refuses a non-empty project
+  ---
+  duration_ms: 1.089875
+  ...
+# Subtest: a clean critique produces no failures and a dirty one produces specific failures
+ok 532 - a clean critique produces no failures and a dirty one produces specific failures
+  ---
+  duration_ms: 0.483417
+  ...
+# Subtest: a malformed critique is rejected rather than read as a pass
+ok 533 - a malformed critique is rejected rather than read as a pass
+  ---
+  duration_ms: 0.075709
+  ...
+# Subtest: every compiled prompt carries the global visual bible and the negatives
+ok 534 - every compiled prompt carries the global visual bible and the negatives
+  ---
+  duration_ms: 0.159208
+  ...
+# Subtest: every compiled prompt carries shot-specific subject, action and composition
+ok 535 - every compiled prompt carries shot-specific subject, action and composition
+  ---
+  duration_ms: 0.059833
+  ...
+# Subtest: continuity anchors are repeated into the prompt rather than referenced
+ok 536 - continuity anchors are repeated into the prompt rather than referenced
+  ---
+  duration_ms: 0.147
+  ...
+# Subtest: the human-presence rule is stated explicitly in every prompt
+ok 537 - the human-presence rule is stated explicitly in every prompt
+  ---
+  duration_ms: 0.080667
+  ...
+# Subtest: compiled prompts stay inside the practical prompt budget
+ok 538 - compiled prompts stay inside the practical prompt budget
+  ---
+  duration_ms: 0.206209
+  ...
+# Subtest: budget trimming sheds detail, never the global visual bible
+ok 539 - budget trimming sheds detail, never the global visual bible
+  ---
+  duration_ms: 0.091667
+  ...
+# Subtest: bible fields are bounded without leaving a dangling fragment
+ok 540 - bible fields are bounded without leaving a dangling fragment
+  ---
+  duration_ms: 0.109666
+  ...
+# Subtest: near-duplicate negatives from brand and continuity are merged, not repeated
+ok 541 - near-duplicate negatives from brand and continuity are merged, not repeated
+  ---
+  duration_ms: 0.114583
+  ...
+# Subtest: prompts containing unfilled placeholders are rejected
+ok 542 - prompts containing unfilled placeholders are rejected
+  ---
+  duration_ms: 0.099583
+  ...
+# Subtest: prompts that lean on the previous shot are rejected
+ok 543 - prompts that lean on the previous shot are rejected
+  ---
+  duration_ms: 0.197292
+  ...
+# Subtest: a thin prompt is not accepted as a self-contained image instruction
+ok 544 - a thin prompt is not accepted as a self-contained image instruction
+  ---
+  duration_ms: 0.062541
+  ...
+# Subtest: shot direction is required in full and no provider parameters are invented
+ok 545 - shot direction is required in full and no provider parameters are invented
+  ---
+  duration_ms: 4.155959
+  ...
+# Subtest: the storyboard leaves motion unselected for the separate provider step
+ok 546 - the storyboard leaves motion unselected for the separate provider step
+  ---
+  duration_ms: 0.804916
+  ...
+# Subtest: an operator's edited prompt is what still generation actually sends
+ok 547 - an operator's edited prompt is what still generation actually sends
+  ---
+  duration_ms: 1.912291
+  ...
+# Subtest: regeneration is bound to the persisted spine, sequence and neighbours
+ok 548 - regeneration is bound to the persisted spine, sequence and neighbours
+  ---
+  duration_ms: 1.139875
+  ...
+# Subtest: regeneration preserves the shot's identity, position and narrative role
+ok 549 - regeneration preserves the shot's identity, position and narrative role
+  ---
+  duration_ms: 1.985333
+  ...
+# Subtest: regeneration replaces only planning fields and never starts image generation
+ok 550 - regeneration replaces only planning fields and never starts image generation
+  ---
+  duration_ms: 0.367875
+  ...
+# Subtest: regeneration does not trigger any provider job
+ok 551 - regeneration does not trigger any provider job
+  ---
+  duration_ms: 0.73125
+  ...
+# Subtest: an invalid regeneration returns an error instead of overwriting a valid shot
+ok 552 - an invalid regeneration returns an error instead of overwriting a valid shot
+  ---
+  duration_ms: 0.647875
+  ...
+# Subtest: projects storyboarded before the spine still regenerate on the original path
+ok 553 - projects storyboarded before the spine still regenerate on the original path
+  ---
+  duration_ms: 3.710208
+  ...
+# Subtest: provenance answers which approved information produced the storyboard
+ok 554 - provenance answers which approved information produced the storyboard
+  ---
+  duration_ms: 0.140917
+  ...
+# Subtest: prompt, compiler and context-pack versions are recorded on every storyboard
+ok 555 - prompt, compiler and context-pack versions are recorded on every storyboard
+  ---
+  duration_ms: 2.977291
+  ...
+# Subtest: provenance never leaks hidden prompt text or provider configuration
+ok 556 - provenance never leaks hidden prompt text or provider configuration
+  ---
+  duration_ms: 1.149875
+  ...
+# Subtest: existing storyboards remain readable: every new column is nullable and additive
+ok 557 - existing storyboards remain readable: every new column is nullable and additive
+  ---
+  duration_ms: 2.427458
+  ...
+# Subtest: no existing storyboard is regenerated or rewritten by the migration
+ok 558 - no existing storyboard is regenerated or rewritten by the migration
+  ---
+  duration_ms: 1.660125
+  ...
+# Subtest: the storyboard insert RPC is service-role only, not callable by anon or authenticated
+ok 559 - the storyboard insert RPC is service-role only, not callable by anon or authenticated
+  ---
+  duration_ms: 3.54075
+  ...
+# Subtest: the human quality rubric exists and defines release criteria
+ok 560 - the human quality rubric exists and defines release criteria
+  ---
+  duration_ms: 4.754083
+  ...
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# Subtest: handler authorization allows admin/account manager and denies unsupported, missing, and wrong-client access
+ok 561 - handler authorization allows admin/account manager and denies unsupported, missing, and wrong-client access
+  ---
+  duration_ms: 15.389166
+  ...
+# Subtest: handler rejects role spoofing, malformed/non-object JSON, wrong types, invalid client IDs, and invalid periods
+ok 562 - handler rejects role spoofing, malformed/non-object JSON, wrong types, invalid client IDs, and invalid periods
+  ---
+  duration_ms: 5.071791
+  ...
+# Subtest: configuration and authority failures are non-retryable before orchestration
+ok 563 - configuration and authority failures are non-retryable before orchestration
+  ---
+  duration_ms: 0.610084
+  ...
+# Subtest: retryable Anthropic timeout, truncation, and transient provider failures preserve exact structured shortfalls
+ok 564 - retryable Anthropic timeout, truncation, and transient provider failures preserve exact structured shortfalls
+  ---
+  duration_ms: 3.892625
+  ...
+# Subtest: model validation failure and attempt exhaustion are terminal and non-retryable
+ok 565 - model validation failure and attempt exhaustion are terminal and non-retryable
+  ---
+  duration_ms: 1.332042
+  ...
+# Subtest: terminal orchestration failure persists and returns the refreshed structured run state
+ok 566 - terminal orchestration failure persists and returns the refreshed structured run state
+  ---
+  duration_ms: 1.932458
+  ...
+# Subtest: terminal refresh failure keeps the original orchestration error and useful RPC fallback state
+ok 567 - terminal refresh failure keeps the original orchestration error and useful RPC fallback state
+  ---
+  duration_ms: 0.5235
+  ...
+# Subtest: lost or expired leases prevent completion persistence
+ok 568 - lost or expired leases prevent completion persistence
+  ---
+  duration_ms: 0.788459
+  ...
+# Subtest: active replay does not duplicate generation or persistence
+ok 569 - active replay does not duplicate generation or persistence
+  ---
+  duration_ms: 0.634375
+  ...
+# Subtest: HTTP status and retryability are independent and success/failure contracts stay compatible
+ok 570 - HTTP status and retryability are independent and success/failure contracts stay compatible
+  ---
+  duration_ms: 1.778125
+  ...
+# Subtest: handler responses redact credentials, tokens, lease values, stacks, and provider payloads
+ok 571 - handler responses redact credentials, tokens, lease values, stacks, and provider payloads
+  ---
+  duration_ms: 0.6845
+  ...
+# Subtest: a stale client's terminal handler response cannot regain frontend coordinator ownership
+ok 572 - a stale client's terminal handler response cannot regain frontend coordinator ownership
+  ---
+  duration_ms: 0.377709
+  ...
+# Subtest: canonical technique set remains exact in handler fixtures
+ok 573 - canonical technique set remains exact in handler fixtures
+  ---
+  duration_ms: 0.302333
+  ...
+# Subtest: the persisted lease safely covers the configured provider deadline
+ok 574 - the persisted lease safely covers the configured provider deadline
+  ---
+  duration_ms: 0.533625
+  ...
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# {"event":"ownership_checked","kind":"lease","cycle_id":"30000000-0000-4000-8000-000000000001","elapsed_ms":0,"lease_seconds":180,"heartbeat_interval_ms":60000}
+# Subtest: a worker that loses its lease during a slow provider response cannot persist
+ok 575 - a worker that loses its lease during a slow provider response cannot persist
+  ---
+  duration_ms: 20.599834
+  ...
+# Subtest: a provider connect timeout behaves exactly like the whole-call timeout
+ok 576 - a provider connect timeout behaves exactly like the whole-call timeout
+  ---
+  duration_ms: 1.869459
+  ...
+# Subtest: telemetry context reaches the model boundary and carries no content
+ok 577 - telemetry context reaches the model boundary and carries no content
+  ---
+  duration_ms: 0.465208
+  ...
+# Subtest: admin and account manager are allowed; every other role and caller is denied
+ok 578 - admin and account manager are allowed; every other role and caller is denied
+  ---
+  duration_ms: 14.47175
+  ...
+# Subtest: the request body cannot spoof role or client access and must be well formed
+ok 579 - the request body cannot spoof role or client access and must be well formed
+  ---
+  duration_ms: 4.822
+  ...
+# Subtest: an unconfigured provider fails closed before any run is created
+ok 580 - an unconfigured provider fails closed before any run is created
+  ---
+  duration_ms: 0.89
+  ...
+# Subtest: ineligible cycles are rejected before any scoring run is created
+ok 581 - ineligible cycles are rejected before any scoring run is created
+  ---
+  duration_ms: 4.587209
+  ...
+# Subtest: authority that cannot be reconstructed fails closed and is not retryable
+ok 582 - authority that cannot be reconstructed fails closed and is not retryable
+  ---
+  duration_ms: 0.521125
+  ...
+# Subtest: a full scoring run batches deterministically, ranks, and completes
+ok 583 - a full scoring run batches deterministically, ranks, and completes
+  ---
+  duration_ms: 0.898
+  ...
+# Subtest: the scoring identity is server-derived and cannot be supplied by the caller
+ok 584 - the scoring identity is server-derived and cannot be supplied by the caller
+  ---
+  duration_ms: 0.454334
+  ...
+# Subtest: successful scores persist during a partial failure and the run becomes retryable
+ok 585 - successful scores persist during a partial failure and the run becomes retryable
+  ---
+  duration_ms: 0.703416
+  ...
+# Subtest: a retry scores only the missing candidates and never rescores completed ones
+ok 586 - a retry scores only the missing candidates and never rescores completed ones
+  ---
+  duration_ms: 0.536917
+  ...
+# Subtest: a non-retryable batch failure is terminal and does not become retryable
+ok 587 - a non-retryable batch failure is terminal and does not become retryable
+  ---
+  duration_ms: 0.736583
+  ...
+# Subtest: a worker that loses its lease cannot persist or complete
+ok 588 - a worker that loses its lease cannot persist or complete
+  ---
+  duration_ms: 0.474417
+  ...
+# Subtest: a completion rejected by the database never presents a partial run as complete
+ok 589 - a completion rejected by the database never presents a partial run as complete
+  ---
+  duration_ms: 0.460958
+  ...
+# Subtest: an active run is refused and a completed run replays without a provider call
+ok 590 - an active run is refused and a completed run replays without a provider call
+  ---
+  duration_ms: 2.430792
+  ...
+# Subtest: a terminal run replays as a structured non-retryable failure
+ok 591 - a terminal run replays as a structured non-retryable failure
+  ---
+  duration_ms: 0.345083
+  ...
+# Subtest: a re-score names its predecessor and produces a distinct scoring identity
+ok 592 - a re-score names its predecessor and produces a distinct scoring identity
+  ---
+  duration_ms: 2.405917
+  ...
+# Subtest: an invalid re-score predecessor and a configuration conflict are both refused
+ok 593 - an invalid re-score predecessor and a configuration conflict are both refused
+  ---
+  duration_ms: 0.518916
+  ...
+# Subtest: scoring responses never leak credentials, prompts, or provider payloads
+ok 594 - scoring responses never leak credentials, prompts, or provider payloads
+  ---
+  duration_ms: 0.34625
+  ...
+# Subtest: the machine-readable Stage A inventory is deterministic and current
+ok 595 - the machine-readable Stage A inventory is deterministic and current
+  ---
+  duration_ms: 234.105542
+  ...
+# Subtest: inventory fingerprint regressions are pure and cover material intended-tree changes
+ok 596 - inventory fingerprint regressions are pure and cover material intended-tree changes
+  ---
+  duration_ms: 23.396542
+  ...
+# Subtest: test-evidence source binding is path-and-byte deterministic and ignores non-versioned metadata
+ok 597 - test-evidence source binding is path-and-byte deterministic and ignores non-versioned metadata
+  ---
+  duration_ms: 0.627
+  ...
+# Subtest: source-binding validation fails closed for changed bytes and missing or unsupported schemas
+ok 598 - source-binding validation fails closed for changed bytes and missing or unsupported schemas
+  ---
+  duration_ms: 5.23425
+  ...
+# Subtest: database execution binding is deterministic, database-specific, and metadata-independent
+ok 599 - database execution binding is deterministic, database-specific, and metadata-independent
+  ---
+  duration_ms: 4.65925
+  ...
+# Subtest: database binding and component verification fail closed for stale SQL, unsupported schemas, and mismatched mappings
+ok 600 - database binding and component verification fail closed for stale SQL, unsupported schemas, and mismatched mappings
+  ---
+  duration_ms: 26.321459
+  ...
+# Subtest: actual intended-tree enumeration covers material Stage A files and only the explicit exclusion
+ok 601 - actual intended-tree enumeration covers material Stage A files and only the explicit exclusion
+  ---
+  duration_ms: 67.862875
+  ...
+# Subtest: the inventory covers every active migration and every held migration
+ok 602 - the inventory covers every active migration and every held migration
+  ---
+  duration_ms: 2.857958
+  ...
+# Subtest: every deployable Edge Function has exactly one allowed Stage A classification
+ok 603 - every deployable Edge Function has exactly one allowed Stage A classification
+  ---
+  duration_ms: 7.856
+  ...
+# Subtest: routes, client tabs, placeholders and deprecated paths are explicitly inventoried
+ok 604 - routes, client tabs, placeholders and deprecated paths are explicitly inventoried
+  ---
+  duration_ms: 2.721958
+  ...
+# Subtest: database inventory records the Route B baseline and held view
+ok 605 - database inventory records the Route B baseline and held view
+  ---
+  duration_ms: 2.065209
+  ...
+# Subtest: the tracked-file secret scan is executable and clean
+ok 606 - the tracked-file secret scan is executable and clean
+  ---
+  duration_ms: 111.408667
+  ...
+# Subtest: the intended Stage A tree has no whitespace errors or conflict markers
+ok 607 - the intended Stage A tree has no whitespace errors or conflict markers
+  ---
+  duration_ms: 296.292084
+  ...
+# Subtest: evidence manifests pin exact transcript bytes and reject truncated SHA-256 values
+ok 608 - evidence manifests pin exact transcript bytes and reject truncated SHA-256 values
+  ---
+  duration_ms: 141.421792
+  ...
+# Subtest: the evidence package preserves a successful fresh-checkout/new-mtime portability proof
+ok 609 - the evidence package preserves a successful fresh-checkout/new-mtime portability proof
+  ---
+  duration_ms: 0.351292
+  ...
+# Subtest: Route B preserves the historical stub and pins an exact schema-only production snapshot
+ok 610 - Route B preserves the historical stub and pins an exact schema-only production snapshot
+  ---
+  duration_ms: 28.563333
+  ...
+# Subtest: the baseline manifest is deterministic and classifies the complete current public schema
+ok 611 - the baseline manifest is deterministic and classifies the complete current public schema
+  ---
+  duration_ms: 1741.268834
+  ...
+# Subtest: the baseline cutover incorporates exactly the captured ledger and excludes held migrations
+ok 612 - the baseline cutover incorporates exactly the captured ledger and excludes held migrations
+  ---
+  duration_ms: 3.66325
+  ...
+# Subtest: bootstrap restores omitted storage configuration and required seed rows without cron or secrets
+ok 613 - bootstrap restores omitted storage configuration and required seed rows without cron or secrets
+  ---
+  duration_ms: 0.291875
+  ...
+# Subtest: bootstrap fails closed before Docker without confirmation or when production is supplied
+ok 614 - bootstrap fails closed before Docker without confirmation or when production is supplied
+  ---
+  duration_ms: 4.339542
+  ...
+# Subtest: local Supabase startup delegates fresh reconstruction to the guarded Route B bootstrap
+ok 615 - local Supabase startup delegates fresh reconstruction to the guarded Route B bootstrap
+  ---
+  duration_ms: 0.46975
+  ...
+# Subtest: catalogue and behavioral SQL cover every required Stage A database evidence component
+ok 616 - catalogue and behavioral SQL cover every required Stage A database evidence component
+  ---
+  duration_ms: 1.20875
+  ...
+# Subtest: no active source invokes a retired or archived Edge Function
+ok 617 - no active source invokes a retired or archived Edge Function
+  ---
+  duration_ms: 5.375625
+  ...
+# Subtest: the retired API wrappers are gone from the active API layer
+ok 618 - the retired API wrappers are gone from the active API layer
+  ---
+  duration_ms: 1.514166
+  ...
+# Subtest: archived Edge Functions are out of the deploy path and inside the archive
+ok 619 - archived Edge Functions are out of the deploy path and inside the archive
+  ---
+  duration_ms: 2.340458
+  ...
+# Subtest: no live route points at the archived Money page
+ok 620 - no live route points at the archived Money page
+  ---
+  duration_ms: 0.67625
+  ...
+# Subtest: all four programme documents plus the index are present and non-trivial
+ok 621 - all four programme documents plus the index are present and non-trivial
+  ---
+  duration_ms: 4.622292
+  ...
+# Subtest: the build plan defines every stage A-P exactly once
+ok 622 - the build plan defines every stage A-P exactly once
+  ---
+  duration_ms: 0.71425
+  ...
+# Subtest: Stage A carries an objective, scope, acceptance criteria and an exit gate
+ok 623 - Stage A carries an objective, scope, acceptance criteria and an exit gate
+  ---
+  duration_ms: 1.202458
+  ...
+# Subtest: the rendered prompts contain 16 complete, fence-balanced stage prompts
+ok 624 - the rendered prompts contain 16 complete, fence-balanced stage prompts
+  ---
+  duration_ms: 2.308708
+  ...
+# Subtest: the Phase 2 AI plan covers both global and client-specific control surfaces
+ok 625 - the Phase 2 AI plan covers both global and client-specific control surfaces
+  ---
+  duration_ms: 1.369291
+  ...
+# Subtest: lint is a real, configured, CI-enforced gate
+ok 626 - lint is a real, configured, CI-enforced gate
+  ---
+  duration_ms: 0.79125
+  ...
+# Subtest: the pinned Node 20 workflow can execute the canonical TypeScript test command
+ok 627 - the pinned Node 20 workflow can execute the canonical TypeScript test command
+  ---
+  duration_ms: 4.462
+  ...
+# Subtest: the archive keeps a README and a manifest
+ok 628 - the archive keeps a README and a manifest
+  ---
+  duration_ms: 1.46025
+  ...
+1..628
+# tests 628
+# suites 0
+# pass 628
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5887.487877
+STAGE_A_CI_COMPONENT_EXIT|test|0|2026-08-02T17:45:33Z
+STAGE_A_CI_COMPONENT_START|build|2026-08-02T17:45:33Z|npm run build
+
+> aa-cockpit@0.1.0 build
+> tsc -b && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 433 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.97 kB │ gzip:   0.49 kB
+dist/assets/index-Bak_Zlo8.css     36.26 kB │ gzip:   7.64 kB
+dist/assets/index-DaTPaX-I.js   1,263.61 kB │ gzip: 336.92 kB
+✓ built in 2.51s
+STAGE_A_CI_COMPONENT_EXIT|build|0|2026-08-02T17:45:41Z
+--- raw stderr ---
+npm warn deprecated recharts@2.15.4: 1.x and 2.x branches are no longer active. Bump to Recharts v3 to receive latest features and bugfixes. See https://github.com/recharts/recharts/wiki/3.0-migration-guide
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+--- result ---
+Container exit status: 0
+Cleanup exit status: 0
+UTC finish: 2026-08-02T17:45:41.891Z

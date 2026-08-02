@@ -1,0 +1,77 @@
+Stage A production build execution evidence
+Classification: locally rebuilt and verified
+Relevant tool versions
+node --version: v25.9.0 (exit 0)
+npm --version: 11.12.1 (exit 0)
+supabase --version: 177 | `),Rm=(w,_)=>{let R=w.stack.split(`
+178 | `),D=`${_}[cause]: ${R[0]}`;for(let J=1,Y=R.length;J<Y;J++)D+=`
+179 | ${_}${R[J]}`;if(w.cause)D+=` {
+180 | ${Rm(w.cause,`${_}  `)}
+181 | ${_}}`;return D},kQ=`~effect/Fiber/${FB}`,RS0={_A:_0,_E:_0},DS0={id:0},x5=()=>globalThis[YY];class dT{constructor(w,_=!0){this[kQ]=RS0,this.setContext(w),this.id=++DS0.id,this.currentOpCount=0,this.currentLoopCount=0,this.interruptible=_,this._stack=[],this._observers=[],this._exit=void 0,this._children=void 0,this._interruptedCause=void 0,this._yielded=void 0,this.runtimeMetrics?.recordFiberStart(this.context)}[kQ];id;interruptible;currentOpCount;currentLoopCount;_stack;_observers;_exit;_currentExit;_children;_interruptedCause;_yielded;context;currentScheduler;currentTracerContext;currentSpan;currentLogLevel;minimumLogLevel;currentStackFrame;runtimeMetrics;maxOpsBeforeYield;currentPreventYield;_dispatcher=void 0;get currentDispatcher(){return this._dispatcher??=this.currentScheduler.makeDispatcher()}getRef(w){return RT(this.context,w)}addObserver(w){if(this._exit)return w(this._exit),y1;return this._observers.push(w),()=>{let _=this._observers.indexOf(w);if(_>=0)this._observers.splice(_,1)}}interruptUnsafe(w
+182 |   at ${R}`}return _}function LZ(w){switch(w._tag){case"InvalidType":case"OneOf":case"Composite":case"AnyOf":return jZ(w.ast.annotations);case"InvalidValue":case"Forbidden":return jZ(w.annotations);case"MissingKey":return jZ(w.annotations,"messageMissingKey");case"UnexpectedKey":return jZ(w.ast.annotations,"messageUnexpectedKey");case"Filter":return jZ(w.filter.annotations);case"Encoding":return LZ(w.issue)}}function jZ(w,_="message"){let R=w?.[_];if(typeof R==="string")return R}function Fu(w){if(z0(w))return"no value provided";return L0(w.value)}function rS(w){switch(w._tag){case"MissingKey":return w;case"Forbidden":return new sY(b9(w.actual,K7),w.annotations);case"Filter":return new aS(K7(w.actual),w.filter,rS(w.issue));case"Pointer":return new J9(w.path,rS(w.issue));case"Encoding":case"InvalidType":case"InvalidValue":case"Composite":return new Nw(b9(w.actual,K7));case"AnyOf":case"OneOf":case"UnexpectedKey":return new Nw(h(K7(w.actual)))}}class t5 extends yR{run;constructor(w){super();this.run=w}map(w){retur
+
+error: Unknown: FileSystem.writeFile (/Users/alex/.supabase/telemetry.json)
+       _tag: "PlatformError",
+ ~effect/platform/PlatformError: "~effect/platform/PlatformError",
+
+      at n6 (/$bunfs/root/supabase:182:35041)
+      at <anonymous> (/$bunfs/root/supabase:189:14106)
+
+177 | `),Rm=(w,_)=>{let R=w.stack.split(`
+178 | `),D=`${_}[cause]: ${R[0]}`;for(let J=1,Y=R.length;J<Y;J++)D+=`
+179 | ${_}${R[J]}`;if(w.cause)D+=` {
+180 | ${Rm(w.cause,`${_}  `)}
+181 | ${_}}`;return D},kQ=`~effect/Fiber/${FB}`,RS0={_A:_0,_E:_0},DS0={id:0},x5=()=>globalThis[YY];class dT{constructor(w,_=!0){this[kQ]=RS0,this.setContext(w),this.id=++DS0.id,this.currentOpCount=0,this.currentLoopCount=0,this.interruptible=_,this._stack=[],this._observers=[],this._exit=void 0,this._children=void 0,this._interruptedCause=void 0,this._yielded=void 0,this.runtimeMetrics?.recordFiberStart(this.context)}[kQ];id;interruptible;currentOpCount;currentLoopCount;_stack;_observers;_exit;_currentExit;_children;_interruptedCause;_yielded;context;currentScheduler;currentTracerContext;currentSpan;currentLogLevel;minimumLogLevel;currentStackFrame;runtimeMetrics;maxOpsBeforeYield;currentPreventYield;_dispatcher=void 0;get currentDispatcher(){return this._dispatcher??=this.currentScheduler.makeDispatcher()}getRef(w){return RT(this.context,w)}addObserver(w){if(this._exit)return w(this._exit),y1;return this._observers.push(w),()=>{let _=this._observers.indexOf(w);if(_>=0)this._observers.splice(_,1)}}interruptUnsafe(w
+182 |   at ${R}`}return _}function LZ(w){switch(w._tag){case"InvalidType":case"OneOf":case"Composite":case"AnyOf":return jZ(w.ast.annotations);case"InvalidValue":case"Forbidden":return jZ(w.annotations);case"MissingKey":return jZ(w.annotations,"messageMissingKey");case"UnexpectedKey":return jZ(w.ast.annotations,"messageUnexpectedKey");case"Filter":return jZ(w.filter.annotations);case"Encoding":return LZ(w.issue)}}function jZ(w,_="message"){let R=w?.[_];if(typeof R==="string")return R}function Fu(w){if(z0(w))return"no value provided";return L0(w.value)}function rS(w){switch(w._tag){case"MissingKey":return w;case"Forbidden":return new sY(b9(w.actual,K7),w.annotations);case"Filter":return new aS(K7(w.actual),w.filter,rS(w.issue));case"Pointer":return new J9(w.path,rS(w.issue));case"Encoding":case"InvalidType":case"InvalidValue":case"Composite":return new Nw(b9(w.actual,K7));case"AnyOf":case"OneOf":case"UnexpectedKey":return new Nw(h(K7(w.actual)))}}class t5 extends yR{run;constructor(w){super();this.run=w}map(w){retur
+
+error: Unknown: FileSystem.writeFile (/Users/alex/.supabase/telemetry.json)
+       _tag: "Unknown",
+     module: "FileSystem",
+     method: "writeFile",
+ pathOrDescriptor: "/Users/alex/.supabase/telemetry.json",
+    syscall: "open",
+
+      at n6 (/$bunfs/root/supabase:182:35048)
+      at <anonymous> (/$bunfs/root/supabase:189:14106)
+
+EPERM: operation not permitted, open '/Users/alex/.supabase/telemetry.json'
+    path: "/Users/alex/.supabase/telemetry.json",
+ syscall: "open",
+   errno: -1,
+    code: "EPERM"
+
+
+EPERM: operation not permitted, open '/Users/alex/.supabase/telemetry.json'
+    path: "/Users/alex/.supabase/telemetry.json",
+ syscall: "open",
+   errno: -1,
+    code: "EPERM"
+
+
+Bun v1.3.13 (macOS arm64) (exit 1)
+docker --version: Docker version 29.6.1, build 8900f1d (exit 0)
+
+UTC start: 2026-08-02T17:45:49.277Z
+Command: npm run build
+--- output ---
+
+> aa-cockpit@0.1.0 build
+> tsc -b && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 433 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.97 kB │ gzip:   0.49 kB
+dist/assets/index-Bak_Zlo8.css     36.26 kB │ gzip:   7.64 kB
+dist/assets/index-DaTPaX-I.js   1,263.61 kB │ gzip: 336.03 kB
+✓ built in 1.79s
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+--- result ---
+Exit status: 0
+UTC finish: 2026-08-02T17:45:55.362Z

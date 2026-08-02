@@ -3,13 +3,27 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.4 <21",
+    "npm": ">=10.8.2 <11"
+  },
   "description": "Attract Acquisition — operator cockpit for brand infrastructure and client acquisition.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --report-unused-disable-directives",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "inventory:stage-a": "node scripts/generate-stage-a-inventory.mjs",
+    "inventory:stage-a:check": "node scripts/generate-stage-a-inventory.mjs --check",
+    "baseline:manifest": "node scripts/generate-stage-a-baseline-manifest.mjs",
+    "baseline:check": "node scripts/generate-stage-a-bootstrap-schema.mjs --check && node scripts/generate-stage-a-baseline-manifest.mjs --check",
+    "baseline:bootstrap:local": "bash scripts/bootstrap-disposable-supabase.sh",
+    "scan:secrets": "node scripts/check-secret-hygiene.mjs",
+    "check:intended-tree": "node scripts/check-intended-tree.mjs",
+    "evidence:stage-a:check": "node scripts/check-stage-a-evidence.mjs",
+    "evidence:stage-a:portability": "node scripts/run-stage-a-portability-evidence.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
@@ -33,6 +47,7 @@
     "globals": "^15.15.0",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
+    "tsx": "4.20.3",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.65.0",
     "vite": "^5.4.3"

@@ -1,0 +1,231 @@
+{
+  "schema_version": "aa.cockpit.stage-a-live-evidence.v2",
+  "classification": "currently live-verified with timestamp and project provenance",
+  "captured_at_utc": "2026-08-02T15:11:27.763Z",
+  "expected_production_project_ref": "xivewedajschthjlblfb",
+  "actual_linked_project_ref": "xivewedajschthjlblfb",
+  "provenance_manifest": {
+    "path": "provenance-manifest.json",
+    "sha256": "87ecf5bc13565f877f84ff143a4469a20d5cfab71a3441e4ec210d6ec3771506",
+    "bytes": 14973
+  },
+  "repository_provenance_manifest": {
+    "path": "docs/evidence/stage-a-live-provenance-manifest.json",
+    "sha256": "87ecf5bc13565f877f84ff143a4469a20d5cfab71a3441e4ec210d6ec3771506"
+  },
+  "provenance_transcript": {
+    "path": "live-capture-transcript.txt",
+    "sha256": "76aeb1c14d35e20b78fe9a951280fd20aa60f5a616584e14cd1f9e414febc8b0",
+    "bytes": 40701
+  },
+  "external_bundle_manifest_sha256": "17b5b45357c1253258f9432dd3a736c4610630fe8486bc283853c3b765f01a83",
+  "artifacts": [
+    {
+      "path": "cockpit-main-sha.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "cockpit-main-sha.stdout.txt",
+      "sha256": "d65fe36f5159ca14a5e8a33018bf973932b7b8e6515f1c926a85a28b88b87b7e"
+    },
+    {
+      "path": "cockpit-main-sha.txt",
+      "sha256": "d65fe36f5159ca14a5e8a33018bf973932b7b8e6515f1c926a85a28b88b87b7e"
+    },
+    {
+      "path": "db-lint.stderr.txt",
+      "sha256": "8b004bac4bd10bbd3b9177ba68c6977c53aaa50f118b17a4f1acc63f765ec9b7"
+    },
+    {
+      "path": "db-lint.stdout.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "db-lint.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "db-push-dry-run.stderr.txt",
+      "sha256": "75ceebc5454a790a76ca9eab1d6861a26bf7ab041ca0cb1130a58974d45ea1b0"
+    },
+    {
+      "path": "db-push-dry-run.stdout.txt",
+      "sha256": "1b20ae82a9a4465f73d54c46884a074e1d34884be339675279196562e1f1dbdd"
+    },
+    {
+      "path": "db-push-dry-run.txt",
+      "sha256": "1b20ae82a9a4465f73d54c46884a074e1d34884be339675279196562e1f1dbdd"
+    },
+    {
+      "path": "functions-list.json",
+      "sha256": "c5936c6ae09c15a20fe653c7a301238303aa68263f09ba7a90941b72823b15b2"
+    },
+    {
+      "path": "functions-list.stderr.txt",
+      "sha256": "fda5d11c4e0779cb0f0f5159cdc47ece04b56ca518cbbc37e0d77ae75a2c8508"
+    },
+    {
+      "path": "functions-list.stdout.txt",
+      "sha256": "c5936c6ae09c15a20fe653c7a301238303aa68263f09ba7a90941b72823b15b2"
+    },
+    {
+      "path": "linked-project-discovery.stderr.txt",
+      "sha256": "fda5d11c4e0779cb0f0f5159cdc47ece04b56ca518cbbc37e0d77ae75a2c8508"
+    },
+    {
+      "path": "linked-project-discovery.stdout.txt",
+      "sha256": "76792e9469d89ae17d54002b8b1bf178cf421df54954edefcb31873bb2f9567d"
+    },
+    {
+      "path": "linked-project.json",
+      "sha256": "729c8a39b8e6b736b3abdfb062b0743a43976749b52cd72ce3b44cb715669165"
+    },
+    {
+      "path": "live-capture-transcript.txt",
+      "sha256": "76aeb1c14d35e20b78fe9a951280fd20aa60f5a616584e14cd1f9e414febc8b0"
+    },
+    {
+      "path": "migration-list.stderr.txt",
+      "sha256": "68971aac80f9bb35ecf1c1034093eca9606712a6645482df384cce4c355e91e5"
+    },
+    {
+      "path": "migration-list.stdout.txt",
+      "sha256": "6aaab205d7b900f7483e3a5dfcd9ca07b2f284858606decf596219bc56d189d5"
+    },
+    {
+      "path": "migration-list.txt",
+      "sha256": "6aaab205d7b900f7483e3a5dfcd9ca07b2f284858606decf596219bc56d189d5"
+    },
+    {
+      "path": "pages-config.json",
+      "sha256": "cdddaab5804af1ac0151944e413c24a8765a4a3402176fcf4d61f178e15ad5bb"
+    },
+    {
+      "path": "pages-config.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pages-config.stdout.txt",
+      "sha256": "cdddaab5804af1ac0151944e413c24a8765a4a3402176fcf4d61f178e15ad5bb"
+    },
+    {
+      "path": "pages-deployment-workflow-api.json",
+      "sha256": "ecb780ce8b5c7889306606b4c53c53e10e08e8d9b351746f78c7fb57eb616c30"
+    },
+    {
+      "path": "pages-deployment-workflow-api.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pages-deployment-workflow-api.stdout.txt",
+      "sha256": "ecb780ce8b5c7889306606b4c53c53e10e08e8d9b351746f78c7fb57eb616c30"
+    },
+    {
+      "path": "pages-deployment-workflow.yml",
+      "sha256": "2edff298c816a8665827a7a6aed966f5426dc0f9c41a9e5035deac5b8467a883"
+    },
+    {
+      "path": "pages-http-response.json",
+      "sha256": "a3023974a615161d8950a77c46c9898c7d8cdeddf9f268b3efd7725f85470b79"
+    },
+    {
+      "path": "pages-http-response.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pages-http-response.stdout.txt",
+      "sha256": "a3023974a615161d8950a77c46c9898c7d8cdeddf9f268b3efd7725f85470b79"
+    },
+    {
+      "path": "pages-main-deployment-run.json",
+      "sha256": "e965f715d3166c30eda5373edc484e71d1451531bd53c82e441bba2692ebc95b"
+    },
+    {
+      "path": "pages-main-deployment-run.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pages-main-deployment-run.stdout.txt",
+      "sha256": "e965f715d3166c30eda5373edc484e71d1451531bd53c82e441bba2692ebc95b"
+    },
+    {
+      "path": "provenance-manifest.json",
+      "sha256": "87ecf5bc13565f877f84ff143a4469a20d5cfab71a3441e4ec210d6ec3771506"
+    },
+    {
+      "path": "remote-schema.sql",
+      "sha256": "09a2aaf0d8b65e3954b2e6704f59f99025e05a029905d697614641c575577f5a"
+    },
+    {
+      "path": "remote-schema.stderr.txt",
+      "sha256": "7abe1c1086e3591795aa366b9814b2accd1fa1d9166fd39bfe481dfd676a3204"
+    },
+    {
+      "path": "remote-schema.stdout.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "parsed_claims": {
+    "paired_migration_count": 47,
+    "dry_run_up_to_date": true,
+    "database_lint_error_count": 0,
+    "deployed_edge_function_count": 50,
+    "deployed_edge_function_names": [
+      "check-ai-background-image",
+      "check-shot-generation",
+      "check-shot-still-image",
+      "collect-instagram-insights",
+      "commit-ideation-content",
+      "complete-final-reel-upload",
+      "create-final-reel-upload",
+      "create-ideation-calendar-proposal",
+      "create-reel-distribution-draft",
+      "create-video-project",
+      "create-video-shot",
+      "delete-video-shot",
+      "execute-destructive",
+      "finalize-phase-1",
+      "generate-ad-static-asset",
+      "generate-ai-background-image",
+      "generate-carousel-assets",
+      "generate-carousel-slide",
+      "generate-feed-post-asset",
+      "generate-phase-1",
+      "generate-phase-1-file",
+      "generate-phase-2",
+      "generate-phase-3",
+      "generate-phase-3-slot",
+      "generate-production-brief",
+      "generate-story-assets",
+      "generate-video-storyboard",
+      "handoff-video-project",
+      "list-higgsfield-motions",
+      "plan-destructive",
+      "preview-phase-3-scope",
+      "process-asset-generation-jobs",
+      "process-scheduled-publishing",
+      "publish-instagram-asset",
+      "regenerate-asset-frame",
+      "regenerate-video-shot",
+      "retry-shot-still-image",
+      "retry-shot-video",
+      "review-final-reel",
+      "run-ideation",
+      "score-ideation-candidates",
+      "send-production-brief-to-contractor",
+      "set-production-brief-mode",
+      "start-carousel-generation",
+      "start-phase-3-scope",
+      "submit-shot-generation",
+      "submit-shot-still-image",
+      "update-video-project-status",
+      "update-video-shot",
+      "validate-execution-pack"
+    ],
+    "current_main_sha": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+    "pages_workflow_conclusion": "success",
+    "pages_workflow_head_sha": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+    "pages_http_status": 200,
+    "pages_url": "https://attractacq.github.io/Cockpit/"
+  }
+}

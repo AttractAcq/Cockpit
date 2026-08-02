@@ -1,0 +1,24 @@
+Stage A fresh-checkout/new-mtime portability evidence
+Classification: deterministic content-portability proof
+Safety boundary: synthesized external tree containing only Git-enumerated intended files; ignored dependencies and local metadata excluded; no network, linked Supabase, deployment, or production mutation.
+UTC start: 2026-08-02T17:45:59.001Z
+Node version: v25.9.0
+npm version: 11.12.1
+Evidence bootstrap exemption: false
+Exact command: node scripts/check-stage-a-evidence.mjs --external-dir "/Users/alex/Desktop/Cockpit Stage A Live Evidence"
+Original intended-tree fingerprint: fb63cd2f43898beec774d9c2c957598d1dc7355e0daa89633b75987d6b00ad05
+Copied intended-tree fingerprint: fb63cd2f43898beec774d9c2c957598d1dc7355e0daa89633b75987d6b00ad05
+Original deterministic source binding: 9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79
+Copied deterministic source binding: 9b5803ddb2d25ae8bade5a12a83a79812aecf4d78808037804600bb131a41a79
+Latest preserved transcript finish before proof: 2026-08-02T17:45:55.362Z
+Copied minimum source mtime: 2026-08-02T17:45:59.134Z
+Copied maximum source mtime: 2026-08-02T17:45:59.134Z
+All copied source mtimes newer than all preserved transcripts: true
+--- raw stdout ---
+Stage A evidence validation passed (36 trusted live artifacts; 7 exact local transcript hashes).
+--- raw stderr ---
+
+--- result ---
+Evidence-check exit status: 0
+Temporary-copy cleanup exit status: 0
+UTC finish: 2026-08-02T17:46:00.007Z
