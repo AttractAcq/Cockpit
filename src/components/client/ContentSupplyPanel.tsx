@@ -10,19 +10,24 @@ import {
   PROOF_KINDS,
   SOURCE_KIND_LABEL,
   createOpportunityFromSource,
+  fetchInputConflicts,
   fetchOpportunitiesForSource,
   fetchProofItems,
   fetchSupplySources,
   ingestManualIdea,
   ingestProof,
   provenanceOf,
+  reviewConflict,
+  runConflictDetection,
+  unresolvedBlocking,
+  type InputConflictRow,
   type SupplyOpportunityRow,
   type SupplyProofRow,
   type SupplySourceRow,
 } from "@/lib/supply";
 import type { ContentSourceKind } from "@/types/content-spine";
 
-type Tab = "idea" | "proof" | "sources";
+type Tab = "idea" | "proof" | "sources" | "conflicts";
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 
 function errorMessage(error: unknown): string {
@@ -52,6 +57,8 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
 
   const [sources, setSources] = useState<SupplySourceRow[]>([]);
   const [proofs, setProofs] = useState<SupplyProofRow[]>([]);
+  const [conflicts, setConflicts] = useState<InputConflictRow[]>([]);
+  const [conflictNote, setConflictNote] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
@@ -75,12 +82,14 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p] = await Promise.all([
+      const [s, p, c] = await Promise.all([
         fetchSupplySources(clientId, { search, kinds: kindFilter }),
         fetchProofItems(clientId),
+        fetchInputConflicts(clientId),
       ]);
       setSources(s);
       setProofs(p);
+      setConflicts(c);
     } catch (e) {
       setNotice({ kind: "error", text: `Could not load supply: ${errorMessage(e)}` });
     } finally {
@@ -212,6 +221,49 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
     return map;
   }, [proofs]);
 
+  const blockingCount = useMemo(() => unresolvedBlocking(conflicts).length, [conflicts]);
+
+  const scanConflicts = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await runConflictDetection(clientId);
+      setNotice({
+        kind: r.found > 0 ? "info" : "success",
+        text: r.found === 0
+          ? `Scanned ${r.scanned_fields} input fields — no conflicts found.`
+          : `Scanned ${r.scanned_fields} fields: ${r.found} conflict(s), ${r.inserted} new, ${r.already_open} already open.`,
+      });
+      await load();
+    } catch (e) {
+      setNotice({ kind: "error", text: `Detection failed: ${errorMessage(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decide = async (
+    conflict: InputConflictRow,
+    status: "acknowledged" | "resolved" | "dismissed",
+  ) => {
+    const note = (conflictNote[conflict.id] ?? "").trim();
+    if ((status === "resolved" || status === "dismissed") && note.length === 0) {
+      setNotice({ kind: "error", text: "Resolving or dismissing a conflict requires a written reason." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      await reviewConflict({ conflictId: conflict.id, status, note });
+      setNotice({ kind: "success", text: `Conflict marked ${status}.` });
+      await load();
+    } catch (e) {
+      setNotice({ kind: "error", text: `Could not update conflict: ${errorMessage(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggleKind = (kind: ContentSourceKind) => {
     setKindFilter((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
   };
@@ -223,14 +275,20 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2">
-        {(["idea", "proof", "sources"] as Tab[]).map((t) => (
+        {(["idea", "proof", "sources", "conflicts"] as Tab[]).map((t) => (
           <Button
             key={t}
             size="sm"
             variant={tab === t ? "secondary" : "ghost"}
             onClick={() => setTab(t)}
           >
-            {t === "idea" ? "Add Idea" : t === "proof" ? "Add Proof" : `Sources (${sources.length})`}
+            {t === "idea"
+              ? "Add Idea"
+              : t === "proof"
+                ? "Add Proof"
+                : t === "sources"
+                  ? `Sources (${sources.length})`
+                  : `Conflicts (${blockingCount})`}
           </Button>
         ))}
         <span className="ml-auto text-2xs text-paper-3">
@@ -336,6 +394,85 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "conflicts" && (
+          <div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Button size="sm" disabled={busy} onClick={() => void scanConflicts()}>
+                {busy ? "Scanning…" : "Scan inputs for conflicts"}
+              </Button>
+              {blockingCount > 0 && (
+                <span className="text-2xs text-neg">
+                  {blockingCount} unresolved blocking conflict{blockingCount === 1 ? "" : "s"} — these should hold Phase 1 approval.
+                </span>
+              )}
+            </div>
+
+            {conflicts.length === 0 && !loading && (
+              <p className="text-xs text-paper-3">
+                No conflicts recorded. Run a scan to check inputs for legacy currency, deprecated offers and unsupported claims.
+              </p>
+            )}
+
+            {conflicts.map((c) => {
+              const decided = c.status === "resolved" || c.status === "dismissed";
+              return (
+                <div key={c.id} className="border-b border-line py-3 last:border-b-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded border px-1.5 py-0.5 text-2xs ${
+                        c.severity === "blocking"
+                          ? "border-neg/20 text-neg"
+                          : c.severity === "warning"
+                            ? "border-warn/20 text-warn"
+                            : "border-line text-paper-3"
+                      }`}
+                    >
+                      {c.severity}
+                    </span>
+                    <span className="text-2xs font-mono text-paper-3">{c.conflict_type}</span>
+                    <span className="text-2xs text-paper-3">{c.status}</span>
+                    <span className="text-2xs font-mono text-paper-3">{c.left_source_ref}</span>
+                  </div>
+                  <h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{c.title}</h3>
+                  <p className="mt-0.5 break-words text-2xs leading-5 text-paper-3">{c.detail}</p>
+
+                  {decided ? (
+                    <p className="mt-1 text-2xs text-paper-3">
+                      {c.status} — {c.resolution_note}
+                    </p>
+                  ) : (
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        aria-label={`Reason for ${c.title}`}
+                        className={field}
+                        value={conflictNote[c.id] ?? ""}
+                        onChange={(e) =>
+                          setConflictNote((prev) => ({ ...prev, [c.id]: e.target.value }))
+                        }
+                        placeholder="Reason (required to resolve or dismiss)"
+                      />
+                      {c.status === "open" && (
+                        <Button size="sm" variant="ghost" disabled={busy}
+                          onClick={() => void decide(c, "acknowledged")}>
+                          Acknowledge
+                        </Button>
+                      )}
+                      <Button size="sm" variant="secondary" disabled={busy}
+                        onClick={() => void decide(c, "resolved")}>
+                        Resolve
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={busy}
+                        onClick={() => void decide(c, "dismissed")}>
+                        Dismiss
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

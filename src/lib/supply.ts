@@ -219,6 +219,66 @@ export const PROOF_KINDS = [
   "artefact",
 ] as const;
 
+export interface InputConflictRow {
+  id: string;
+  client_id: string;
+  conflict_type: string;
+  severity: "info" | "warning" | "blocking";
+  status: "open" | "acknowledged" | "resolved" | "dismissed";
+  title: string;
+  detail: string;
+  left_source_kind: string;
+  left_source_ref: string;
+  detected_by: string;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export async function fetchInputConflicts(clientId: string): Promise<InputConflictRow[]> {
+  const { data, error } = await supabase
+    .from("client_input_conflicts")
+    .select(
+      "id, client_id, conflict_type, severity, status, title, detail, left_source_kind, left_source_ref, detected_by, resolution_note, resolved_at, created_at",
+    )
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return (data ?? []) as InputConflictRow[];
+}
+
+export interface DetectionResult {
+  scanned_fields: number;
+  found: number;
+  inserted: number;
+  already_open: number;
+  has_verified_proof: boolean;
+}
+
+export async function runConflictDetection(clientId: string): Promise<DetectionResult> {
+  return await invokeFn<DetectionResult>("detect-input-conflicts", { client_id: clientId });
+}
+
+export async function reviewConflict(input: {
+  conflictId: string;
+  status: "acknowledged" | "resolved" | "dismissed";
+  note?: string;
+}): Promise<{ conflict_id: string; status: string }> {
+  return await invokeFn("resolve-input-conflict", {
+    conflict_id: input.conflictId,
+    status: input.status,
+    resolution_note: input.note ?? "",
+  });
+}
+
+/** Blocking conflicts still awaiting a decision. These should hold approval. */
+export function unresolvedBlocking(conflicts: readonly InputConflictRow[]): InputConflictRow[] {
+  return conflicts.filter(
+    (c) => c.severity === "blocking" && (c.status === "open" || c.status === "acknowledged"),
+  );
+}
+
 /** Where a source came from, for the provenance view. */
 export function provenanceOf(source: SupplySourceRow): string {
   if (source.ideation_candidate_id) return `Ideation candidate ${source.ideation_candidate_id.slice(0, 8)}`;
