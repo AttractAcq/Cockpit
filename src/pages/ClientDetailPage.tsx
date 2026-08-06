@@ -25,6 +25,7 @@ import { ArchivePanel } from "@/components/client/ArchivePanel";
 import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { IdeationPanel } from "@/components/client/IdeationPanel";
+import { ContentSupplyPanel } from "@/components/client/ContentSupplyPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
@@ -34,6 +35,7 @@ type Section =
   | "context_files"
   | "execution_files"
   | "proof_upload"
+  | "content_supply"
   | "ideation"
   | "overview"
   | "client_settings"
@@ -61,6 +63,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Context Inputs",   section: "context_inputs" },
   { label: "Context Files",    section: "context_files" },
   { label: "Execution Files",  section: "execution_files" },
+  { label: "Content Supply",   section: "content_supply" },
   { label: "Proof Upload",     section: "proof_upload" },
   { label: "Ideation",         section: "ideation" },
   { label: "Calendar",         section: "calendar" },
@@ -103,7 +106,6 @@ function PlaceholderSection({
 
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-  proof_upload: { title: "Proof Upload",   description: "Not yet built." },
   paid_distribution: { title: "Paid Distribution", description: "Not yet built." },
 };
 
@@ -658,6 +660,10 @@ export function ClientDetailPage() {
         );
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
+      case "content_supply":
+        return <ContentSupplyPanel clientId={id} />;
+      case "proof_upload":
+        return <ContentSupplyPanel clientId={id} initialTab="proof" />;
       case "reel_studio":
         return <ReelStudioPanel clientId={id} />;
       case "assets":
