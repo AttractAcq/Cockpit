@@ -14,6 +14,11 @@
 
 import { svc, json, cors } from "../_shared/aa.ts";
 import { isAiEnabled, hasAnthropicKey, callAnthropic } from "../_shared/anthropic.ts";
+import {
+  validateCitations,
+  type ModelCitation,
+  type SourceInventory,
+} from "../_shared/supply/citations.ts";
 
 // Must stay in sync with CONTEXT_FILE_DEFS in src/types/phase.ts and
 // generate-phase-1/index.ts. `guidance` is the per-file generation brief.
@@ -114,6 +119,61 @@ interface ModelFile {
   warnings: string[];
   missing_inputs: string[];
   proof_gaps: string[];
+  citations?: ModelCitation[];
+}
+
+
+/** Input fields that are never citable (identifiers, timestamps, blobs). */
+const CITATION_SKIP_FIELDS = new Set([
+  "id", "client_id", "created_at", "updated_at", "uploaded_file_refs", "social_links",
+]);
+
+/** Appended to the system prompt. States the citation contract. */
+function buildCitationContract(): string {
+  return `
+
+## Citation contract (mandatory)
+
+Return an additional top-level array field "citations".
+
+Every material claim in "content" must have a citation. A citation is:
+
+{ "claim_excerpt": "<the exact claim, max 400 chars>",
+  "source_type": "client_input" | "source_document" | "research_source",
+  "client_input_field": "<field name>",      // client_input only
+  "source_document_id": "<uuid>",            // source_document only
+  "research_source_id": "<uuid>" }           // research_source only
+
+Rules, enforced by validation:
+- You may ONLY cite items listed in the CITABLE SOURCES block of the user message. Citing anything not listed causes the whole file to be REJECTED and nothing is written.
+- Set exactly one of client_input_field, source_document_id, research_source_id, matching source_type.
+- "approved_inference" is NOT available to you. Inference requires a named human approver and is recorded separately.
+- If a claim cannot be cited from the listed sources, do NOT make the claim. Report the gap in "missing_inputs" or "proof_gaps" instead. Never invent a source to satisfy this contract.`;
+}
+
+/** Appended to the user message. Lists exactly what may be cited. */
+function buildInventoryBlock(inv: SourceInventory): string {
+  const fields = inv.inputFields.length > 0
+    ? inv.inputFields.map((f) => `- client_input_field: ${f}`).join("\n")
+    : "- [NONE]";
+  const docs = inv.documents.length > 0
+    ? inv.documents.map((d) => `- source_document_id: ${d.id} (${d.label})`).join("\n")
+    : "- [NONE]";
+  const research = inv.researchSources.length > 0
+    ? inv.researchSources.map((r) => `- research_source_id: ${r.id} (${r.title})`).join("\n")
+    : "- [NONE]";
+  return `
+
+## CITABLE SOURCES (exhaustive — citing anything else rejects the file)
+
+Client inputs:
+${fields}
+
+Extracted documents:
+${docs}
+
+Research sources:
+${research}`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -395,10 +455,20 @@ const ALLOWED_CONFIDENCE = new Set(["low", "medium", "high"]);
 function validateFile(
   f: ModelFile,
   def: typeof CONTEXT_FILE_DEFS[number],
+  inventory: SourceInventory,
 ): { ok: boolean; errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
   const tag = `[${def.file_name}]`;
+
+  // Stage C: every citation must resolve to a source that actually exists.
+  // Rules live in _shared/supply/citations.ts and are unit tested.
+  const citations = Array.isArray(f.citations) ? f.citations : [];
+  errors.push(...validateCitations(citations, inventory, tag));
+
+  if (citations.length === 0) {
+    warnings.push(`${tag} returned no citations; claims in this file are untraceable and it cannot be approved as authority.`);
+  }
 
   if (f.file_number !== def.number) {
     errors.push(`${tag} model returned file_number ${f.file_number}, expected ${def.number}.`);
@@ -528,12 +598,36 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const systemPrompt = buildSystemPrompt(def);
+    // 4b. Stage C: build the citable source inventory. The model may cite only
+    //     what appears here; anything else fails validation.
+    const [docsRes, researchRes] = await Promise.all([
+      sb.from("client_source_documents")
+        .select("id, original_filename, source_url, source_kind")
+        .eq("client_id", clientId).eq("processing_status", "extracted"),
+      sb.from("client_research_sources").select("id, title").eq("client_id", clientId),
+    ]);
+
+    const inventory: SourceInventory = {
+      inputFields: Object.entries((inputs ?? {}) as Record<string, unknown>)
+        .filter(([field, value]) =>
+          !CITATION_SKIP_FIELDS.has(field) && typeof value === "string" && value.trim().length > 0)
+        .map(([field]) => field),
+      documents: ((docsRes.data ?? []) as Array<Record<string, unknown>>).map((d) => ({
+        id: d.id as string,
+        label: (d.original_filename as string) ?? (d.source_url as string) ?? (d.source_kind as string),
+      })),
+      researchSources: ((researchRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: r.id as string,
+        title: r.title as string,
+      })),
+    };
+
+    const systemPrompt = buildSystemPrompt(def) + buildCitationContract();
     const userMessage = buildUserMessage(
       client as unknown as ClientRecord,
       (inputs ?? {}) as unknown as ClientInputsRow,
       def,
-    );
+    ) + buildInventoryBlock(inventory);
 
     await writeActivity(sb, clientId, "phase_1_file_generation_started",
       `Generating Phase 1 file ${def.file_name} for "${client.name}".`,
@@ -591,7 +685,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const validation = validateFile(parsed, def);
+    const validation = validateFile(parsed, def, inventory);
     if (!validation.ok) {
       await writeActivity(sb, clientId, "phase_1_file_validation_failed",
         `Phase 1 file ${def.file_name} failed validation: ${validation.errors.slice(0, 3).join("; ")}`,
@@ -608,7 +702,7 @@ Deno.serve(async (req: Request) => {
     // 6. Upsert exactly one row — canonical name/number from the definition,
     //    never from the model. Status is never approved (enforced above).
     const now = new Date().toISOString();
-    const { error: upsertErr } = await sb
+    const { data: upserted, error: upsertErr } = await sb
       .from("client_context_files")
       .upsert({
         client_id: clientId,
@@ -619,7 +713,9 @@ Deno.serve(async (req: Request) => {
         confidence_level: parsed.confidence_level,
         generated_by_function: "generate-phase-1-file",
         updated_at: now,
-      }, { onConflict: "client_id,file_number" });
+      }, { onConflict: "client_id,file_number" })
+      .select("id, version")
+      .single();
 
     if (upsertErr) {
       await writeActivity(sb, clientId, "phase_1_file_error",
@@ -630,7 +726,67 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const allWarnings = [...validation.warnings, ...(parsed.warnings ?? [])];
+    // 7. Stage C: record provenance for this file version.
+    //    Citations were validated against the inventory above, so every id here
+    //    is known to exist. Failure to record provenance is reported as a
+    //    warning rather than failing the generation, because the file itself is
+    //    already written and valid — but the file is not traceable without it.
+    const contextFileId = (upserted?.id ?? null) as string | null;
+    const contextFileVersion = ((upserted?.version as number) ?? 1);
+    const provenanceWarnings: string[] = [];
+
+    if (contextFileId) {
+      const citationRows = (parsed.citations ?? []).map((c) => ({
+        client_id: clientId,
+        context_file_id: contextFileId,
+        context_file_version: contextFileVersion,
+        claim_excerpt: c.claim_excerpt.slice(0, 4000),
+        source_type: c.source_type,
+        client_input_field: c.source_type === "client_input" ? c.client_input_field : null,
+        source_document_id: c.source_type === "source_document" ? c.source_document_id : null,
+        research_source_id: c.source_type === "research_source" ? c.research_source_id : null,
+      }));
+
+      // Regenerating replaces derived citations but never a human's approved
+      // inference for this file version.
+      const { error: clearErr } = await sb
+        .from("client_context_file_citations")
+        .delete()
+        .eq("context_file_id", contextFileId)
+        .eq("context_file_version", contextFileVersion)
+        .neq("source_type", "approved_inference");
+      if (clearErr) provenanceWarnings.push(`Could not clear prior citations: ${clearErr.message}`);
+
+      if (citationRows.length > 0) {
+        const { error: citeErr } = await sb.from("client_context_file_citations").insert(citationRows);
+        if (citeErr) provenanceWarnings.push(`Could not record citations: ${citeErr.message}`);
+      }
+
+      const { data: activePlaybooks } = await sb
+        .from("playbook_versions")
+        .select("id, playbook_id, version, content_hash")
+        .eq("status", "active");
+      const playbookRows = ((activePlaybooks ?? []) as Array<Record<string, unknown>>).map((pv) => ({
+        client_id: clientId,
+        context_file_id: contextFileId,
+        context_file_version: contextFileVersion,
+        playbook_id: pv.playbook_id,
+        playbook_version_id: pv.id,
+        playbook_version: pv.version,
+        playbook_content_hash: pv.content_hash,
+        applied_sections: [],
+      }));
+      if (playbookRows.length > 0) {
+        const { error: pbErr } = await sb
+          .from("client_context_file_playbooks")
+          .upsert(playbookRows, { onConflict: "context_file_id,context_file_version,playbook_version_id" });
+        if (pbErr) provenanceWarnings.push(`Could not record playbook authority: ${pbErr.message}`);
+      } else {
+        provenanceWarnings.push("No active playbook version exists — this file records no playbook authority.");
+      }
+    }
+
+    const allWarnings = [...validation.warnings, ...(parsed.warnings ?? []), ...provenanceWarnings];
 
     await writeActivity(sb, clientId, "phase_1_file_generated",
       `Phase 1 file ${def.file_name} generated for "${client.name}" (status: ${parsed.status}).`,
