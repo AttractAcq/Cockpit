@@ -10,6 +10,7 @@ import {
   PROOF_KINDS,
   SOURCE_KIND_LABEL,
   createOpportunityFromSource,
+  fetchContextFileProvenance,
   fetchInputConflicts,
   fetchOpportunitiesForSource,
   fetchProofItems,
@@ -20,6 +21,8 @@ import {
   reviewConflict,
   runConflictDetection,
   unresolvedBlocking,
+  untraceableFiles,
+  type ContextFileProvenance,
   type InputConflictRow,
   type SupplyOpportunityRow,
   type SupplyProofRow,
@@ -27,7 +30,7 @@ import {
 } from "@/lib/supply";
 import type { ContentSourceKind } from "@/types/content-spine";
 
-type Tab = "idea" | "proof" | "sources" | "conflicts";
+type Tab = "idea" | "proof" | "sources" | "conflicts" | "provenance";
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 
 function errorMessage(error: unknown): string {
@@ -58,6 +61,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   const [sources, setSources] = useState<SupplySourceRow[]>([]);
   const [proofs, setProofs] = useState<SupplyProofRow[]>([]);
   const [conflicts, setConflicts] = useState<InputConflictRow[]>([]);
+  const [provenance, setProvenance] = useState<ContextFileProvenance[]>([]);
   const [conflictNote, setConflictNote] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
@@ -82,14 +86,16 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, c] = await Promise.all([
+      const [s, p, c, prov] = await Promise.all([
         fetchSupplySources(clientId, { search, kinds: kindFilter }),
         fetchProofItems(clientId),
         fetchInputConflicts(clientId),
+        fetchContextFileProvenance(clientId),
       ]);
       setSources(s);
       setProofs(p);
       setConflicts(c);
+      setProvenance(prov);
     } catch (e) {
       setNotice({ kind: "error", text: `Could not load supply: ${errorMessage(e)}` });
     } finally {
@@ -222,6 +228,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   }, [proofs]);
 
   const blockingCount = useMemo(() => unresolvedBlocking(conflicts).length, [conflicts]);
+  const untraceableCount = useMemo(() => untraceableFiles(provenance).length, [provenance]);
 
   const scanConflicts = async () => {
     setBusy(true);
@@ -275,7 +282,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2">
-        {(["idea", "proof", "sources", "conflicts"] as Tab[]).map((t) => (
+        {(["idea", "proof", "sources", "conflicts", "provenance"] as Tab[]).map((t) => (
           <Button
             key={t}
             size="sm"
@@ -288,7 +295,9 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                 ? "Add Proof"
                 : t === "sources"
                   ? `Sources (${sources.length})`
-                  : `Conflicts (${blockingCount})`}
+                  : t === "conflicts"
+                    ? `Conflicts (${blockingCount})`
+                    : `Provenance (${untraceableCount})`}
           </Button>
         ))}
         <span className="ml-auto text-2xs text-paper-3">
@@ -394,6 +403,68 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "provenance" && (
+          <div>
+            <p className="mb-3 text-2xs text-paper-3">
+              Every material claim must trace to client input, an uploaded source, research, or a
+              human-approved inference. A file with no citations cannot be approved as authority.
+            </p>
+            {untraceableCount > 0 && (
+              <p className="mb-3 text-2xs text-warn">
+                {untraceableCount} of {provenance.length} context files have no citations recorded.
+              </p>
+            )}
+
+            {provenance.length === 0 && !loading && (
+              <p className="text-xs text-paper-3">No context files generated yet.</p>
+            )}
+
+            {provenance.map((f) => (
+              <div key={f.id} className="border-b border-line py-3 last:border-b-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-2xs font-mono text-teal">{String(f.file_number).padStart(2, "0")}</span>
+                  <span className="text-xs text-paper">{f.file_name}</span>
+                  <span className="text-2xs text-paper-3">{f.status}</span>
+                  <span className="text-2xs text-paper-3">v{f.version}</span>
+                  <span className={`text-2xs ${f.citations.length === 0 ? "text-warn" : "text-paper-3"}`}>
+                    {f.citations.length} citation{f.citations.length === 1 ? "" : "s"}
+                  </span>
+                  <span className={`text-2xs ${f.playbooks.length === 0 ? "text-warn" : "text-paper-3"}`}>
+                    {f.playbooks.length === 0 ? "no playbook authority" : `${f.playbooks.length} playbook version(s)`}
+                  </span>
+                  {f.classification && (
+                    <span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">
+                      {f.classification.replace(/_/g, " ")}
+                    </span>
+                  )}
+                </div>
+
+                {f.citations.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {f.citations.slice(0, 8).map((c) => (
+                      <div key={c.id} className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-2xs font-mono text-paper-3">
+                          {c.source_type === "client_input" ? c.client_input_field : c.source_type}
+                        </span>
+                        <span className="min-w-0 flex-1 break-words text-2xs text-paper-3">{c.claim_excerpt}</span>
+                      </div>
+                    ))}
+                    {f.citations.length > 8 && (
+                      <p className="text-2xs text-paper-3">…and {f.citations.length - 8} more</p>
+                    )}
+                  </div>
+                )}
+
+                {f.playbooks.length > 0 && (
+                  <p className="mt-1 text-2xs font-mono text-paper-3">
+                    playbook v{f.playbooks[0].playbook_version} · {f.playbooks[0].playbook_content_hash.slice(0, 12)}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         )}
 

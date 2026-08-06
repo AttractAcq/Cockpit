@@ -279,6 +279,81 @@ export function unresolvedBlocking(conflicts: readonly InputConflictRow[]): Inpu
   );
 }
 
+export interface ContextFileProvenance {
+  id: string;
+  file_number: number;
+  file_name: string;
+  status: string;
+  version: number;
+  classification: string | null;
+  citations: Array<{
+    id: string;
+    claim_excerpt: string;
+    source_type: string;
+    client_input_field: string | null;
+  }>;
+  playbooks: Array<{
+    id: string;
+    playbook_version: number;
+    playbook_content_hash: string;
+  }>;
+}
+
+export async function fetchContextFileProvenance(
+  clientId: string,
+): Promise<ContextFileProvenance[]> {
+  const [filesRes, citesRes, pbRes] = await Promise.all([
+    supabase
+      .from("client_context_files")
+      .select("id, file_number, file_name, status, version, classification")
+      .eq("client_id", clientId)
+      .order("file_number"),
+    supabase
+      .from("client_context_file_citations")
+      .select("id, context_file_id, claim_excerpt, source_type, client_input_field")
+      .eq("client_id", clientId),
+    supabase
+      .from("client_context_file_playbooks")
+      .select("id, context_file_id, playbook_version, playbook_content_hash")
+      .eq("client_id", clientId),
+  ]);
+  if (filesRes.error) throw filesRes.error;
+  if (citesRes.error) throw citesRes.error;
+  if (pbRes.error) throw pbRes.error;
+
+  const cites = (citesRes.data ?? []) as Array<Record<string, unknown>>;
+  const pbs = (pbRes.data ?? []) as Array<Record<string, unknown>>;
+
+  return ((filesRes.data ?? []) as Array<Record<string, unknown>>).map((f) => ({
+    id: f.id as string,
+    file_number: f.file_number as number,
+    file_name: f.file_name as string,
+    status: f.status as string,
+    version: (f.version as number) ?? 1,
+    classification: (f.classification as string) ?? null,
+    citations: cites
+      .filter((c) => c.context_file_id === f.id)
+      .map((c) => ({
+        id: c.id as string,
+        claim_excerpt: c.claim_excerpt as string,
+        source_type: c.source_type as string,
+        client_input_field: (c.client_input_field as string) ?? null,
+      })),
+    playbooks: pbs
+      .filter((p) => p.context_file_id === f.id)
+      .map((p) => ({
+        id: p.id as string,
+        playbook_version: p.playbook_version as number,
+        playbook_content_hash: p.playbook_content_hash as string,
+      })),
+  }));
+}
+
+/** A file with no citations cannot be approved as traceable authority. */
+export function untraceableFiles(files: readonly ContextFileProvenance[]): ContextFileProvenance[] {
+  return files.filter((f) => f.citations.length === 0);
+}
+
 /** Where a source came from, for the provenance view. */
 export function provenanceOf(source: SupplySourceRow): string {
   if (source.ideation_candidate_id) return `Ideation candidate ${source.ideation_candidate_id.slice(0, 8)}`;
