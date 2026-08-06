@@ -19,6 +19,7 @@ import {
   generateCalendarSlots,
   hasBlockingFailure,
   monthBounds,
+  pillarCapSatisfiable,
   quantitiesReconcileToSlots,
   reconcileWithExecutionFiles,
   reconciliationOutcome,
@@ -287,4 +288,82 @@ test("derived requirements are ordered deterministically", () => {
     "instagram/organic/carousel",
     "instagram/organic/reel",
   ]);
+});
+
+// --- Stage D runtime addition: declared pillar rotation -----------------------
+// The approved Execution file declares a pillar list and a rule that no single
+// pillar may occupy more than half of a month's organic slots. Rotation is how
+// the derivation satisfies that rule deterministically.
+
+test("pillar rotation round-robins the declared pillars across slots", () => {
+  const config = baseConfig();
+  config.content_pillars = ["p1", "p2", "p3"];
+  config.requirements = [{
+    platform: "instagram", asset_format: "reel", channel: "organic",
+    quantity: 6, cadence: "weekly",
+    objective_mix: { authority: 6 },
+    content_pillar_rotation: ["p1", "p2", "p3"],
+  }];
+  const pillars = generateCalendarSlots(config, true).map((s) => s.content_pillar);
+  assert.deepEqual(pillars, ["p1", "p2", "p3", "p1", "p2", "p3"]);
+});
+
+test("rotation achieves the best possible balance, ceil(quantity / pillars)", () => {
+  for (const pillarCount of [2, 3, 4]) {
+    const pillars = Array.from({ length: pillarCount }, (_, i) => `p${i + 1}`);
+    const config = baseConfig();
+    config.content_pillars = pillars;
+    config.requirements = [{
+      platform: "instagram", asset_format: "reel", channel: "organic",
+      quantity: 17, cadence: "weekly",
+      objective_mix: { authority: 17 },
+      content_pillar_rotation: pillars,
+    }];
+    const slots = generateCalendarSlots(config, true);
+    const counts = new Map<string, number>();
+    for (const slot of slots) {
+      const key = slot.content_pillar ?? "none";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    for (const [pillar, count] of counts) {
+      assert.ok(
+        count <= Math.ceil(slots.length / pillarCount),
+        `${pillar} took ${count} of ${slots.length} slots with ${pillarCount} pillars`,
+      );
+      if (pillarCount >= 3) {
+        assert.ok(
+          count / slots.length <= 0.5,
+          `${pillar} exceeded half the slots with ${pillarCount} pillars`,
+        );
+      }
+    }
+  }
+});
+
+test("two pillars over an odd slot count cannot satisfy the declared 50 percent cap", () => {
+  // Not a derivation defect: ceil(17/2) = 9 > 8.5, so no assignment satisfies
+  // the rule. The declared pillar list is too short for the declared cap.
+  assert.equal(pillarCapSatisfiable(17, 2), false);
+  assert.equal(pillarCapSatisfiable(16, 2), true);
+  assert.equal(pillarCapSatisfiable(17, 3), true);
+  assert.equal(pillarCapSatisfiable(0, 2), true);
+  assert.equal(pillarCapSatisfiable(5, 0), false);
+});
+
+test("a configuration without rotation behaves exactly as before", () => {
+  const config = baseConfig();
+  config.requirements[0].content_pillar = "authority";
+  const slots = generateCalendarSlots(config, true)
+    .filter((s) => s.requirement_key === requirementKey(config.requirements[0]));
+  assert.ok(slots.length > 0);
+  assert.ok(slots.every((s) => s.content_pillar === "authority"));
+});
+
+test("rotation naming an undeclared pillar fails closed", () => {
+  const config = baseConfig();
+  config.content_pillars = ["authority", "proof"];
+  config.requirements[0].content_pillar_rotation = ["authority", "invented"];
+  const checks = validateExecutionConfig(config);
+  assert.ok(hasBlockingFailure(checks), "an undeclared pillar must block approval");
+  assert.equal(reconciliationOutcome(checks), "failed");
 });

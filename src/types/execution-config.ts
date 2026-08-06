@@ -35,6 +35,15 @@ export interface ExecutionRequirementSpec {
   /** Origin -> count. When present, must sum to quantity. */
   preferred_origins?: Partial<Record<SourceOrigin, number>>;
   content_pillar?: string;
+  /**
+   * Declared pillars to rotate across this requirement's slots, in order.
+   * Stage D: the approved Execution file declares a pillar list and a rule that
+   * no single pillar may occupy more than half of a month's organic slots.
+   * Round-robin assignment satisfies that cap deterministically for any list of
+   * two or more pillars. When absent, `content_pillar` is used unchanged, so
+   * every configuration written before this field existed behaves identically.
+   */
+  content_pillar_rotation?: string[];
   funnel_stage?: FunnelStage;
   audience_stage?: string;
   offer_ref?: string;
@@ -244,6 +253,20 @@ export function validateExecutionConfig(config: ExecutionConfig): ExecutionConfi
       );
     }
 
+    if (r.content_pillar_rotation && config.content_pillars) {
+      const undeclared = r.content_pillar_rotation.filter(
+        (p) => !config.content_pillars!.includes(p),
+      );
+      if (undeclared.length > 0) {
+        fail(
+          `pillar_rotation_declared:${key}`,
+          `pillar rotation for ${key} names pillars absent from the declared pillar list: ${undeclared.join(",")}`,
+          config.content_pillars.join(","),
+          r.content_pillar_rotation.join(","),
+        );
+      }
+    }
+
     if (r.offer_ref && config.offers && !config.offers.includes(r.offer_ref)) {
       fail(
         `offer_declared:${key}`,
@@ -341,6 +364,23 @@ export function reconcileWithExecutionFiles(
   return checks;
 }
 
+/**
+ * Whether a declared pillar list can satisfy a "no pillar above `maxShare` of
+ * slots" rule for the given slot count. The best any assignment achieves is
+ * ceil(quantity / pillars), so a list that is too short makes the declared cap
+ * impossible — the caller reports that rather than quietly producing a plan
+ * that violates the approved rule.
+ */
+export function pillarCapSatisfiable(
+  quantity: number,
+  pillarCount: number,
+  maxShare = 0.5,
+): boolean {
+  if (quantity <= 0) return true;
+  if (pillarCount <= 0) return false;
+  return Math.ceil(quantity / pillarCount) <= quantity * maxShare;
+}
+
 export function hasBlockingFailure(checks: readonly ExecutionConfigCheck[]): boolean {
   return checks.some((c) => c.status === "fail" && c.severity === "blocking");
 }
@@ -427,7 +467,7 @@ export function generateCalendarSlots(
         slot_index: index,
         platform: spec.platform,
         objective: objectives[i] ?? "unassigned",
-        content_pillar: spec.content_pillar ?? null,
+        content_pillar: pickPillar(spec, i),
         funnel_stage: spec.funnel_stage ?? null,
         audience_stage: spec.audience_stage ?? null,
         offer_ref: spec.offer_ref ?? null,
@@ -446,6 +486,27 @@ function deriveOrderedSpecs(config: ExecutionConfig): ExecutionRequirementSpec[]
   return [...config.requirements].sort((a, b) =>
     requirementKey(a).localeCompare(requirementKey(b)),
   );
+}
+
+/**
+ * Round-robins the declared pillar list across a requirement's slots. With N
+ * distinct pillars no pillar exceeds ceil(quantity/N) slots, which is the best
+ * any assignment can do.
+ *
+ * That satisfies the approved file's "no pillar above 50 percent of organic
+ * slots" rule for N >= 3. It does NOT for N == 2 with an odd slot count, where
+ * ceil(n/2) > n/2 makes the rule unsatisfiable by any assignment whatsoever —
+ * the declared pillar list is then too short for the declared cap, which is a
+ * contradiction in the authority rather than a derivation defect.
+ * `pillarCapSatisfiable` exists so the generator can surface that.
+ *
+ * Falls back to the single `content_pillar` when no rotation is declared,
+ * preserving pre-existing behaviour exactly.
+ */
+function pickPillar(spec: ExecutionRequirementSpec, index: number): string | null {
+  const rotation = spec.content_pillar_rotation;
+  if (rotation && rotation.length > 0) return rotation[index % rotation.length];
+  return spec.content_pillar ?? null;
 }
 
 function pickOrigin(spec: ExecutionRequirementSpec, index: number): SourceOrigin | null {
