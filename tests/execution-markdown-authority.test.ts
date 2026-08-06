@@ -14,6 +14,7 @@ import {
   extractDeclaredAuthority,
   objectiveMixFromThemes,
   parseContentPillars,
+  parsePrimaryPlatform,
   parseSlotTargets,
   parseWeeklyThemes,
   sectionBody,
@@ -57,6 +58,13 @@ No single pillar may occupy more than 50 percent of organic slots.
 | P1 | The Proof Problem |
 | P2 | The Authority System |
 | P3 | The Market Reality |
+
+---
+
+### Platform
+
+- **Primary platform:** Instagram — Reels, Carousels, Static Feed Posts, Stories, Meta Ads
+- **Secondary platform:** Unresolved. Facebook and LinkedIn are candidates.
 `;
 
 test("slot targets parse to the exact weekly figures, ignoring approximate monthly ones", () => {
@@ -147,4 +155,34 @@ test("objective mix spreads evenly and sends the remainder to earlier weeks", ()
 
 test("objective mix refuses to invent a theme when none are declared", () => {
   assert.throws(() => objectiveMixFromThemes(4, []), /at least one declared theme/);
+});
+
+// --- declared platform -------------------------------------------------------
+
+test("primary platform parses, dropping the format qualifier after the em dash", () => {
+  assert.equal(parsePrimaryPlatform(CALENDAR), "instagram");
+});
+
+test("the secondary platform line is never mistaken for the primary", () => {
+  assert.equal(parsePrimaryPlatform(CALENDAR), "instagram");
+  assert.ok(!String(parsePrimaryPlatform(CALENDAR)).includes("facebook"));
+});
+
+test("an explicit non-answer yields null rather than a platform named Unresolved", () => {
+  for (const value of ["Unresolved", "TBC", "TBD", "None", "Pending"]) {
+    const md = `### Platform\n\n- **Primary platform:** ${value}\n`;
+    assert.equal(parsePrimaryPlatform(md), null, `${value} must not become a platform`);
+  }
+});
+
+test("a missing platform section yields null rather than a guess from formats", () => {
+  const withoutPlatform = CALENDAR.slice(0, CALENDAR.indexOf("### Platform"));
+  assert.equal(parsePrimaryPlatform(withoutPlatform), null);
+  assert.equal(extractDeclaredAuthority(withoutPlatform).primary_platform, null);
+});
+
+test("platform variants normalise to a comparable lowercase value", () => {
+  assert.equal(parsePrimaryPlatform("### Platform\n\n- **Primary platform:** LinkedIn\n"), "linkedin");
+  assert.equal(parsePrimaryPlatform("### Platform\n\n- **Primary platform:** Instagram, Reels only\n"), "instagram");
+  assert.equal(parsePrimaryPlatform("### Platform\n\n* **Primary platform:** TikTok - short form\n"), "tiktok");
 });

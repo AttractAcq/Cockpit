@@ -28,7 +28,7 @@ export interface DeclaredSlotTarget {
   weekly_target: number;
 }
 
-export interface DeclaredAuthority {
+export interface DeclaredAuthorityBase {
   /** Rule 2 per-format weekly targets. Null when the table is absent. */
   slot_targets: DeclaredSlotTarget[] | null;
   /** Rule 2 "Organic total" checksum row, when present. */
@@ -37,6 +37,16 @@ export interface DeclaredAuthority {
   weekly_themes: string[] | null;
   /** Rule 4 pillar names. Null when absent. */
   content_pillars: string[] | null;
+}
+
+export interface DeclaredAuthority extends DeclaredAuthorityBase {
+  /**
+   * The primary platform the approved file declares for this month. Null when
+   * the file declares none — the caller then falls back to client-level
+   * configuration, and fails closed if that is also unset. A platform is never
+   * guessed from the formats present.
+   */
+  primary_platform: string | null;
 }
 
 /**
@@ -234,6 +244,31 @@ export function objectiveMixFromThemes(
   return mix;
 }
 
+/**
+ * The declared primary platform, from a "**Primary platform:** X" line inside
+ * the Platform section. The declared value is often qualified with the formats
+ * it carries ("Instagram — Reels, Carousels, ..."); only the platform name
+ * before that qualifier is taken. Returns null rather than guessing when the
+ * section or the line is absent, or when the value is an explicit non-answer
+ * such as "Unresolved" or "TBC".
+ */
+export function parsePrimaryPlatform(content: string): string | null {
+  const body = sectionBody(content, /^#{2,4}[ \t]+Platform[ \t]*$/gim);
+  if (!body) return null;
+
+  const match = /^[-*][ \t]*\*\*Primary platform:\*\*[ \t]*(.+)$/im.exec(body);
+  if (!match) return null;
+
+  // Cut at the first qualifier: em dash, en dash, hyphen-space, comma or colon.
+  const raw = match[1].split(/\s+[—–]\s+|\s+-\s+|[,:]/)[0].trim().replace(/\*\*/g, "");
+  if (raw.length === 0) return null;
+
+  const normalized = raw.toLowerCase();
+  const nonAnswers = new Set(["unresolved", "tbc", "tbd", "none", "pending", "unknown", "n/a"]);
+  if (nonAnswers.has(normalized)) return null;
+  return normalized;
+}
+
 /** Extracts everything Stage D reconciles against, from one execution file. */
 export function extractDeclaredAuthority(content: string): DeclaredAuthority {
   const { targets, organic_weekly_total } = parseSlotTargets(content);
@@ -242,5 +277,6 @@ export function extractDeclaredAuthority(content: string): DeclaredAuthority {
     declared_organic_weekly_total: organic_weekly_total,
     weekly_themes: parseWeeklyThemes(content),
     content_pillars: parseContentPillars(content),
+    primary_platform: parsePrimaryPlatform(content),
   };
 }

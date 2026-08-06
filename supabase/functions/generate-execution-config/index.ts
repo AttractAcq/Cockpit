@@ -86,15 +86,6 @@ Deno.serve(async (req) => {
   if (clientErr) return json({ code: "LOOKUP_FAILED", message: clientErr.message }, 500);
   if (!client) return json({ code: "CLIENT_NOT_FOUND" }, 404);
 
-  const platform = (client.primary_platform as string | null)?.trim();
-  if (!platform) {
-    // Platform is client authority, not something this function may choose.
-    return json({
-      code: "PLATFORM_NOT_SET",
-      message: "The client has no primary_platform. Structured requirements cannot name a platform that was never declared.",
-    }, 422);
-  }
-
   // Approved Execution Markdown only. review_state is the approval field for
   // execution files; `status` is not the approval gate.
   const { data: fileRows, error: filesErr } = await sb
@@ -133,6 +124,20 @@ Deno.serve(async (req) => {
     return json({ code: "CALENDAR_AUTHORITY_MISSING", message: `Approved E05 is required for ${month}.` }, 422);
   }
   const declared = extractDeclaredAuthority(calendarFile.content_md);
+
+  // The approved Execution file is the authority for the month, so its declared
+  // platform wins. clients.primary_platform is only a fallback for a client
+  // whose approved file names none. If neither declares one, refuse — a
+  // platform is never inferred from the formats that happen to be present.
+  const platform = declared.primary_platform
+    ?? (client.primary_platform as string | null)?.trim()?.toLowerCase()
+    ?? null;
+  if (!platform) {
+    return json({
+      code: "PLATFORM_NOT_DECLARED",
+      message: "Neither the approved Execution files nor the client record declares a primary platform. Structured requirements cannot name a platform that was never declared.",
+    }, 422);
+  }
 
   const themes = declared.weekly_themes;
   if (!themes || themes.length === 0) {
