@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --report-unused-disable-directives",
+    "lint": "eslint src supabase/functions tests scripts *.config.js *.config.ts --report-unused-disable-directives",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
