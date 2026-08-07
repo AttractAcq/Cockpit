@@ -12,6 +12,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    // Fail loudly rather than drifting to another port. With strictPort:false
+    // Vite silently moves to the next free port when 5173 is taken, so a
+    // bookmarked http://localhost:5173 quietly serves whatever other project
+    // claimed it first — which reads as "all my client data disappeared"
+    // rather than as a port conflict. Refusing to start makes the real cause
+    // obvious immediately.
+    strictPort: true,
   },
 });
