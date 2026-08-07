@@ -1,0 +1,125 @@
+{
+  "stage": "A",
+  "generated": "2026-08-03",
+  "baseline_commit": "7d4c1b96cdd7f3a59e28dc9826b44b1aad3b4e5e",
+  "supabase_project_ref": "xivewedajschthjlblfb",
+  "method": {
+    "code_source": "clone of AttractAcq/Cockpit at baseline commit",
+    "live_source": "Supabase MCP against xivewedajschthjlblfb",
+    "note": "Local mount returns EDEADLK on all file-content reads; directory listings succeed. Local .git/refs/heads/main matches baseline commit exactly."
+  },
+
+  "frontend_routes": [
+    { "path": "/login", "kind": "public" },
+    { "path": "/clients/:id", "kind": "protected" },
+    { "path": "/clients/:id/:section", "kind": "protected" },
+    { "path": "/website/:id", "kind": "protected" },
+    { "path": "*", "kind": "fallback" }
+  ],
+
+  "database": {
+    "public_tables": 78,
+    "rls_enabled": 78,
+    "rls_coverage": "100%",
+    "note": "Counts from live project. Row counts captured in Stage_A_Baseline_Report.md section 4."
+  },
+
+  "migrations": {
+    "repo_files": 47,
+    "applied": 47,
+    "classification": {
+      "applied": 47,
+      "pending": 0,
+      "held": 0,
+      "obsolete": 0
+    },
+    "reconciliation": "EXACT 1:1. No repo migration is unapplied; no applied migration lacks a repo file.",
+    "earliest": "20260702074337_v1_foundation",
+    "latest": "20260731000041_ideation_stage5_authority_race"
+  },
+
+  "edge_functions": {
+    "deployed_total": 50,
+    "repo_total": 60,
+    "classification": {
+      "deployed_and_present_in_repo": 50,
+      "deployed_but_absent_from_repo": 0,
+      "local_only": 10,
+      "deprecated": 10
+    },
+    "local_only_deprecated": [
+      "apify-scrape",
+      "brief-generator",
+      "dialog360-send",
+      "meta-ad-ops",
+      "meta-webhook",
+      "mjr-generate",
+      "mrr-calc",
+      "onboarding",
+      "payfast-create-link",
+      "payfast-webhook"
+    ],
+    "local_only_assessment": "All 10 belong to the superseded entities/campaigns/MRR/ZAR-era architecture listed as non-authoritative in workspace CLAUDE.md section 9. payfast-* is a South African payment gateway and mrr-calc is MRR-era. None has ever been deployed to the active project. Recommend classifying deprecated and scheduling removal in Stage P (Legacy Retirement), not earlier.",
+    "deployed_with_jwt_disabled": [
+      "process-asset-generation-jobs",
+      "collect-instagram-insights"
+    ]
+  },
+
+  "deployed_from_non_canonical_source": {
+    "severity": "HIGH",
+    "description": "Four live Edge Functions report an entrypoint_path outside the canonical Cockpit repository. Their deployed source came from untracked sibling working directories.",
+    "functions": [
+      { "slug": "run-ideation", "version": 15, "source_dir": "Cockpit-ideation-claims" },
+      { "slug": "score-ideation-candidates", "version": 1, "source_dir": "Cockpit-stage2" },
+      { "slug": "create-ideation-calendar-proposal", "version": 1, "source_dir": "Cockpit-stage3" },
+      { "slug": "commit-ideation-content", "version": 1, "source_dir": "Cockpit-stage4" }
+    ],
+    "implication": "Live behaviour of these four functions is not provably identical to the version tracked on main. Byte-level comparison is required before any stage depends on them."
+  },
+
+  "sibling_working_directories": {
+    "severity": "HIGH",
+    "location": "Application Surfaces/",
+    "description": "Nine parallel Cockpit copies exist beside the canonical repo. None is a git repository, so none has history, branch or remote. Work in them is unversioned and unbacked-up.",
+    "directories": [
+      { "name": "Cockpit-ideation-claims", "git": false, "function_dirs": 69, "has_live_deployment": true },
+      { "name": "Cockpit-ideation-compliance", "git": false, "function_dirs": 69, "has_live_deployment": false },
+      { "name": "Cockpit-ideation-fix", "git": false, "function_dirs": 58, "has_live_deployment": false },
+      { "name": "Cockpit-increment3-validation", "git": false, "function_dirs": 0, "has_live_deployment": false },
+      { "name": "Cockpit-stage2", "git": false, "function_dirs": 67, "has_live_deployment": true },
+      { "name": "Cockpit-stage3", "git": false, "function_dirs": 68, "has_live_deployment": true },
+      { "name": "Cockpit-stage4", "git": false, "function_dirs": 69, "has_live_deployment": true },
+      { "name": "Cockpit-stage5", "git": false, "function_dirs": 69, "has_live_deployment": false },
+      { "name": "Cockpit-workflow-ui", "git": false, "function_dirs": 41, "has_live_deployment": false }
+    ],
+    "note": "Cockpit-stage5 contains 69 function directories but has no corresponding live deployment and no migration beyond 20260731000041. It may hold unreleased work."
+  },
+
+  "external_provider_calls": [
+    { "host": "platform.higgsfield.ai", "refs": 6, "purpose": "Reel Studio still + video generation" },
+    { "host": "graph.facebook.com", "refs": 6, "purpose": "Instagram publishing and insights" },
+    { "host": "api.openai.com", "refs": 6, "purpose": "generation" },
+    { "host": "instagram.com", "refs": 3, "purpose": "distribution" },
+    { "host": "api.anthropic.com", "refs": 3, "purpose": "generation" },
+    { "host": "waba-v2.360dialog.io", "refs": 1, "purpose": "WhatsApp — deprecated path (dialog360-send)" },
+    { "host": "api.resend.com", "refs": 1, "purpose": "contractor email" },
+    { "host": "api.apify.com", "refs": 1, "purpose": "scraping — deprecated path (apify-scrape)" },
+    { "host": "primary-production-2335e.up.railway.app", "refs": 1, "purpose": "UNIDENTIFIED — n8n instance, requires confirmation" }
+  ],
+
+  "baseline_verification": {
+    "typecheck": "PASS",
+    "lint": "PASS (0 errors, 4 react-hooks/exhaustive-deps warnings)",
+    "tests": { "result": "PASS", "total": 605, "pass": 605, "fail": 0, "skipped": 0 },
+    "build": "PASS",
+    "git_diff_check": "CLEAN"
+  },
+
+  "open_questions": [
+    "Byte-level diff of the four non-canonically-deployed functions against main has not been performed.",
+    "The nine sibling directories have not been triaged for unreleased work.",
+    "primary-production-2335e.up.railway.app is an unidentified external dependency.",
+    "client_health_v was not observed in the public schema (referenced only by now-deleted orphan code)."
+  ]
+}
