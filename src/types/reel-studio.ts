@@ -55,6 +55,10 @@ export interface VideoProjectRow {
   storyboard_prompt_version?: string | null;
   storyboard_model?: string | null;
   storyboard_generated_at?: string | null;
+
+  // ── Stage J: production strategy + style ────────────────────────────────
+  production_strategy?: import("./reel-production").ProductionStrategy | null;
+  reel_style_id?: string | null;
 }
 
 /** The narrative job a shot performs in the sequence. */

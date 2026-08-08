@@ -62,6 +62,7 @@ import type {
   VideoShotRow,
 } from "@/types/reel-studio";
 import { REEL_STORY_ROLE_LABELS } from "@/types/reel-studio";
+import { ReelProductionPanel } from "@/components/client/ReelProductionPanel";
 
 /**
  * The story spine, shown above the shot list so a disjointed sequence is
@@ -898,6 +899,12 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
     {motionsError && <div role="alert" className="rounded border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn">Motion catalogue unavailable: {motionsError}. Storyboard planning and image generation are unaffected; motion must load before video generation.</div>}
     {handoffInfo && <div role="status" className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{handoffInfo}</div>}
     {spine.strategy && <StoryboardSummary strategy={spine.strategy} continuity={spine.continuity} shots={shots} />}
+    <ReelProductionPanel
+      clientId={project.client_id}
+      videoProjectId={project.id}
+      productionStrategy={project.production_strategy ?? null}
+      onStrategySelected={(strategy) => onProjectChanged({ ...project, production_strategy: strategy })}
+    />
     <div className="flex shrink-0 gap-2">
       {canPlan && <Button size="sm" variant="primary" onClick={() => setShotModal({ shot: null })}>Add shot</Button>}
       {canPlan && shots.length === 0 && (project.organic_master_id || project.ads_master_id) &&
