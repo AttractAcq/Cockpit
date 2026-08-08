@@ -28,6 +28,7 @@ import { IdeationPanel } from "@/components/client/IdeationPanel";
 import { ContentSupplyPanel } from "@/components/client/ContentSupplyPanel";
 import { OpportunityPoolPanel } from "@/components/client/OpportunityPoolPanel";
 import { CalendarPlanningPanel } from "@/components/client/CalendarPlanningPanel";
+import { ContentItemsPanel } from "@/components/client/ContentItemsPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -42,6 +43,7 @@ type Section =
   | "content_supply"
   | "opportunity_pool"
   | "calendar_planning"
+  | "content_items"
   | "ideation"
   | "overview"
   | "client_settings"
@@ -73,6 +75,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Content Supply",   section: "content_supply" },
   { label: "Opportunity Pool", section: "opportunity_pool" },
   { label: "Calendar Planning", section: "calendar_planning" },
+  { label: "Content Items",    section: "content_items" },
   { label: "Proof Upload",     section: "proof_upload" },
   { label: "Ideation",         section: "ideation" },
   { label: "Calendar",         section: "calendar" },
@@ -677,6 +680,8 @@ export function ClientDetailPage() {
         return <OpportunityPoolPanel clientId={id} />;
       case "calendar_planning":
         return <CalendarPlanningPanel clientId={id} />;
+      case "content_items":
+        return <ContentItemsPanel clientId={id} />;
       case "proof_upload":
         return <ContentSupplyPanel clientId={id} initialTab="proof" />;
       case "reel_studio":
