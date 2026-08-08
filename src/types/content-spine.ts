@@ -45,6 +45,10 @@ export type ContentOpportunityOrigin =
   | "research"
   | "performance";
 
+export type ContentOpportunityEligibilityStatus = "pending" | "eligible" | "ineligible";
+
+export type ContentOpportunityGeneratedBy = "manual" | "ai";
+
 export type CalendarSlotStatus = "open" | "reserved" | "filled" | "cancelled";
 
 export type ContentItemStatus =
@@ -207,6 +211,31 @@ export interface ContentOpportunity extends OwnedRow, AuthorityProvenance {
   rejected_reason: string | null;
   selected_at: string | null;
   created_by: string | null;
+
+  // Programme Stage F — Content Opportunity Intelligence.
+  core_claim: string | null;
+  hook_direction: string | null;
+  audience: string | null;
+  pain_or_objection: string | null;
+  belief_before: string | null;
+  belief_after: string | null;
+  objective: string | null;
+  offer_relationship: string | null;
+  funnel_stage: string | null;
+  candidate_formats: string[];
+  candidate_channels: string[];
+  cta_direction: string | null;
+  /** 1 (low) to 5 (high) qualitative rating assigned at generation time. */
+  visual_potential: number | null;
+  production_requirements: string | null;
+  eligibility_status: ContentOpportunityEligibilityStatus;
+  eligibility_reason: string | null;
+  eligibility_checked_at: string | null;
+  duplicate_of_opportunity_id: string | null;
+  dedup_reason: string | null;
+  generated_by: ContentOpportunityGeneratedBy;
+  provider: string | null;
+  model: string | null;
 }
 
 export interface ContentOpportunitySource {

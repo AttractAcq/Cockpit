@@ -7,6 +7,7 @@
 import { supabase, invokeFn } from "./supabase";
 import type {
   ContentSourceKind,
+  ContentOpportunity,
   ContentOpportunityStatus,
 } from "@/types/content-spine";
 import type {
@@ -14,6 +15,13 @@ import type {
   ProofUsageState,
   SourceProcessingStatus,
 } from "@/types/content-supply";
+import type {
+  ContentOpportunityScore,
+  GenerateContentOpportunitiesResponse,
+  ScoreContentOpportunityResponse,
+  UpdateContentOpportunityStatusResponse,
+  OpportunityStatusAction,
+} from "@/types/content-opportunity-scoring";
 
 export interface SupplySourceRow {
   id: string;
@@ -353,6 +361,108 @@ export async function fetchContextFileProvenance(
 export function untraceableFiles(files: readonly ContextFileProvenance[]): ContextFileProvenance[] {
   return files.filter((f) => f.citations.length === 0);
 }
+
+// ---------------------------------------------------------------------------
+// Programme Stage F — Content Opportunity Intelligence.
+// ---------------------------------------------------------------------------
+
+export interface OpportunityPoolFilters {
+  statuses?: ContentOpportunityStatus[];
+  search?: string;
+  /** When true, excludes ineligible/rejected/expired/duplicate opportunities. */
+  activeOnly?: boolean;
+}
+
+export async function fetchOpportunityPool(
+  clientId: string,
+  filters: OpportunityPoolFilters = {},
+): Promise<ContentOpportunity[]> {
+  let query = supabase
+    .from("content_opportunities")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("score", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  if (filters.statuses && filters.statuses.length > 0) {
+    query = query.in("status", filters.statuses);
+  } else if (filters.activeOnly) {
+    query = query.not("status", "in", "(rejected,expired)");
+  }
+  const search = (filters.search ?? "").trim();
+  if (search.length > 0) {
+    const safe = search.replace(/[(),*]/g, " ").trim();
+    if (safe.length > 0) {
+      query = query.or(`title.ilike.%${safe}%,core_claim.ilike.%${safe}%,audience.ilike.%${safe}%`);
+    }
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ContentOpportunity[];
+}
+
+export async function fetchOpportunityScoreHistory(
+  opportunityId: string,
+): Promise<ContentOpportunityScore[]> {
+  const { data, error } = await supabase
+    .from("content_opportunity_scores")
+    .select("*")
+    .eq("content_opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ContentOpportunityScore[];
+}
+
+export async function generateOpportunitiesFromSource(input: {
+  clientId: string;
+  sourceId: string;
+}): Promise<GenerateContentOpportunitiesResponse> {
+  return await invokeFn<GenerateContentOpportunitiesResponse>("generate-content-opportunities", {
+    client_id: input.clientId,
+    content_source_id: input.sourceId,
+  });
+}
+
+export async function scoreOpportunity(input: {
+  clientId: string;
+  opportunityId: string;
+}): Promise<ScoreContentOpportunityResponse> {
+  return await invokeFn<ScoreContentOpportunityResponse>("score-content-opportunity", {
+    client_id: input.clientId,
+    content_opportunity_id: input.opportunityId,
+  });
+}
+
+export async function updateOpportunityStatus(input: {
+  clientId: string;
+  opportunityId: string;
+  action: OpportunityStatusAction;
+  reason?: string;
+  mergeIntoOpportunityId?: string;
+  newExpiresAt?: string;
+}): Promise<UpdateContentOpportunityStatusResponse> {
+  return await invokeFn<UpdateContentOpportunityStatusResponse>("update-content-opportunity-status", {
+    client_id: input.clientId,
+    content_opportunity_id: input.opportunityId,
+    action: input.action,
+    reason: input.reason,
+    merge_into_opportunity_id: input.mergeIntoOpportunityId,
+    new_expires_at: input.newExpiresAt,
+  });
+}
+
+export const OPPORTUNITY_STATUS_LABEL: Record<ContentOpportunityStatus, string> = {
+  draft: "Draft",
+  needs_review: "Needs review",
+  shortlisted: "Shortlisted",
+  selected: "Selected",
+  scheduled: "Scheduled",
+  produced: "Produced",
+  rejected: "Rejected",
+  expired: "Expired",
+};
 
 /** Where a source came from, for the provenance view. */
 export function provenanceOf(source: SupplySourceRow): string {

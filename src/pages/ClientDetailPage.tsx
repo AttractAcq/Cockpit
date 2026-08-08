@@ -26,6 +26,7 @@ import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { IdeationPanel } from "@/components/client/IdeationPanel";
 import { ContentSupplyPanel } from "@/components/client/ContentSupplyPanel";
+import { OpportunityPoolPanel } from "@/components/client/OpportunityPoolPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -38,6 +39,7 @@ type Section =
   | "execution_contract"
   | "proof_upload"
   | "content_supply"
+  | "opportunity_pool"
   | "ideation"
   | "overview"
   | "client_settings"
@@ -67,6 +69,7 @@ const BUTTON_BAR: { label: string; section: Section }[] = [
   { label: "Execution Files",  section: "execution_files" },
   { label: "Execution Contract", section: "execution_contract" },
   { label: "Content Supply",   section: "content_supply" },
+  { label: "Opportunity Pool", section: "opportunity_pool" },
   { label: "Proof Upload",     section: "proof_upload" },
   { label: "Ideation",         section: "ideation" },
   { label: "Calendar",         section: "calendar" },
@@ -667,6 +670,8 @@ export function ClientDetailPage() {
         return <ExecutionConfigPanel clientId={id} executionMonth={currentMonth()} />;
       case "content_supply":
         return <ContentSupplyPanel clientId={id} />;
+      case "opportunity_pool":
+        return <OpportunityPoolPanel clientId={id} />;
       case "proof_upload":
         return <ContentSupplyPanel clientId={id} initialTab="proof" />;
       case "reel_studio":
