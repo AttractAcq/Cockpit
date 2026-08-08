@@ -30,6 +30,7 @@ import { OpportunityPoolPanel } from "@/components/client/OpportunityPoolPanel";
 import { CalendarPlanningPanel } from "@/components/client/CalendarPlanningPanel";
 import { ContentItemsPanel } from "@/components/client/ContentItemsPanel";
 import { ProductionStudioPanel } from "@/components/client/ProductionStudioPanel";
+import { AdStudioPanel } from "@/components/client/AdStudioPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -121,7 +122,6 @@ function PlaceholderSection({
 
 const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
   automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-  paid_distribution: { title: "Paid Distribution", description: "Not yet built." },
 };
 
 type PhaseResult =
@@ -695,6 +695,8 @@ export function ClientDetailPage() {
         return <AssetsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewProductionBrief={(sourceRef) => navigate(`${ROUTES.clientSection(id, "content_creation")}?source_ref=${encodeURIComponent(sourceRef)}`)} />;
       case "distribution":
         return <DistributionPanel clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
+      case "paid_distribution":
+        return <AdStudioPanel clientId={id} />;
       case "analytics":
         return <AnalyticsPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "performance-iteration":
