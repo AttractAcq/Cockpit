@@ -13,9 +13,19 @@ import {
   routeContentBriefToStudio,
   submitProductionReview,
 } from "@/lib/production-studio";
-import { STUDIO_LABEL } from "@/types/production-studio";
+import { STUDIO_LABEL, type StudioCapability } from "@/types/production-studio";
+import { createDistributionRecordFromContentItem } from "@/lib/distribution-policy";
+import type { CanonicalAssetFormat } from "@/types/distribution-policy";
 import type { ContentItem, ContentBrief } from "@/types/content-brief";
 import type { ProductionJob, ContentItemAsset, ProductionReview, ReviewDecision } from "@/types/production-studio";
+
+const STUDIO_TO_ASSET_FORMAT: Record<StudioCapability, CanonicalAssetFormat> = {
+  reel_studio: "reel_video",
+  carousel_studio: "carousel",
+  story_studio: "story_sequence", // overridden to story_video below when the deliverable is a video
+  feed_post_studio: "feed_post",
+  ad_studio: "ad_static",
+};
 
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 
@@ -52,6 +62,7 @@ export function ProductionStudioPanel({ clientId }: Props) {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [assets, setAssets] = useState<ContentItemAsset[]>([]);
   const [reviews, setReviews] = useState<ProductionReview[]>([]);
+  const [distributeCaption, setDistributeCaption] = useState("");
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -140,6 +151,43 @@ export function ProductionStudioPanel({ clientId }: Props) {
     }
   }, [clientId, selectedJobId, loadJobDetail]);
 
+  // Only image-backed deliverables can be distributed from here: Reel/Story
+  // video distribution requires a Reel Studio video_project_deliverable
+  // (the approved final edit), which the Production Studio's own
+  // content_item_assets path does not produce — see Stage I/J status
+  // reports. Distributing a video goes through Reel Studio's own flow.
+  function canDistributeFromHere(job: ProductionJob, asset: ContentItemAsset): boolean {
+    if (job.capability === "reel_studio") return false;
+    if (job.capability === "story_studio" && (asset.mime_type ?? "").startsWith("video/")) return false;
+    return asset.kind === "deliverable" && asset.is_current;
+  }
+
+  const handleDistribute = useCallback(async (job: ProductionJob, asset: ContentItemAsset) => {
+    if (!selectedItemId) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const assetFormat: CanonicalAssetFormat = STUDIO_TO_ASSET_FORMAT[job.capability];
+      const result = await createDistributionRecordFromContentItem({
+        clientId,
+        contentItemId: selectedItemId,
+        assetFormat,
+        contentItemAssetId: asset.id,
+        caption: distributeCaption,
+      });
+      setNotice({
+        kind: "success",
+        text: result.idempotent_replay
+          ? "A distribution record already exists for this Content Item."
+          : `Distribution record created (${assetFormat.replace(/_/g, " ")}, status ${result.record.publish_status}).`,
+      });
+    } catch (e) {
+      setNotice({ kind: "error", text: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  }, [clientId, selectedItemId, distributeCaption]);
+
   return (
     <div className="flex gap-6">
       <div className="w-64 flex-none">
@@ -216,12 +264,25 @@ export function ProductionStudioPanel({ clientId }: Props) {
                           No Assets yet — per-studio generation is not wired to this Job yet.
                         </p>
                       )}
+                      {assets.length > 0 && (
+                        <input
+                          className="mb-2 w-full rounded border border-line bg-ink px-2 py-1 text-2xs text-paper outline-none focus:border-teal/50"
+                          placeholder="Caption for distribution (optional)"
+                          value={distributeCaption}
+                          onChange={(e) => setDistributeCaption(e.target.value)}
+                        />
+                      )}
                       {assets.map((asset) => (
-                        <div key={asset.id} className="mb-1 flex items-center gap-2 text-2xs text-paper-2">
+                        <div key={asset.id} className="mb-1 flex flex-wrap items-center gap-2 text-2xs text-paper-2">
                           <span>{asset.kind}</span>
                           <span className="text-paper-3">v{asset.version}</span>
                           {asset.is_current && <span className="text-teal">current</span>}
                           {asset.storage_path && <span className="text-paper-3">{asset.storage_path}</span>}
+                          {canDistributeFromHere(selectedJob, asset) && (
+                            <Button variant="secondary" size="sm" disabled={busy} onClick={() => handleDistribute(selectedJob, asset)}>
+                              Distribute
+                            </Button>
+                          )}
                         </div>
                       ))}
 

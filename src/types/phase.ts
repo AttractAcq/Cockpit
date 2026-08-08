@@ -615,6 +615,15 @@ export interface DistributionRecordRow {
   claimed_by?: string | null;
   attempt_count?: number;
   next_attempt_at?: string | null;
+  // Programme Stage K: canonical linkage. Optional so reads work before the
+  // migration is applied; null on every legacy (pre-Stage-K) record.
+  content_item_id?: string | null;
+  content_item_asset_id?: string | null;
+  content_brief_id?: string | null;
+  caption_version?: number | null;
+  campaign_reference?: string | null;
+  client_approved_by?: string | null;
+  client_approved_at?: string | null;
   permanent_failure?: boolean;
 }
 

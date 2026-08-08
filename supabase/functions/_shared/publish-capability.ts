@@ -120,11 +120,15 @@ export function resolvePublishCapability(input: PublishCapabilityInput): Publish
   const contentType = (input.contentType ?? "IMAGE").trim().toUpperCase();
   const assetFormat = (input.assetFormat ?? "").trim().toLowerCase();
 
-  // ── Reels (Phase 3) ───────────────────────────────────────────────────────
-  // A Reel publication is decided entirely by the final-Reel contract. Without a
-  // context we cannot prove a final Reel exists, so we fail closed rather than
+  // ── Reels and Story video (Stage K) ─────────────────────────────────────
+  // Both are decided entirely by the final-Reel contract: a Story video is
+  // the same kind of thing as a Reel (a single approved, current MP4
+  // deliverable) published to a different Instagram surface. Without a
+  // context we cannot prove one exists, so we fail closed rather than
   // assume; with one, the specific blocking reason is surfaced.
-  if (contentType === "REELS" || assetFormat === "reel_video") {
+  const isReelShaped = contentType === "REELS" || assetFormat === "reel_video";
+  const isStoryVideoShaped = (contentType === "STORIES" && assetFormat === "story_video") || assetFormat === "story_video";
+  if (isReelShaped || isStoryVideoShaped) {
     if (input.reelContext === undefined || input.reelContext === null) {
       return fromReelEligibility(shotClipPublicationBlocked());
     }
@@ -132,7 +136,7 @@ export function resolvePublishCapability(input: PublishCapabilityInput): Publish
     if (mediaTypes.length > 0 && !mediaTypes.every((mime) => mime === "video/mp4")) {
       return {
         supported: false, permanent: true, code: "unsupported_media_type",
-        reason: "An Instagram Reel must be a single MP4 video.",
+        reason: isStoryVideoShaped ? "An Instagram Story video must be a single MP4 video." : "An Instagram Reel must be a single MP4 video.",
       };
     }
     return fromReelEligibility(resolveReelPublicationEligibility(input.reelContext));

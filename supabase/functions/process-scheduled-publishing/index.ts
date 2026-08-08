@@ -17,6 +17,7 @@ import {
   liveReelPublishDeps,
   REEL_POLL_INTERVAL_MS,
   type ReelPublishRecord,
+  type VideoContainerMediaType,
 } from "../_shared/instagram-reels-publish.ts";
 import { resolveReelPublicationEligibility, type FinalReelDeliverable } from "../_shared/final-reel-contract.ts";
 
@@ -99,31 +100,46 @@ Deno.serve(async (req: Request) => {
       claimed_by: runId, started_at: new Date().toISOString(),
     };
 
+    // Determined early: REELS and Story video take a different path below and
+    // are deliberately EXCLUDED from the context-less guard immediately after
+    // this — resolvePublishCapability fails an async-video record closed
+    // whenever it is called without a proven reelContext (correctly: a
+    // context-less call cannot tell a real deliverable from a bare shot
+    // clip), and no reelContext is available yet at this point in the loop.
+    // advanceReel performs its own complete, fully-informed eligibility check
+    // (real deliverable + project, via resolveReelPublicationEligibility)
+    // before ever calling Meta, so skipping the shallow guard here does not
+    // weaken validation — it defers to the check that can actually decide.
+    const isReel = contentType === "REELS" || record.asset_format === "reel_video";
+    const isStoryVideo = contentType === "STORIES" && record.asset_format === "story_video";
+
     // Guard: never ATTEMPT an unsupported combination — mark it permanently
     // failed so the worker stops considering it. This is what prevents an
-    // infinite retry loop on a Reel/video record that can never publish.
-    const media = Array.isArray(record.publish_payload?.media)
-      ? record.publish_payload!.media as Array<{ mime_type?: string | null }>
-      : [];
-    const capability = resolvePublishCapability({
-      platform: typeof record.publish_settings?.platform === "string" ? record.publish_settings.platform : record.platform,
-      assetFormat: record.asset_format,
-      contentType,
-      mediaMimeTypes: media.map((item) => item?.mime_type ?? null),
-    });
-    if (!capability.supported) {
-      await sb.from("client_distribution_records").update({
-        publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, next_attempt_at: null,
-        last_error: `[unsupported_capability, non-retryable] ${capability.reason}`, updated_at: new Date().toISOString(),
-      }).eq("id", record.id);
-      await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: new Date().toISOString(), result: "skipped", retryable: false, category: "unsupported_capability", message: capability.reason });
-      await sb.from("activity_log").insert({
-        client_id: record.client_id, event_type: "publish_blocked_unsupported",
-        plain_english_message: `${record.source_ref} was not published on schedule: ${capability.reason}`,
-        metadata: { distribution_record_id: record.id, source_ref: record.source_ref, asset_format: record.asset_format, content_type: contentType, capability_code: capability.code, mode: "scheduled_worker" },
-      }).then(() => {}, () => {});
-      results.push({ id: record.id, source_ref: record.source_ref, disposition: "skipped_unsupported" });
-      continue;
+    // infinite retry loop on a record that can never publish.
+    if (!isReel && !isStoryVideo) {
+      const media = Array.isArray(record.publish_payload?.media)
+        ? record.publish_payload!.media as Array<{ mime_type?: string | null }>
+        : [];
+      const capability = resolvePublishCapability({
+        platform: typeof record.publish_settings?.platform === "string" ? record.publish_settings.platform : record.platform,
+        assetFormat: record.asset_format,
+        contentType,
+        mediaMimeTypes: media.map((item) => item?.mime_type ?? null),
+      });
+      if (!capability.supported) {
+        await sb.from("client_distribution_records").update({
+          publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, next_attempt_at: null,
+          last_error: `[unsupported_capability, non-retryable] ${capability.reason}`, updated_at: new Date().toISOString(),
+        }).eq("id", record.id);
+        await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: new Date().toISOString(), result: "skipped", retryable: false, category: "unsupported_capability", message: capability.reason });
+        await sb.from("activity_log").insert({
+          client_id: record.client_id, event_type: "publish_blocked_unsupported",
+          plain_english_message: `${record.source_ref} was not published on schedule: ${capability.reason}`,
+          metadata: { distribution_record_id: record.id, source_ref: record.source_ref, asset_format: record.asset_format, content_type: contentType, capability_code: capability.code, mode: "scheduled_worker" },
+        }).then(() => {}, () => {});
+        results.push({ id: record.id, source_ref: record.source_ref, disposition: "skipped_unsupported" });
+        continue;
+      }
     }
 
     // Defensive re-check of the Story sequence gate (claim RPC also enforces it).
@@ -140,13 +156,16 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 3a) REELS take the asynchronous container path: Meta transcodes the video,
-    //     so one invocation cannot both create the container and publish it. Each
-    //     worker run advances the state machine by exactly one step.
-    const isReel = contentType === "REELS" || record.asset_format === "reel_video";
-    if (isReel) {
+    // 3a) REELS and Story video both take the asynchronous container path:
+    //     Meta transcodes the video, so one invocation cannot both create the
+    //     container and publish it. Each worker run advances the state
+    //     machine by exactly one step. A Story video is the same kind of
+    //     publication as a Reel (single approved MP4 deliverable), differing
+    //     only in the Graph API media_type sent at container-creation time.
+    if (isReel || isStoryVideo) {
+      const mediaType: VideoContainerMediaType = isStoryVideo ? "STORIES" : "REELS";
       try {
-        const disposition = await advanceReel(sb, record, runId, attemptBase, attemptNumber);
+        const disposition = await advanceReel(sb, record, runId, attemptBase, attemptNumber, mediaType);
         results.push({ id: record.id, source_ref: record.source_ref, disposition });
       } catch (thrown) {
         const message = thrown instanceof Error ? thrown.message : String(thrown);
@@ -286,6 +305,7 @@ async function advanceReel(
   runId: string,
   attemptBase: AttemptBase,
   attemptNumber: number,
+  mediaType: VideoContainerMediaType = "REELS",
 ): Promise<string> {
   const completedAt = () => new Date().toISOString();
 
@@ -371,6 +391,7 @@ async function advanceReel(
     igUserId: config.igUserId!,
     token: config.token!,
     media: { storage_bucket: deliverable!.storage_bucket, storage_path: deliverable!.storage_path },
+    mediaType,
   });
 
   switch (disposition.kind) {

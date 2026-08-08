@@ -553,6 +553,10 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
                 <span>attempts {record.attempt_count ?? 0}</span>
                 {record.next_attempt_at && <span className="text-warn">next attempt {new Date(record.next_attempt_at).toLocaleString()}</span>}
                 {record.published_url && <a href={record.published_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">post ↗</a>}
+                {record.content_item_id
+                  ? <span className="rounded border border-teal/30 px-1.5 py-0.5 text-teal" title={record.content_item_id}>Content Item{record.caption_version ? ` · caption v${record.caption_version}` : ""}</span>
+                  : <span className="rounded border border-line px-1.5 py-0.5 text-paper-3">Legacy source</span>}
+                {record.campaign_reference && <span className="rounded border border-line px-1.5 py-0.5">campaign: {record.campaign_reference}</span>}
               </div>
               <div className="mt-1 text-2xs text-paper-2">{STATUS_GUIDANCE[record.publish_status]}</div>
               {record.last_error && <div className="mt-1 text-2xs text-neg">{record.last_error}</div>}

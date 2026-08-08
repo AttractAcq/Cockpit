@@ -309,15 +309,17 @@ async function publishToInstagram(sb: SupabaseClient, record: DistributionRecord
   const settings = record.publish_settings ?? {};
   const contentType = typeof settings.content_type === "string" ? settings.content_type : "IMAGE";
 
-  if (contentType === "REELS") {
-    // Defence in depth: publishDistributionRecord already refuses this via
-    // resolvePublishCapability. Never fake a result.
+  if (contentType === "REELS" || (contentType === "STORIES" && record.asset_format === "story_video")) {
+    // Defence in depth: both REELS and Story video are asynchronous (Meta
+    // transcodes the file) and are redirected to scheduling by runPublish's
+    // isReelRecord check before this function is ever reached for a real
+    // record. This throw only fires if that redirect is ever bypassed.
     throw new MetaPublishError({
       provider: "meta", category: "unsupported_capability", retryable: false,
-      message: "REELS (video) publishing is not implemented. Final Reel assembly and publishing arrive in a later phase.",
+      message: "Video publishing (Reels and Story video) is asynchronous and is handled by the scheduled worker, not this synchronous publisher.",
     });
   }
-  // Image Stories (content_type STORIES) ARE supported — validated + gated in runPublish.
+  // Image Stories (content_type STORIES, non-video asset_format) ARE supported — validated + gated in runPublish.
 
   const overallDeadline = Date.now() + PUBLISH_DEADLINE_MS;
   const deps: PublishDeps = {
@@ -379,20 +381,22 @@ export async function publishDistributionRecord(
   const mergedSettings = { ...(record.publish_settings ?? {}), ...(payloadOverrides.publish_settings as Record<string, unknown> ?? {}) };
   const working: DistributionRecord = { ...record, publish_payload: mergedPayload, publish_settings: mergedSettings };
 
-  // 0a) REELS are asynchronous (Meta transcodes the video), so they are never
-  //     published inside one invocation. A record carrying a final-Reel
-  //     deliverable is redirected to the scheduling path; one carrying none is a
-  //     shot clip and is refused outright by the capability check below.
+  // 0a) REELS and Story video are both asynchronous (Meta transcodes the
+  //     video), so neither is ever published inside one invocation. A record
+  //     carrying a final video deliverable is redirected to the scheduling
+  //     path; one carrying none is a shot clip and is refused outright by
+  //     the capability check below.
   const requestedContentType = typeof mergedSettings.content_type === "string" ? mergedSettings.content_type.toUpperCase() : "IMAGE";
   const isReelRecord = requestedContentType === "REELS" || record.asset_format === "reel_video";
+  const isStoryVideoRecord = requestedContentType === "STORIES" && record.asset_format === "story_video";
   const linkedDeliverableId = (record as unknown as { video_deliverable_id?: string | null }).video_deliverable_id ?? null;
-  if (isReelRecord && linkedDeliverableId) {
+  if ((isReelRecord || isStoryVideoRecord) && linkedDeliverableId) {
     // Not a failure and not a defect — the wrong entry point. The record keeps
     // its prior status so the operator can schedule it.
     return {
-      ok: false, status: priorStatus, error: "reels_require_scheduling",
+      ok: false, status: priorStatus, error: "video_requires_scheduling",
       provider: "meta", category: "unsupported_capability", retryable: false,
-      message: "Instagram Reels are published by the scheduled worker because Meta processes the video asynchronously. Schedule this Reel instead of publishing it inline.",
+      message: `Instagram ${isReelRecord ? "Reels" : "Story video"} are published by the scheduled worker because Meta processes the video asynchronously. Schedule this ${isReelRecord ? "Reel" : "Story video"} instead of publishing it inline.`,
     };
   }
 

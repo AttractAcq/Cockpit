@@ -1,4 +1,11 @@
-// Reel Studio Phase 3: asynchronous Instagram Reels publication.
+// Reel Studio Phase 3 + Programme Stage K: asynchronous Instagram Reels and
+// Story-video publication. Meta's Content Publishing API uses the identical
+// three-step container/poll/publish flow for both — the only difference is
+// the `media_type` parameter (REELS vs STORIES) and that `share_to_feed`/
+// `thumb_offset` are Reels-only options. A Story video is, architecturally,
+// the same approved final MP4 deliverable a Reel is, published to a
+// different Instagram surface; this module is shared rather than duplicated
+// for the two.
 //
 // ── Verified official API contract (developers.facebook.com, checked 2026-07-28) ──
 // Host: graph.facebook.com (the existing repo integration uses a Facebook-Login
@@ -101,11 +108,15 @@ export interface ReelPublishDeps {
   now(): number;
 }
 
+export type VideoContainerMediaType = "REELS" | "STORIES";
+
 export interface ReelContainerParams {
   videoUrl: string;
   caption: string;
   shareToFeed: boolean;
   thumbOffsetMs?: number | null;
+  /** Defaults to REELS for full backward compatibility with existing callers. */
+  mediaType?: VideoContainerMediaType;
 }
 
 export interface ReelStepInput {
@@ -113,6 +124,8 @@ export interface ReelStepInput {
   igUserId: string;
   token: string;
   media: { storage_bucket: string; storage_path: string };
+  /** Defaults to REELS for full backward compatibility with existing callers. */
+  mediaType?: VideoContainerMediaType;
 }
 
 function permanent(category: MetaErrorClassification["category"], message: string): MetaErrorClassification {
@@ -159,7 +172,7 @@ export async function advanceReelPublication(deps: ReelPublishDeps, input: ReelS
     let containerId: string;
     try {
       containerId = await deps.createReelContainer(input.igUserId, {
-        videoUrl, caption, shareToFeed, thumbOffsetMs: thumbOffset,
+        videoUrl, caption, shareToFeed, thumbOffsetMs: thumbOffset, mediaType: input.mediaType ?? "REELS",
       }, input.token);
     } catch (error) {
       const classification = error instanceof MetaPublishError
@@ -284,14 +297,19 @@ export function liveReelPublishDeps(sb: SupabaseClient, recordId: string): ReelP
       return data.signedUrl;
     },
     createReelContainer: (igUserId, params, token) => {
+      const mediaType = params.mediaType ?? "REELS";
       const body: Record<string, string> = {
-        media_type: "REELS",
+        media_type: mediaType,
         video_url: params.videoUrl,
-        share_to_feed: params.shareToFeed ? "true" : "false",
       };
       if (params.caption) body.caption = params.caption;
-      if (typeof params.thumbOffsetMs === "number" && params.thumbOffsetMs >= 0) {
-        body.thumb_offset = String(Math.round(params.thumbOffsetMs));
+      // share_to_feed and thumb_offset are Reels-only options; Meta's Stories
+      // video container does not document or accept them.
+      if (mediaType === "REELS") {
+        body.share_to_feed = params.shareToFeed ? "true" : "false";
+        if (typeof params.thumbOffsetMs === "number" && params.thumbOffsetMs >= 0) {
+          body.thumb_offset = String(Math.round(params.thumbOffsetMs));
+        }
       }
       return graphPost(`${igUserId}/media`, body, token).then((data) => String(data.id));
     },

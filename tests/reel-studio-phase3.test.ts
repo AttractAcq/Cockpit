@@ -372,6 +372,9 @@ test("container creation uses the verified Meta REELS contract and persists the 
   assert.deepEqual(calls.lastParams, {
     videoUrl: "https://signed.example/video.mp4?token=REDACTED",
     caption: "hello", shareToFeed: true, thumbOffsetMs: null,
+    // Programme Stage K: mediaType now flows through explicitly; REELS is the
+    // default so every pre-existing call site (this one included) is unchanged.
+    mediaType: "REELS",
   });
 });
 
@@ -590,9 +593,13 @@ test("draft creation is server-proved, idempotent and shot-clip proof", async ()
   assert.match(handler, /client_distribution_accounts/); // destination configuration check
 });
 
-test("Reels are scheduled, never published inline, and shot clips are refused outright", async () => {
+test("Reels and Story video are scheduled, never published inline, and shot clips are refused outright", async () => {
   const publisher = await file("supabase/functions/_shared/instagram-publish.ts");
-  assert.match(publisher, /isReelRecord && linkedDeliverableId/);
+  // Programme Stage K generalised the Reels-only redirect to also cover Story
+  // video (the same async-container mechanism, different Instagram surface) —
+  // both must still be guarded, never published inline.
+  assert.match(publisher, /\(isReelRecord \|\| isStoryVideoRecord\) && linkedDeliverableId/);
+  assert.match(publisher, /isStoryVideoRecord = requestedContentType === "STORIES" && record\.asset_format === "story_video"/);
   assert.match(publisher, /published by the scheduled worker/);
   // The synchronous path must still never build a Reel container.
   assert.doesNotMatch(publisher, /media_type: "REELS"/);

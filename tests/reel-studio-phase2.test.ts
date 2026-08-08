@@ -569,11 +569,14 @@ test("every Phase 2 migration is additive and no historical migration was edited
   assert.match(bucketMigration, /'video-assets'::text/);
 });
 
-test("no Phase 3 final-Reel or publishing functionality was introduced", async () => {
+test("no Phase 3 final-Reel or publishing functionality was introduced (Phase 2 migration itself)", async () => {
   const phase2 = await file("supabase/migrations/20260727000034_reel_studio_phase2_recovery_modes_capability.sql");
-  const publisher = await file("supabase/functions/_shared/instagram-publish.ts");
-  // No final-Reel entity, no compositing, no Reels publishing.
+  // No final-Reel entity, no compositing, no Reels publishing — checked against
+  // the Phase 2 migration itself, which is immutable history. The synchronous
+  // publisher (_shared/instagram-publish.ts) legitimately gained real,
+  // asynchronous Reels + Story-video publishing in Phase 3 / Programme Stage
+  // K (via the scheduled worker, never this file) — see
+  // tests/reel-studio-phase3.test.ts and tests/distribution-policy.test.ts
+  // for the checks that now cover that real behaviour.
   assert.doesNotMatch(phase2, /final_reel|reel_assembly|create table/i);
-  assert.doesNotMatch(publisher, /media_type: "REELS"|video_url/);
-  assert.match(publisher, /REELS \(video\) publishing is not implemented/);
 });
