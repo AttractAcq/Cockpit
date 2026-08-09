@@ -7,8 +7,16 @@
 //     FOR UPDATE SKIP LOCKED) so overlapping runs never double-publish.
 //   • A per-run wall-clock budget keeps the worker well under the ~150s edge cap.
 //   • Failures are classified: retryable → requeue with exponential backoff up to
-//     MAX_ATTEMPTS; permanent → failed; unsupported formats are skipped, never
-//     attempted. Every attempt is written to client_publish_attempts.
+//     a retry cap (MAX_ATTEMPTS = 5 by default, overridable per client via
+//     client_capacity_policies.retry_cap — Programme Stage N); permanent →
+//     failed; unsupported formats are skipped, never attempted. Every attempt
+//     is written to client_publish_attempts.
+//   • Programme Stage N: a client's `publishing` automation_level (client_
+//     automation_policies) is checked before any attempt is made — "manual"
+//     holds the record back for an operator, exactly as if it were never
+//     due; no policy row means "automatic", i.e. today's unrestricted
+//     behaviour for every client who hasn't configured one. Permanent
+//     failures also file into client_exception_queue (best-effort).
 import { svc, json, cors } from "../_shared/aa.ts";
 import { earlierFramesAllPublished, handoffToAnalytics, publishDistributionRecord, resolveMetaConfig, type DistributionRecord } from "../_shared/instagram-publish.ts";
 import { resolvePublishCapability } from "../_shared/publish-capability.ts";
@@ -20,6 +28,7 @@ import {
   type VideoContainerMediaType,
 } from "../_shared/instagram-reels-publish.ts";
 import { resolveReelPublicationEligibility, type FinalReelDeliverable } from "../_shared/final-reel-contract.ts";
+import { checkAutomationGate, resolveRetryCap, DEFAULT_AUTOMATION_LEVEL, type AutomationLevel } from "../_shared/automation-policy.ts";
 
 const FUNCTION_NAME = "process-scheduled-publishing";
 const MAX_PER_RUN = 3;                 // batch size (decision: 3)
@@ -36,6 +45,24 @@ const BACKOFF_MINUTES = [2, 5, 15, 30, 60];
 
 function backoffMinutes(attemptsMade: number): number {
   return BACKOFF_MINUTES[Math.min(attemptsMade, BACKOFF_MINUTES.length - 1)];
+}
+
+// Programme Stage N — best-effort exception filing. Never lets a filing
+// failure affect the publish flow itself (same convention as the existing
+// best-effort activity_log calls in this file).
+function fileDistributionException(
+  sb: ReturnType<typeof svc>,
+  record: { id: string; client_id: string; source_ref: string },
+  category: string | null,
+  message: string | null,
+): void {
+  sb.rpc("file_exception", {
+    p_client_id: record.client_id, p_exception_type: "distribution_failure", p_source_system: "process-scheduled-publishing",
+    p_source_table: "client_distribution_records", p_source_id: record.id,
+    p_title: `Permanent publish failure: ${record.source_ref}`,
+    p_summary: message ?? "Publishing failed permanently after exhausting retries or an unrecoverable error.",
+    p_severity: "high", p_metadata: { category },
+  }).then(() => {}, () => {});
 }
 
 interface ClaimedRecord {
@@ -93,6 +120,30 @@ Deno.serve(async (req: Request) => {
     processed += 1;
     const attemptNumber = record.attempt_count; // claim already incremented it
     const contentType = typeof record.publish_settings?.content_type === "string" ? record.publish_settings.content_type : null;
+
+    // Programme Stage N — per-client automation policy + capacity policy.
+    // Absence of either row means "automatic" / MAX_ATTEMPTS, i.e. exactly
+    // today's behaviour for every client who has never configured one.
+    const [{ data: automationPolicy }, { data: capacityPolicy }] = await Promise.all([
+      sb.from("client_automation_policies").select("automation_level").eq("client_id", record.client_id).eq("area", "publishing").maybeSingle(),
+      sb.from("client_capacity_policies").select("retry_cap").eq("client_id", record.client_id).maybeSingle(),
+    ]);
+    const publishingLevel = (automationPolicy?.automation_level as AutomationLevel | undefined) ?? DEFAULT_AUTOMATION_LEVEL;
+    const retryCap = resolveRetryCap(capacityPolicy?.retry_cap as number | undefined, MAX_ATTEMPTS);
+    const gate = checkAutomationGate(publishingLevel, true);
+    if (!gate.allowed) {
+      // Release the claim untouched — this record was never attempted, so it
+      // does not consume a publish attempt. It stays 'scheduled' for an
+      // operator to publish by hand, or for a future run once policy changes.
+      await sb.from("client_distribution_records").update({ publish_status: "scheduled", claimed_at: null, claimed_by: null, attempt_count: Math.max(attemptNumber - 1, 0), updated_at: new Date().toISOString() }).eq("id", record.id);
+      await sb.from("client_publish_attempts").insert({
+        distribution_record_id: record.id, client_id: record.client_id, source_ref: record.source_ref, asset_format: record.asset_format,
+        attempt_number: attemptNumber, worker_invocation_id: runId, claimed_by: runId, started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(), result: "skipped", retryable: true, category: gate.code, message: gate.reason,
+      });
+      results.push({ id: record.id, source_ref: record.source_ref, disposition: "held_automation_policy" });
+      continue;
+    }
 
     const attemptBase = {
       distribution_record_id: record.id, client_id: record.client_id, source_ref: record.source_ref,
@@ -165,11 +216,11 @@ Deno.serve(async (req: Request) => {
     if (isReel || isStoryVideo) {
       const mediaType: VideoContainerMediaType = isStoryVideo ? "STORIES" : "REELS";
       try {
-        const disposition = await advanceReel(sb, record, runId, attemptBase, attemptNumber, mediaType);
+        const disposition = await advanceReel(sb, record, runId, attemptBase, attemptNumber, retryCap, mediaType);
         results.push({ id: record.id, source_ref: record.source_ref, disposition });
       } catch (thrown) {
         const message = thrown instanceof Error ? thrown.message : String(thrown);
-        await releaseReelForRetry(sb, record, attemptNumber, `Worker error: ${message}`, attemptBase, "worker_exception");
+        await releaseReelForRetry(sb, record, attemptNumber, `Worker error: ${message}`, attemptBase, "worker_exception", retryCap);
         results.push({ id: record.id, source_ref: record.source_ref, disposition: "reel_worker_error" });
       }
       continue;
@@ -191,7 +242,7 @@ Deno.serve(async (req: Request) => {
 
       // Failure disposition. publishDistributionRecord already set the record 'failed'.
       const retryable = outcome.retryable === true;
-      const canRetry = retryable && attemptNumber < MAX_ATTEMPTS;
+      const canRetry = retryable && attemptNumber < retryCap;
       if (canRetry) {
         const delayMin = backoffMinutes(attemptNumber);
         await sb.from("client_distribution_records").update({
@@ -204,6 +255,7 @@ Deno.serve(async (req: Request) => {
         await sb.from("client_distribution_records").update({ publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, updated_at: completedAt }).eq("id", record.id);
         await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: completedAt, result: "permanent_failure", retryable: false, category: outcome.category ?? (outcome.missing_config ? "missing_config" : null), message: outcome.message ?? outcome.error });
         await sb.from("activity_log").insert({ client_id: record.client_id, event_type: "asset_publish_failed", plain_english_message: `${record.source_ref} failed to publish (${retryable ? "max retries reached" : "permanent"}).`, metadata: { distribution_record_id: record.id, category: outcome.category, attempt_number: attemptNumber } });
+        fileDistributionException(sb, record, outcome.category ?? null, outcome.message ?? outcome.error ?? null);
         results.push({ id: record.id, source_ref: record.source_ref, disposition: retryable ? "failed_max_attempts" : "failed_permanent" });
       }
     } catch (thrown) {
@@ -219,7 +271,7 @@ Deno.serve(async (req: Request) => {
         await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: completedAt, result: "published", retryable: false, external_post_id: (reloaded?.external_post_id as string) ?? null, message: `Post is live; worker threw after publish: ${msg}` });
         await sb.from("activity_log").insert({ client_id: record.client_id, event_type: "publish_handoff_failed", plain_english_message: `${record.source_ref} is published but the worker threw after publishing — no republish.`, metadata: { distribution_record_id: record.id, external_post_id: reloaded?.external_post_id ?? null, source_ref: record.source_ref, failed_stage: "post_publish", error: msg, occurred_at: completedAt } });
         results.push({ id: record.id, source_ref: record.source_ref, disposition: "published_after_throw" });
-      } else if (attemptNumber < MAX_ATTEMPTS) {
+      } else if (attemptNumber < retryCap) {
         const delayMin = backoffMinutes(attemptNumber);
         await sb.from("client_distribution_records").update({ publish_status: "scheduled", claimed_at: null, claimed_by: null, next_attempt_at: new Date(Date.now() + delayMin * 60_000).toISOString(), last_error: `Worker error: ${msg}`, updated_at: completedAt }).eq("id", record.id);
         await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: completedAt, result: "retryable_failure", retryable: true, category: "worker_exception", message: `${msg} — retry in ${delayMin}m` });
@@ -227,6 +279,7 @@ Deno.serve(async (req: Request) => {
       } else {
         await sb.from("client_distribution_records").update({ publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, last_error: `Worker error: ${msg}`, updated_at: completedAt }).eq("id", record.id);
         await sb.from("client_publish_attempts").insert({ ...attemptBase, completed_at: completedAt, result: "permanent_failure", retryable: false, category: "worker_exception", message: msg });
+        fileDistributionException(sb, record, "worker_exception", msg);
         results.push({ id: record.id, source_ref: record.source_ref, disposition: "failed_after_throw" });
       }
     }
@@ -274,9 +327,10 @@ async function releaseReelForRetry(
   message: string,
   attemptBase: AttemptBase,
   category: string,
+  retryCap: number = MAX_ATTEMPTS,
 ): Promise<void> {
   const completedAt = new Date().toISOString();
-  if (attemptNumber < MAX_ATTEMPTS) {
+  if (attemptNumber < retryCap) {
     const delayMin = backoffMinutes(attemptNumber);
     await sb.from("client_distribution_records").update({
       publish_status: "scheduled", claimed_at: null, claimed_by: null,
@@ -297,6 +351,7 @@ async function releaseReelForRetry(
     ...attemptBase, completed_at: completedAt, result: "permanent_failure",
     retryable: false, category, message,
   });
+  fileDistributionException(sb, record, category, message);
 }
 
 async function advanceReel(
@@ -305,6 +360,7 @@ async function advanceReel(
   runId: string,
   attemptBase: AttemptBase,
   attemptNumber: number,
+  retryCap: number = MAX_ATTEMPTS,
   mediaType: VideoContainerMediaType = "REELS",
 ): Promise<string> {
   const completedAt = () => new Date().toISOString();
@@ -348,6 +404,7 @@ async function advanceReel(
       ...attemptBase, completed_at: completedAt(), result: "permanent_failure",
       retryable: false, category: eligibility.code.toLowerCase(), message: eligibility.reason,
     });
+    fileDistributionException(sb, record, eligibility.code.toLowerCase(), eligibility.reason);
     await sb.from("activity_log").insert({
       client_id: record.client_id, event_type: "reel_publication_failed",
       plain_english_message: `${record.source_ref}: Reel publication stopped — ${eligibility.reason}`,
@@ -366,7 +423,7 @@ async function advanceReel(
     await releaseReelForRetry(
       sb, record, attemptNumber,
       `Meta configuration missing: ${config.missing.join("; ")}`,
-      attemptBase, "missing_config",
+      attemptBase, "missing_config", retryCap,
     );
     return "reel_missing_config";
   }
@@ -467,7 +524,7 @@ async function advanceReel(
       await releaseReelForRetry(
         sb, record, attemptNumber,
         `[${disposition.classification.category}, retryable] ${disposition.classification.message}`,
-        attemptBase, disposition.classification.category,
+        attemptBase, disposition.classification.category, retryCap,
       );
       return "reel_retry";
     }
@@ -485,6 +542,7 @@ async function advanceReel(
         meta_error_subcode: disposition.classification.subcode ?? null,
         message: disposition.classification.message,
       });
+      fileDistributionException(sb, record, disposition.classification.category, disposition.classification.message);
       await sb.from("activity_log").insert({
         client_id: record.client_id, event_type: "reel_publication_failed",
         plain_english_message: `${record.source_ref}: Reel publication failed permanently (${disposition.classification.category}).`,

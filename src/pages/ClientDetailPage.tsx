@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Icon, EmptyState } from "@/components/primitives";
+import { Icon } from "@/components/primitives";
 import { Button } from "@/components/primitives";
 import { fetchClient, fetchClientInputs, fetchClientContextFiles, fetchClientExecutionFiles, runPhase1, generatePhase1File, finalizePhase1, runPhase2, generatePhase2Section, finalizePhase2, runPhase3, generatePhase3Section, finalizePhase3 } from "@/lib/api";
 import type { Client } from "@/types/client";
@@ -31,6 +31,7 @@ import { CalendarPlanningPanel } from "@/components/client/CalendarPlanningPanel
 import { ContentItemsPanel } from "@/components/client/ContentItemsPanel";
 import { ProductionStudioPanel } from "@/components/client/ProductionStudioPanel";
 import { AdStudioPanel } from "@/components/client/AdStudioPanel";
+import { AutomationPanel } from "@/components/client/AutomationPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
@@ -106,23 +107,6 @@ function canonicalExecutionReady(files: ClientExecutionFile[]): boolean {
   ));
 }
 
-function PlaceholderSection({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex-1 flex items-center justify-center p-8">
-      <EmptyState icon="clock" title={title} body={description} />
-    </div>
-  );
-}
-
-const SECTION_PLACEHOLDERS: Partial<Record<Section, { title: string; description: string }>> = {
-  automations: { title: "Automations",     description: "Secret-gated toggles for 6 automation types." },
-};
 
 type PhaseResult =
   | { kind: "phase1"; result: Phase1Result }
@@ -657,6 +641,8 @@ export function ClientDetailPage() {
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} executionMonth={currentMonth()} /></div>;
       case "client_settings":
         return <ClientSettingsPanel clientId={id} />;
+      case "automations":
+        return <AutomationPanel clientId={id} />;
       case "masters":
         return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "activity":
@@ -705,12 +691,8 @@ export function ClientDetailPage() {
         return <ArchivePanel clientId={id} executionMonth={currentMonth()} />;
       case "pipeline":
         return <PipelineMetricsPanel clientId={id} executionMonth={currentMonth()} />;
-      default: {
-        const p = SECTION_PLACEHOLDERS[activeSection];
-        return p ? (
-          <PlaceholderSection title={p.title} description={p.description} />
-        ) : null;
-      }
+      default:
+        return null;
     }
   }
 
