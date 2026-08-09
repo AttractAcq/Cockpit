@@ -42,6 +42,7 @@ import { decodeIdeationFailureBody } from "./ideation-failure";
 import { stageRank } from "./pipeline";
 import { deriveManualAnalyticsStatus } from "./analytics-manual";
 import { calculatePerformanceScore, generateInsightCandidates } from "./performance-intelligence";
+import { calculateAdCampaignPerformanceScore, generateAdInsightCandidates } from "./ad-performance-intelligence";
 import { resolvePublishCapability } from "../../supabase/functions/_shared/publish-capability";
 import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
@@ -689,6 +690,7 @@ import type {
   PipelineStage, ArchiveStage, PipelineStateRow, ArchiveSnapshotRow,
   DistributionRecordRow, AnalyticsRecordRow, DistributionPublishPayload, DistributionPublishSettings, PublishStatus, AnalyticsStatus, PublishAttemptRow,
   ClientMetricSnapshot, ClientBusinessSignalSnapshot, AnalyticsSummary, MetricSnapshotLabel, ManualAnalyticsStatus, InsightsCollectionAttempt, InsightsCollectionRun, AutomaticInsightsStatus, ClientPerformanceScore, ClientPerformanceInsight, ClientPerformanceAnalysisRun, ClientIterationCandidate, IterationCandidateStatus, ClientContextUpdateProposal, ClientContextUpdateProposalItem, ContextUpdateProposalStatus, ContextUpdateProposalType, ContextUpdateTargetType, ContextUpdateChangeIntent, ClientContextPatchDraft, ClientContextPatchReview, ClientContextPatchApplication, ContextPatchStatus, ContextPatchType,
+  AdCampaignMetricSnapshot, AdCampaignBusinessSignalSnapshot, AdMetricSnapshotLabel,
   AiVisualDirection, VisualInputUpload,
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
@@ -2706,11 +2708,11 @@ export async function fetchIterationCandidates(clientId: string): Promise<Client
 }
 
 export async function createIterationCandidate(input: {
-  clientId:string; sourceRef?:string|null; distributionRecordId?:string|null; performanceScoreId?:string|null; performanceInsightId?:string|null;
+  clientId:string; sourceRef?:string|null; distributionRecordId?:string|null; adCampaignId?:string|null; performanceScoreId?:string|null; performanceInsightId?:string|null;
   candidateType:ClientIterationCandidate["candidate_type"]; recommendation:string; rationale:string; evidence:Record<string,unknown>;
   confidence:ClientIterationCandidate["confidence"]; priority:ClientIterationCandidate["priority"]; createdFrom:ClientIterationCandidate["created_from"];
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("create_iteration_candidate",{p_client_id:input.clientId,p_source_ref:input.sourceRef??null,p_distribution_record_id:input.distributionRecordId??null,p_performance_score_id:input.performanceScoreId??null,p_performance_insight_id:input.performanceInsightId??null,p_candidate_type:input.candidateType,p_recommendation:input.recommendation,p_rationale:input.rationale,p_evidence:input.evidence,p_confidence:input.confidence,p_priority:input.priority,p_created_from:input.createdFrom});
+  const { data, error } = await supabase.rpc("create_iteration_candidate",{p_client_id:input.clientId,p_source_ref:input.sourceRef??null,p_distribution_record_id:input.distributionRecordId??null,p_performance_score_id:input.performanceScoreId??null,p_performance_insight_id:input.performanceInsightId??null,p_candidate_type:input.candidateType,p_recommendation:input.recommendation,p_rationale:input.rationale,p_evidence:input.evidence,p_confidence:input.confidence,p_priority:input.priority,p_created_from:input.createdFrom,p_ad_campaign_id:input.adCampaignId??null});
   if (error) throw error;
   return data as string;
 }
@@ -2718,6 +2720,17 @@ export async function createIterationCandidate(input: {
 export async function updateIterationCandidateStatus(candidateId:string,newStatus:IterationCandidateStatus,reviewerNotes?:string|null):Promise<void> {
   const { error } = await supabase.rpc("update_iteration_candidate_status",{p_candidate_id:candidateId,p_new_status:newStatus,p_reviewer_notes:reviewerNotes??null});
   if (error) throw error;
+}
+
+/** The Opportunity adapter: an approved iteration candidate produces exactly one new Content or Ad Opportunity. */
+export async function promoteIterationCandidateToOpportunity(input: {
+  candidateId: string; target: "content_opportunity" | "ad_opportunity"; title: string; offerRef?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("promote_iteration_candidate_to_opportunity", {
+    p_candidate_id: input.candidateId, p_target: input.target, p_title: input.title, p_offer_ref: input.offerRef ?? null,
+  });
+  if (error) throw error;
+  return data as string;
 }
 
 export async function fetchContextUpdateProposals(clientId: string): Promise<ClientContextUpdateProposal[]> {
@@ -2874,6 +2887,88 @@ export async function upsertBusinessSignalSnapshot(input: {
   });
   if (error) throw error;
   return (Array.isArray(data) ? data[0] : data) as ClientBusinessSignalSnapshot;
+}
+
+export async function upsertAdCampaignMetricSnapshot(input: {
+  adCampaignId: string; snapshotId?: string | null; snapshotAt: string; snapshotLabel: AdMetricSnapshotLabel;
+  metrics: Record<string, number>; notes?: string | null; evidenceUrl?: string | null;
+}): Promise<AdCampaignMetricSnapshot> {
+  const { data, error } = await supabase.rpc("upsert_ad_campaign_metric_snapshot", {
+    p_ad_campaign_id: input.adCampaignId, p_snapshot_id: input.snapshotId ?? null,
+    p_snapshot_at: input.snapshotAt, p_snapshot_label: input.snapshotLabel, p_metrics: input.metrics,
+    p_notes: input.notes ?? null, p_evidence_url: input.evidenceUrl ?? null,
+  });
+  if (error) throw error;
+  return (Array.isArray(data) ? data[0] : data) as AdCampaignMetricSnapshot;
+}
+
+export async function upsertAdCampaignBusinessSignalSnapshot(input: {
+  adCampaignId: string; snapshotId?: string | null; signalAt: string;
+  leads?: number | null; qualifiedLeads?: number | null; appointments?: number | null; showUps?: number | null;
+  cashCollected?: number | null; cac?: number | null; roas?: number | null; operatorNotes?: string | null;
+}): Promise<AdCampaignBusinessSignalSnapshot> {
+  const { data, error } = await supabase.rpc("upsert_ad_campaign_business_signal_snapshot", {
+    p_ad_campaign_id: input.adCampaignId, p_snapshot_id: input.snapshotId ?? null, p_signal_at: input.signalAt,
+    p_leads: input.leads ?? null, p_qualified_leads: input.qualifiedLeads ?? null, p_appointments: input.appointments ?? null,
+    p_show_ups: input.showUps ?? null, p_cash_collected: input.cashCollected ?? null, p_cac: input.cac ?? null,
+    p_roas: input.roas ?? null, p_operator_notes: input.operatorNotes ?? null,
+  });
+  if (error) throw error;
+  return (Array.isArray(data) ? data[0] : data) as AdCampaignBusinessSignalSnapshot;
+}
+
+export async function fetchAdCampaignMetricSnapshots(adCampaignId: string): Promise<AdCampaignMetricSnapshot[]> {
+  const { data, error } = await supabase.from("ad_campaign_metric_snapshots").select("*").eq("ad_campaign_id", adCampaignId).order("snapshot_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AdCampaignMetricSnapshot[];
+}
+
+export async function fetchAdCampaignBusinessSignalSnapshots(adCampaignId: string): Promise<AdCampaignBusinessSignalSnapshot[]> {
+  const { data, error } = await supabase.from("ad_campaign_business_signal_snapshots").select("*").eq("ad_campaign_id", adCampaignId).order("signal_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AdCampaignBusinessSignalSnapshot[];
+}
+
+export async function fetchAdPerformanceScore(adCampaignId: string): Promise<ClientPerformanceScore | null> {
+  const { data, error } = await supabase.from("client_performance_scores").select("*").eq("ad_campaign_id", adCampaignId).maybeSingle();
+  if (error) throw error;
+  return (data as ClientPerformanceScore | null) ?? null;
+}
+
+export async function fetchAdPerformanceInsights(adCampaignId: string): Promise<ClientPerformanceInsight[]> {
+  const { data, error } = await supabase.from("client_performance_insights").select("*").eq("ad_campaign_id", adCampaignId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ClientPerformanceInsight[];
+}
+
+/** Deterministically scores one Ad Campaign from its latest metric/business-signal snapshots and persists insights. Mirrors runDeterministicPerformanceAnalysis's organic flow. */
+export async function runAdCampaignPerformanceAnalysis(adCampaignId: string, campaignName: string, launchedAt: string, sameObjectiveScores: readonly number[] = []): Promise<{ score: ReturnType<typeof calculateAdCampaignPerformanceScore>; insightsCreated: number }> {
+  const [metricSnapshots, signalSnapshots] = await Promise.all([
+    fetchAdCampaignMetricSnapshots(adCampaignId), fetchAdCampaignBusinessSignalSnapshots(adCampaignId),
+  ]);
+  const metric = metricSnapshots[0] ?? null;
+  const signals = signalSnapshots[0] ?? null;
+  const score = calculateAdCampaignPerformanceScore({
+    adCampaignId, campaignName, launchedAt, metricSnapshotId: metric?.id, businessSignalSnapshotId: signals?.id,
+    metrics: metric?.metrics ?? {},
+    businessSignals: signals ? { leads: signals.leads, qualified_leads: signals.qualified_leads, appointments: signals.appointments, show_ups: signals.show_ups, cash_collected: signals.cash_collected, roas: signals.roas } : {},
+  });
+  const { error } = await supabase.rpc("upsert_ad_performance_score", {
+    p_ad_campaign_id: score.ad_campaign_id, p_latest_metric_snapshot_id: score.latest_metric_snapshot_id,
+    p_latest_business_signal_snapshot_id: score.latest_business_signal_snapshot_id, p_score_version: score.score_version,
+    p_efficiency: score.efficiency_score, p_volume: score.volume_score, p_conversion: score.conversion_score,
+    p_overall: score.overall_score, p_sample_quality: score.sample_quality, p_score_status: score.score_status, p_score_reasons: score.score_reasons,
+  });
+  if (error) throw error;
+  let insightsCreated = 0;
+  for (const insight of generateAdInsightCandidates(score, { adCampaignId, campaignName, launchedAt }, sameObjectiveScores)) {
+    const { error: insightError } = await supabase.rpc("create_ad_performance_insight", {
+      p_ad_campaign_id: adCampaignId, p_insight_type: insight.insight_type, p_severity: insight.severity, p_confidence: insight.confidence,
+      p_title: insight.title, p_summary: insight.summary, p_evidence: insight.evidence, p_recommended_action: insight.recommended_action,
+    });
+    if (!insightError) insightsCreated += 1;
+  }
+  return { score, insightsCreated };
 }
 
 /**

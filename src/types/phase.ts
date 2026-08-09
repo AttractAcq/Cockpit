@@ -719,20 +719,36 @@ export interface AnalyticsSummary {
 }
 
 export interface ClientPerformanceScore {
-  id: string; client_id: string; distribution_record_id: string; source_ref: string; content_format: string; platform: string;
+  id: string; client_id: string; distribution_record_id: string | null; ad_campaign_id: string | null; source_ref: string; content_format: string; platform: string;
   latest_metric_snapshot_id: string | null; latest_business_signal_snapshot_id: string | null; score_version: string;
-  attention_score: number; engagement_score: number; trust_score: number; conversion_signal_score: number; overall_score: number;
+  attention_score: number; engagement_score: number; trust_score: number | null; conversion_signal_score: number; overall_score: number;
   sample_quality: "insufficient" | "early" | "usable" | "mature";
   score_status: "pending_metrics" | "scored" | "insufficient_data" | "stale";
   score_reasons: string[]; computed_at: string; created_at: string; updated_at: string;
 }
 
 export interface ClientPerformanceInsight {
-  id: string; client_id: string; distribution_record_id: string | null; source_ref: string | null;
+  id: string; client_id: string; distribution_record_id: string | null; ad_campaign_id: string | null; source_ref: string | null;
   insight_type: "winner" | "underperformer" | "format_signal" | "hook_signal" | "proof_signal" | "cta_signal" | "audience_signal" | "conversion_signal" | "risk" | "recommendation";
   severity: "low" | "medium" | "high"; confidence: "low" | "medium" | "high";
   title: string; summary: string; evidence: Record<string, unknown>; recommended_action: string | null;
   status: "open" | "accepted" | "dismissed" | "converted_to_iteration"; created_by: string; created_at: string; updated_at: string;
+}
+
+export type AdMetricSnapshotLabel = "manual" | "t_plus_1h" | "t_plus_24h" | "t_plus_7d" | "t_plus_30d";
+export type AdSupportedMetricKey = "spend" | "impressions" | "cpm" | "hook_rate" | "ctr" | "cpc" | "landing_page_views";
+
+export interface AdCampaignMetricSnapshot {
+  id: string; client_id: string; ad_campaign_id: string; snapshot_at: string; snapshot_label: AdMetricSnapshotLabel;
+  collection_method: "manual" | "api_later"; metrics: Partial<Record<AdSupportedMetricKey, number>>;
+  notes: string | null; evidence_url: string | null; created_by: string | null; created_at: string; updated_at: string;
+}
+
+export interface AdCampaignBusinessSignalSnapshot {
+  id: string; client_id: string; ad_campaign_id: string; signal_at: string;
+  leads: number | null; qualified_leads: number | null; appointments: number | null; show_ups: number | null;
+  cash_collected: number | null; cac: number | null; roas: number | null;
+  operator_notes: string | null; created_by: string | null; created_at: string; updated_at: string;
 }
 
 export interface ClientPerformanceAnalysisRun {
@@ -743,13 +759,14 @@ export interface ClientPerformanceAnalysisRun {
 
 export type IterationCandidateStatus = "needs_review" | "approved" | "dismissed" | "converted";
 export interface ClientIterationCandidate {
-  id: string; client_id: string; source_ref: string | null; distribution_record_id: string | null;
+  id: string; client_id: string; source_ref: string | null; distribution_record_id: string | null; ad_campaign_id: string | null;
   performance_score_id: string | null; performance_insight_id: string | null;
-  candidate_type: "hook" | "proof_angle" | "cta" | "format" | "story_sequence" | "content_angle" | "offer" | "audience" | "distribution" | "asset" | "calendar" | "other";
+  candidate_type: "hook" | "proof_angle" | "cta" | "format" | "story_sequence" | "content_angle" | "offer" | "audience" | "distribution" | "asset" | "calendar" | "paid_promotion" | "other";
   recommendation: string; rationale: string; evidence: Record<string, unknown>;
   confidence: "low" | "medium" | "high"; priority: "low" | "medium" | "high";
   status: IterationCandidateStatus; created_by: "operator" | "system"; created_from: "performance_score" | "performance_insight" | "manual";
   reviewer_notes: string | null; reviewed_at: string | null; converted_at: string | null; created_at: string; updated_at: string;
+  created_content_opportunity_id: string | null; created_ad_opportunity_id: string | null;
 }
 
 export interface ClientIterationReview {

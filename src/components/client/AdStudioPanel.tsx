@@ -15,6 +15,114 @@ import {
   fetchLaunchAttemptsForCampaign,
 } from "@/lib/ad-studio";
 import { AD_OPPORTUNITY_ORIGIN_LABEL, AD_CAMPAIGN_STATUS_LABEL, type AdOpportunityRow, type AdOpportunityOrigin, type AdBriefRow, type AdBriefBody, type AdCreativeVariantRow, type AdBudgetPolicyRow, type AdCampaignRow, type AdLaunchAttemptRow } from "@/types/ad-studio";
+import {
+  fetchAdCampaignMetricSnapshots, fetchAdCampaignBusinessSignalSnapshots, upsertAdCampaignMetricSnapshot,
+  upsertAdCampaignBusinessSignalSnapshot, fetchAdPerformanceScore, fetchAdPerformanceInsights, runAdCampaignPerformanceAnalysis,
+} from "@/lib/api";
+import type { AdCampaignMetricSnapshot, AdCampaignBusinessSignalSnapshot, ClientPerformanceScore, ClientPerformanceInsight, AdSupportedMetricKey } from "@/types/phase";
+
+const AD_METRIC_KEYS: AdSupportedMetricKey[] = ["spend", "impressions", "cpm", "hook_rate", "ctr", "cpc", "landing_page_views"];
+
+/**
+ * Programme Stage M — paid metrics/business-signal entry and deterministic
+ * scoring for one launched Ad Campaign. Mirrors AnalyticsPanel's manual
+ * entry pattern (organic, Gate B) but keyed to ad_campaign_id and using the
+ * paid-anchored siblings from src/lib/ad-performance-intelligence.ts. Only
+ * shown for campaigns that have actually launched (active/paused/completed)
+ * — the same "requires real evidence" rule the organic gates enforce.
+ */
+function AdCampaignPerformanceSection({ campaign }: { campaign: AdCampaignRow }) {
+  const [metricSnapshots, setMetricSnapshots] = useState<AdCampaignMetricSnapshot[]>([]);
+  const [signalSnapshots, setSignalSnapshots] = useState<AdCampaignBusinessSignalSnapshot[]>([]);
+  const [score, setScore] = useState<ClientPerformanceScore | null>(null);
+  const [insights, setInsights] = useState<ClientPerformanceInsight[]>([]);
+  const [metricValues, setMetricValues] = useState<Record<string, string>>({});
+  const [signalValues, setSignalValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [metrics, signals, scoreRow, insightRows] = await Promise.all([
+        fetchAdCampaignMetricSnapshots(campaign.id), fetchAdCampaignBusinessSignalSnapshots(campaign.id),
+        fetchAdPerformanceScore(campaign.id), fetchAdPerformanceInsights(campaign.id),
+      ]);
+      setMetricSnapshots(metrics); setSignalSnapshots(signals); setScore(scoreRow); setInsights(insightRows);
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+  }, [campaign.id]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function saveMetrics() {
+    setBusy(true); setNotice(null);
+    try {
+      const metrics: Record<string, number> = {};
+      for (const key of AD_METRIC_KEYS) { const raw = metricValues[key]; if (raw?.trim()) metrics[key] = Number(raw); }
+      await upsertAdCampaignMetricSnapshot({ adCampaignId: campaign.id, snapshotAt: new Date().toISOString(), snapshotLabel: "manual", metrics });
+      setMetricValues({}); await load();
+      setNotice({ kind: "success", text: "Paid metric snapshot saved." });
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); } finally { setBusy(false); }
+  }
+
+  async function saveSignals() {
+    setBusy(true); setNotice(null);
+    try {
+      await upsertAdCampaignBusinessSignalSnapshot({
+        adCampaignId: campaign.id, signalAt: new Date().toISOString(),
+        leads: signalValues.leads ? Number(signalValues.leads) : null,
+        qualifiedLeads: signalValues.qualified_leads ? Number(signalValues.qualified_leads) : null,
+        appointments: signalValues.appointments ? Number(signalValues.appointments) : null,
+        showUps: signalValues.show_ups ? Number(signalValues.show_ups) : null,
+        cashCollected: signalValues.cash_collected ? Number(signalValues.cash_collected) : null,
+        cac: signalValues.cac ? Number(signalValues.cac) : null,
+        roas: signalValues.roas ? Number(signalValues.roas) : null,
+      });
+      setSignalValues({}); await load();
+      setNotice({ kind: "success", text: "Business signals saved." });
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); } finally { setBusy(false); }
+  }
+
+  async function analyze() {
+    setBusy(true); setNotice(null);
+    try {
+      const result = await runAdCampaignPerformanceAnalysis(campaign.id, campaign.name, campaign.created_at);
+      setNotice({ kind: "success", text: `Scored ${result.score.overall_score}/100. ${result.insightsCreated} new insight(s).` });
+      await load();
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); } finally { setBusy(false); }
+  }
+
+  const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
+  return <div className="mt-3 rounded border border-line bg-ink-200 p-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h5 className="text-xs font-medium text-paper">Paid Performance &amp; Iteration</h5>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void analyze()}>Run performance analysis</Button>
+    </div>
+    {notice && <p className={`mt-1 text-2xs ${notice.kind === "error" ? "text-neg" : "text-teal"}`}>{notice.text}</p>}
+
+    {score && <div className="mt-2 grid grid-cols-4 gap-2 text-center text-2xs">
+      <div className="rounded border border-line bg-ink p-2"><div className="font-mono text-base text-paper">{score.overall_score}</div><div className="text-paper-3">Overall</div></div>
+      <div className="rounded border border-line bg-ink p-2"><div className="font-mono text-base text-paper">{score.attention_score}</div><div className="text-paper-3">Efficiency</div></div>
+      <div className="rounded border border-line bg-ink p-2"><div className="font-mono text-base text-paper">{score.engagement_score}</div><div className="text-paper-3">Volume</div></div>
+      <div className="rounded border border-line bg-ink p-2"><div className="font-mono text-base text-paper">{score.conversion_signal_score}</div><div className="text-paper-3">Conversion</div></div>
+    </div>}
+    {!score && <p className="mt-2 text-2xs text-paper-3">No score yet — record metrics, then run analysis.</p>}
+
+    {insights.length > 0 && <div className="mt-2 space-y-1">{insights.map((i) => <div key={i.id} className="rounded border border-line bg-ink p-2 text-2xs"><span className="text-paper">{i.title}</span><span className="ml-2 text-paper-3">{i.insight_type.replaceAll("_", " ")}</span><p className="mt-1 text-paper-3">{i.summary}</p>{i.recommended_action && <p className="mt-1 text-teal">{i.recommended_action}</p>}</div>)}</div>}
+
+    <details className="mt-3"><summary className="cursor-pointer text-2xs text-paper-3">Record paid metrics ({metricSnapshots.length} snapshot{metricSnapshots.length === 1 ? "" : "s"})</summary>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {AD_METRIC_KEYS.map((key) => <label key={key} className="flex flex-col gap-1"><span className="text-2xs text-paper-3">{key.replaceAll("_", " ")}</span><input type="number" min="0" step="any" className={field} value={metricValues[key] ?? ""} onChange={(e) => setMetricValues((cur) => ({ ...cur, [key]: e.target.value }))} /></label>)}
+      </div>
+      <Button size="sm" variant="primary" className="mt-2" disabled={busy || campaign.status === "draft"} onClick={() => void saveMetrics()}>Save metric snapshot</Button>
+    </details>
+
+    <details className="mt-2"><summary className="cursor-pointer text-2xs text-paper-3">Record business signals ({signalSnapshots.length} snapshot{signalSnapshots.length === 1 ? "" : "s"})</summary>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(["leads", "qualified_leads", "appointments", "show_ups", "cash_collected", "cac", "roas"] as const).map((key) => <label key={key} className="flex flex-col gap-1"><span className="text-2xs text-paper-3">{key.replaceAll("_", " ")}</span><input type="number" min="0" step={key === "cash_collected" || key === "cac" ? "0.01" : key === "roas" ? "0.0001" : "1"} className={field} value={signalValues[key] ?? ""} onChange={(e) => setSignalValues((cur) => ({ ...cur, [key]: e.target.value }))} /></label>)}
+      </div>
+      <Button size="sm" variant="primary" className="mt-2" disabled={busy} onClick={() => void saveSignals()}>Save business signals</Button>
+    </details>
+  </div>;
+}
 
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 function errorMessage(error: unknown): string {
@@ -380,6 +488,7 @@ export function AdStudioPanel({ clientId }: { clientId: string }) {
                     </div>)}
                   </div>}
                 </div>
+                {["active", "paused", "completed"].includes(c.status) && <AdCampaignPerformanceSection campaign={c} />}
               </div>)}
             </div>}
           </div>}

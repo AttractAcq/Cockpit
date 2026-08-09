@@ -1,4 +1,4 @@
-export const ITERATION_CANDIDATE_TYPES = ["hook","proof_angle","cta","format","story_sequence","content_angle","offer","audience","distribution","asset","calendar","other"] as const;
+export const ITERATION_CANDIDATE_TYPES = ["hook","proof_angle","cta","format","story_sequence","content_angle","offer","audience","distribution","asset","calendar","paid_promotion","other"] as const;
 export const ITERATION_CONFIDENCE = ["low","medium","high"] as const;
 export const ITERATION_PRIORITIES = ["low","medium","high"] as const;
 
@@ -20,6 +20,6 @@ export function validIterationTransition(current: IterationCandidateStatus, next
     || (current === "dismissed" && next === "dismissed");
 }
 
-export function iterationEvidenceFromScore(score: { overall_score:number; attention_score:number; engagement_score:number; trust_score:number; conversion_signal_score:number; sample_quality:string; score_status:string; score_reasons:string[] }, latestMetrics: Record<string, unknown> = {}): Record<string, unknown> {
+export function iterationEvidenceFromScore(score: { overall_score:number; attention_score:number; engagement_score:number; trust_score:number|null; conversion_signal_score:number; sample_quality:string; score_status:string; score_reasons:string[] }, latestMetrics: Record<string, unknown> = {}): Record<string, unknown> {
   return { score_version:"deterministic_v1", overall_score:score.overall_score, attention_score:score.attention_score, engagement_score:score.engagement_score, trust_score:score.trust_score, conversion_signal_score:score.conversion_signal_score, sample_quality:score.sample_quality, score_status:score.score_status, score_reasons:score.score_reasons, latest_metrics:latestMetrics };
 }
