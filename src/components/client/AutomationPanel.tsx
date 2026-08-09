@@ -195,9 +195,11 @@ function ExceptionQueueSection({ clientId }: { clientId: string }) {
 }
 
 export function AutomationPanel({ clientId }: { clientId: string }) {
-  return <div className="flex flex-col gap-4 p-4">
-    <AutomationPolicySection clientId={clientId} />
-    <CapacityPolicySection clientId={clientId} />
-    <ExceptionQueueSection clientId={clientId} />
+  return <div className="min-h-0 flex-1 overflow-y-auto p-4">
+    <div className="flex flex-col gap-4">
+      <AutomationPolicySection clientId={clientId} />
+      <CapacityPolicySection clientId={clientId} />
+      <ExceptionQueueSection clientId={clientId} />
+    </div>
   </div>;
 }

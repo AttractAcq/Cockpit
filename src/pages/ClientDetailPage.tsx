@@ -38,6 +38,7 @@ import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/fu
 
 type Section =
   | "avatar"
+  | "offer"
   | "market_os"
   | "lead_magnets"
   | "landing_pages"
@@ -102,7 +103,6 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     defaultSection: "context_inputs",
     tabs: [
       { label: "Context Inputs", section: "context_inputs" },
-      { label: "Content Supply", section: "content_supply" },
       { label: "Context Files", section: "context_files" },
       { label: "Execution Files", section: "execution_files" },
       { label: "Execution Contract", section: "execution_contract" },
@@ -121,9 +121,15 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     tabs: [{ label: "Avatar OS", section: "avatar" }],
   },
   {
+    label: "Offer",
+    defaultSection: "offer",
+    tabs: [{ label: "Offer", section: "offer" }],
+  },
+  {
     label: "Ideation",
-    defaultSection: "ideation",
+    defaultSection: "content_supply",
     tabs: [
+      { label: "Content Supply", section: "content_supply" },
       { label: "Ideation", section: "ideation" },
       { label: "Opportunity Pool", section: "opportunity_pool" },
       { label: "Calendar Planning", section: "calendar_planning" },
@@ -711,6 +717,7 @@ export function ClientDetailPage() {
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
       case "avatar":
         return <div className="flex flex-1 items-center justify-center p-8"><div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center"><h2 className="text-sm font-medium text-paper">Avatar OS</h2><p className="mt-2 text-xs leading-5 text-paper-3">The Avatar OS workspace will live here when its build is added.</p></div></div>;
+      case "offer":
       case "market_os":
       case "lead_magnets":
       case "landing_pages":
@@ -748,11 +755,11 @@ export function ClientDetailPage() {
       case "content_supply":
         return <ContentSupplyPanel clientId={id} />;
       case "opportunity_pool":
-        return <OpportunityPoolPanel clientId={id} />;
+        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><OpportunityPoolPanel clientId={id} /></div>;
       case "calendar_planning":
-        return <CalendarPlanningPanel clientId={id} />;
+        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><CalendarPlanningPanel clientId={id} /></div>;
       case "content_items":
-        return <ContentItemsPanel clientId={id} />;
+        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><ContentItemsPanel clientId={id} /></div>;
       case "production_studio":
         return <ProductionStudioPanel clientId={id} />;
       case "proof_upload":
