@@ -1,9 +1,73 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/primitives";
-import { fetchClientDistributionAccounts, saveClientDistributionAccount, setClientDistributionAccountActive, setDefaultClientDistributionAccount } from "@/lib/api";
+import {
+  fetchClientDistributionAccounts, saveClientDistributionAccount, setClientDistributionAccountActive, setDefaultClientDistributionAccount,
+  discoverFacebookPages, connectFacebookPageDestination, verifyFacebookDestinationCapability,
+} from "@/lib/api";
 import { fetchClientDistributionPolicy, setClientDistributionPolicy } from "@/lib/distribution-policy";
-import type { ClientDistributionAccount } from "@/types/phase";
+import type { ClientDistributionAccount, FacebookPageDiscoveryResult } from "@/types/phase";
 import { WEEKDAY_LABEL, type ApprovalMode, type BlackoutPeriod, type ClientDistributionPolicyRow } from "@/types/distribution-policy";
+
+const CONNECTION_STATUS_STYLE: Record<string, string> = {
+  connected: "border-teal/30 text-teal",
+  needs_reauth: "border-warn/30 text-warn",
+  disconnected: "border-line text-paper-3",
+  error: "border-neg/30 text-neg",
+};
+const CONNECTION_STATUS_LABEL: Record<string, string> = {
+  connected: "connected", needs_reauth: "needs reconnect", disconnected: "disconnected", error: "error",
+};
+
+function ConnectFacebookPageDialog({ clientId, onClose, onConnected }: { clientId: string; onClose: () => void; onConnected: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [pages, setPages] = useState<FacebookPageDiscoveryResult[]>([]);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setError(null);
+      try {
+        const discovered = await discoverFacebookPages(clientId);
+        if (cancelled) return;
+        setPages(discovered);
+      } catch (e) { if (!cancelled) setError(message(e)); } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  async function connect() {
+    if (!selectedPageId) { setError("Select a Page to connect."); return; }
+    setBusy(true); setError(null);
+    try { await connectFacebookPageDestination({ clientId, pageId: selectedPageId, label: label.trim() || undefined }); onConnected(); }
+    catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+
+  return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4" onClick={() => !busy && onClose()}>
+    <div role="dialog" aria-modal="true" className="w-full max-w-xl rounded-xl border border-line bg-ink-200 p-5" onClick={(event) => event.stopPropagation()}>
+      <h2 className="text-base font-medium text-paper">Connect a Facebook Page</h2>
+      <p className="mt-1 text-xs leading-5 text-paper-3">Pages are discovered from the client's connected Meta identity — only Pages that identity can actually manage are shown. Nothing is typed in manually.</p>
+      {error && <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 p-2 text-xs text-neg">{error}</div>}
+      {loading ? <div className="py-8 text-center text-xs text-paper-3">Discovering Pages…</div> : pages.length === 0 ? (
+        <div className="mt-4 rounded border border-dashed border-line p-6 text-center text-xs text-paper-3">No Pages were found for this client's Meta identity. Confirm the System User has been granted access to the Page in Business Manager.</div>
+      ) : <div className="mt-4 space-y-2">
+        {pages.map((page) => <label key={page.id} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${selectedPageId === page.id ? "border-teal/50 bg-teal/5" : "border-line bg-ink"}`}>
+          <input type="radio" name="fb-page" className="mt-1 accent-teal" checked={selectedPageId === page.id} onChange={() => { setSelectedPageId(page.id); setLabel((current) => current || page.name); }} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-paper">{page.name}</div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">{page.category && <span>{page.category}</span>}<span className="font-mono">{page.id}</span></div>
+            {!page.tasks.includes("CREATE_CONTENT") && <p className="mt-1 text-2xs text-warn">Missing the CREATE_CONTENT task — connecting will show as needing attention until Page access is granted.</p>}
+          </div>
+        </label>)}
+        <label className="flex flex-col gap-1 pt-2"><span className="text-2xs uppercase text-paper-3">Label (optional — defaults to the Page name)</span><input className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50" value={label} onChange={(e) => setLabel(e.target.value)} /></label>
+      </div>}
+      <div className="mt-5 flex justify-end gap-2"><Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button size="sm" variant="primary" disabled={busy || loading || !selectedPageId} onClick={() => void connect()}>{busy ? "Connecting…" : "Connect Page"}</Button></div>
+    </div>
+  </div>;
+}
 
 type Draft = { id?: string; label: string; platform: string; handle: string; externalAccountId: string; accountType: string; notes: string; isDefault: boolean; isActive: boolean };
 const emptyDraft = (): Draft => ({ label: "", platform: "instagram", handle: "", externalAccountId: "", accountType: "", notes: "", isDefault: false, isActive: true });
@@ -113,8 +177,16 @@ export function ClientSettingsPanel({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectingFacebook, setConnectingFacebook] = useState(false);
+  const [verifyingAccountId, setVerifyingAccountId] = useState<string | null>(null);
   const load = useCallback(async () => { setLoading(true); setError(null); try { setAccounts(await fetchClientDistributionAccounts(clientId)); } catch (e) { setError(message(e)); } finally { setLoading(false); } }, [clientId]);
   useEffect(() => { void load(); }, [load]);
+
+  async function refreshCapability(account: ClientDistributionAccount) {
+    setVerifyingAccountId(account.id); setError(null);
+    try { await verifyFacebookDestinationCapability(clientId, account.id); await load(); }
+    catch (e) { setError(message(e)); } finally { setVerifyingAccountId(null); }
+  }
 
   function edit(account: ClientDistributionAccount) {
     setDraft({ id: account.id, label: account.label, platform: account.platform, handle: account.handle, externalAccountId: account.external_account_id, accountType: account.account_type ?? "", notes: account.notes ?? "", isDefault: account.is_default, isActive: account.is_active });
@@ -133,10 +205,10 @@ export function ClientSettingsPanel({ clientId }: { clientId: string }) {
     <div className="mx-auto max-w-5xl space-y-4">
       <header><h1 className="text-lg font-medium text-paper">Client Settings</h1><p className="mt-1 text-xs text-paper-3">Client-level configuration for this workspace.</p></header>
       <section className="rounded-[10px] border border-line bg-ink-200 p-4">
-        <div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><h2 className="text-sm font-medium text-paper">Distribution Accounts</h2><p className="mt-1 text-xs leading-5 text-paper-3">Save client-level publishing destinations used by Distribution publish and schedule records. Credentials and API tokens are not stored here yet.</p></div><Button size="sm" variant="primary" onClick={() => { setError(null); setDraft(emptyDraft()); }}>Add account</Button></div>
+        <div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><h2 className="text-sm font-medium text-paper">Distribution Accounts</h2><p className="mt-1 text-xs leading-5 text-paper-3">Save client-level publishing destinations used by Distribution publish and schedule records. Credentials and API tokens are not stored here — Facebook Pages are discovered from the client's connected Meta identity, never typed in.</p></div><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => { setError(null); setConnectingFacebook(true); }}>Connect Facebook Page</Button><Button size="sm" variant="primary" onClick={() => { setError(null); setDraft(emptyDraft()); }}>Add Instagram account</Button></div></div>
         {error && <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 p-2 text-xs text-neg">{error}</div>}
-        {loading ? <div className="py-8 text-center text-xs text-paper-3">Loading distribution accounts…</div> : !accounts.length ? <div className="mt-4 rounded border border-dashed border-line p-8 text-center text-xs text-paper-3">No distribution accounts saved yet. Add an Instagram account to enable account selection in Distribution.</div> : <div className="mt-4 space-y-2">{accounts.map((account) => <article key={account.id} className="rounded-lg border border-line bg-ink p-3">
-          <div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm text-paper">{account.label}</span>{account.is_default && <span className="rounded border border-teal/30 bg-teal/5 px-1.5 py-0.5 text-2xs text-teal">default</span>}<span className={`rounded border px-1.5 py-0.5 text-2xs ${account.is_active ? "border-teal/30 text-teal" : "border-line text-paper-3"}`}>{account.is_active ? "active" : "inactive"}</span></div><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-paper-3"><span>{account.platform}</span><span>@{account.handle}</span><span className="font-mono">{account.external_account_id}</span>{account.account_type && <span>{account.account_type}</span>}</div>{account.notes && <p className="mt-2 text-xs text-paper-2">{account.notes}</p>}</div><div className="flex gap-2"><Button size="sm" variant="ghost" disabled={busy} onClick={() => edit(account)}>Edit</Button>{account.is_active && !account.is_default && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void setDefault(account)}>Set default</Button>}<Button size="sm" variant="ghost" disabled={busy} onClick={() => void toggle(account)}>{account.is_active ? "Deactivate" : "Reactivate"}</Button></div></div>
+        {loading ? <div className="py-8 text-center text-xs text-paper-3">Loading distribution accounts…</div> : !accounts.length ? <div className="mt-4 rounded border border-dashed border-line p-8 text-center text-xs text-paper-3">No distribution accounts saved yet. Add an Instagram account or connect a Facebook Page to enable account selection in Distribution.</div> : <div className="mt-4 space-y-2">{accounts.map((account) => <article key={account.id} className="rounded-lg border border-line bg-ink p-3">
+          <div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm text-paper">{account.label}</span>{account.is_default && <span className="rounded border border-teal/30 bg-teal/5 px-1.5 py-0.5 text-2xs text-teal">default</span>}<span className={`rounded border px-1.5 py-0.5 text-2xs ${account.is_active ? "border-teal/30 text-teal" : "border-line text-paper-3"}`}>{account.is_active ? "active" : "inactive"}</span>{account.platform === "facebook" && <span className={`rounded border px-1.5 py-0.5 text-2xs ${CONNECTION_STATUS_STYLE[account.connection_status] ?? "border-line text-paper-3"}`}>{CONNECTION_STATUS_LABEL[account.connection_status] ?? account.connection_status}</span>}</div><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-paper-3"><span>{account.platform}</span><span>@{account.handle}</span><span className="font-mono">{account.external_account_id}</span>{account.account_type && <span>{account.account_type}</span>}{account.last_verified_at && <span>verified {new Date(account.last_verified_at).toLocaleString()}</span>}</div>{account.notes && <p className="mt-2 text-xs text-paper-2">{account.notes}</p>}</div><div className="flex gap-2">{account.platform === "facebook" && <Button size="sm" variant="ghost" disabled={verifyingAccountId === account.id} onClick={() => void refreshCapability(account)}>{verifyingAccountId === account.id ? "Checking…" : account.connection_status === "needs_reauth" ? "Reconnect" : "Refresh capability"}</Button>}{account.platform === "instagram" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => edit(account)}>Edit</Button>}{account.is_active && !account.is_default && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void setDefault(account)}>Set default</Button>}<Button size="sm" variant="ghost" disabled={busy} onClick={() => void toggle(account)}>{account.is_active ? "Deactivate" : "Reactivate"}</Button></div></div>
         </article>)}</div>}
       </section>
       <DistributionPolicySection clientId={clientId} />
@@ -150,5 +222,6 @@ export function ClientSettingsPanel({ clientId }: { clientId: string }) {
       <label className="flex items-center gap-2 self-end pb-2 text-xs text-paper-2"><input type="checkbox" className="accent-teal" checked={draft.isDefault} onChange={(e) => setDraft({ ...draft, isDefault: e.target.checked })} />Default account</label>
       <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-2xs uppercase text-paper-3">Notes (optional)</span><textarea className={`${field} min-h-20`} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
     </div><div className="mt-5 flex justify-end gap-2"><Button size="sm" variant="ghost" disabled={busy} onClick={() => setDraft(null)}>Cancel</Button><Button size="sm" variant="primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save account"}</Button></div></div></div>}
+    {connectingFacebook && <ConnectFacebookPageDialog clientId={clientId} onClose={() => setConnectingFacebook(false)} onConnected={() => { setConnectingFacebook(false); void load(); }} />}
   </div>;
 }

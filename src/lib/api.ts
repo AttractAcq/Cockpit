@@ -45,7 +45,7 @@ import { calculatePerformanceScore, generateInsightCandidates } from "./performa
 import { calculateAdCampaignPerformanceScore, generateAdInsightCandidates } from "./ad-performance-intelligence";
 import { resolvePublishCapability } from "../../supabase/functions/_shared/publish-capability";
 import type { PulseMetric } from "@/types";
-import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
+import type { AiBackgroundGenerationRow, ClientDistributionAccount, DistributionAccountCapabilityResult, DistributionAccountConnectionStatus, FacebookPageDiscoveryResult, ProductionMode } from "@/types/phase";
 import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, ReelContinuityPlan, ReelStoryStrategy, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
   IdeationCandidate,
@@ -2500,6 +2500,30 @@ export async function setClientDistributionAccountActive(accountId: string, acti
   const { error } = await supabase.from(DISTRIBUTION_ACCOUNTS_TABLE)
     .update({ is_active: active, ...(active ? {} : { is_default: false }) }).eq("id", accountId);
   if (error) throw error;
+}
+
+// ── Programme Stage 1B-B: Facebook Page destination discovery/connect/verify.
+// All three go through edge functions (never a direct table write from the
+// browser) because each needs a real, server-held Meta credential — the
+// golden "surfaces are thin" rule.
+
+export async function discoverFacebookPages(clientId: string): Promise<FacebookPageDiscoveryResult[]> {
+  const result = await invokeFn<{ pages: FacebookPageDiscoveryResult[] }>("discover-facebook-pages", { client_id: clientId });
+  return result.pages;
+}
+
+export async function connectFacebookPageDestination(input: {
+  clientId: string; pageId: string; label?: string; isDefault?: boolean;
+}): Promise<{ account: ClientDistributionAccount; capability: DistributionAccountCapabilityResult }> {
+  return await invokeFn("connect-facebook-page-destination", {
+    client_id: input.clientId, page_id: input.pageId, label: input.label, is_default: input.isDefault === true,
+  });
+}
+
+export async function verifyFacebookDestinationCapability(clientId: string, distributionAccountId: string): Promise<{
+  connection_status: DistributionAccountConnectionStatus; capability: DistributionAccountCapabilityResult;
+}> {
+  return await invokeFn("verify-facebook-destination-capability", { client_id: clientId, distribution_account_id: distributionAccountId });
 }
 
 export async function fetchDistributionRecordByGroup(clientId: string, assetGroupRef: string): Promise<DistributionRecordRow | null> {

@@ -627,6 +627,8 @@ export interface DistributionRecordRow {
   permanent_failure?: boolean;
 }
 
+export type DistributionAccountConnectionStatus = "connected" | "needs_reauth" | "disconnected" | "error";
+
 export interface ClientDistributionAccount {
   id: string;
   client_id: string;
@@ -642,6 +644,28 @@ export interface ClientDistributionAccount {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  /** Programme Stage 1B-B. */
+  credential_reference: string | null;
+  connection_status: DistributionAccountConnectionStatus;
+  last_verified_at: string | null;
+  external_metadata: Record<string, unknown>;
+}
+
+/** Programme Stage 1B-B — a Page returned by Facebook Page discovery, not yet connected. */
+export interface FacebookPageDiscoveryResult {
+  id: string;
+  name: string;
+  category: string | null;
+  tasks: string[];
+}
+
+/** Programme Stage 1B-B — the result of a capability check, returned by connect/verify. */
+export interface DistributionAccountCapabilityResult {
+  grantedScopes: string[];
+  missingScopes: string[];
+  supportedCapabilities: string[];
+  verificationStatus: "verified" | "missing_permissions" | "token_invalid" | "error";
+  lastError: string | null;
 }
 
 export type AnalyticsStatus = "awaiting_metrics" | "metrics_partial" | "complete" | "failed";
