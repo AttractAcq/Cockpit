@@ -91,3 +91,15 @@ export async function reviewFacebookRendition(input: {
     client_id: input.clientId, rendition_id: input.renditionId, action: input.action, change_request_notes: input.changeRequestNotes,
   });
 }
+
+// ── Programme Stage 1B-D: send an approved Rendition to Distribution ──────
+
+export async function createDistributionRecordFromFacebookRendition(input: {
+  clientId: string; renditionId: string; destinationAccountId: string;
+  trackingUrl?: string; campaignReference?: string; scheduledPublishAt?: string;
+}): Promise<{ ok: true; idempotent_replay: boolean; record: Record<string, unknown> }> {
+  return await invokeFn("create-distribution-record-from-facebook-rendition", {
+    client_id: input.clientId, rendition_id: input.renditionId, destination_account_id: input.destinationAccountId,
+    tracking_url: input.trackingUrl, campaign_reference: input.campaignReference, scheduled_publish_at: input.scheduledPublishAt,
+  });
+}

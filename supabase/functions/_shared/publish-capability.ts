@@ -82,13 +82,23 @@ function fromReelEligibility(eligibility: ReelPublicationEligibility): PublishCa
   };
 }
 
-export const SUPPORTED_PUBLISH_PLATFORMS = ["instagram"] as const;
+// Programme Stage 1B-D: facebook joins the live platform set. Everything
+// Facebook-specific is handled by its own early-branching resolver below
+// (resolveFacebookPublishCapability) so none of the pre-existing Instagram
+// logic in this file changes shape or behaviour for platform="instagram".
+export const SUPPORTED_PUBLISH_PLATFORMS = ["instagram", "facebook"] as const;
 export const SUPPORTED_PUBLISH_CONTENT_TYPES = ["IMAGE", "CAROUSEL", "STORIES"] as const;
 export const SUPPORTED_PUBLISH_ASSET_FORMATS = ["feed_post", "carousel", "story_sequence", "ad_static"] as const;
+
+// Grounded in the Stage 1B-A capability matrix and Stage 1B-C's
+// validateFacebookRenditionFormat (kept in sync with both — CAROUSEL and
+// STORIES were never confirmed against Meta's own docs and stay blocked).
+export const SUPPORTED_FACEBOOK_PUBLISH_CONTENT_TYPES = ["IMAGE", "VIDEO", "REELS", "TEXT_LINK"] as const;
 
 const PLATFORMS = new Set<string>(SUPPORTED_PUBLISH_PLATFORMS);
 const CONTENT_TYPES = new Set<string>(SUPPORTED_PUBLISH_CONTENT_TYPES);
 const ASSET_FORMATS = new Set<string>(SUPPORTED_PUBLISH_ASSET_FORMATS);
+const FACEBOOK_CONTENT_TYPES = new Set<string>(SUPPORTED_FACEBOOK_PUBLISH_CONTENT_TYPES);
 
 /**
  * Phase 2 blocked every Reel with this message. Phase 3 keeps it ONLY for the
@@ -108,13 +118,41 @@ const supported: PublishCapability = {
   reason: "",
 };
 
+/**
+ * Programme Stage 1B-D. Facebook's capability rules are structurally
+ * different enough (no Instagram-style asset_format vocabulary, a genuinely
+ * different set of supported content types, no final-Reel-contract gate —
+ * Facebook Reel eligibility is proven at Rendition-approval time in Stage
+ * 1B-C, not here) that branching early into a dedicated resolver is safer
+ * than interleaving conditions into the Instagram logic below.
+ */
+function resolveFacebookPublishCapability(input: PublishCapabilityInput): PublishCapability {
+  const contentType = (input.contentType ?? "IMAGE").trim().toUpperCase();
+  if (!FACEBOOK_CONTENT_TYPES.has(contentType)) {
+    return {
+      supported: false, permanent: true, code: "unsupported_content_type",
+      reason: `Facebook content type "${contentType}" is not supported by the current publisher.`,
+    };
+  }
+  if (contentType !== "TEXT_LINK" && input.mediaMimeTypes.length === 0) {
+    return {
+      supported: false, permanent: true, code: "unsupported_asset_format",
+      reason: `At least one media asset is required for Facebook content type "${contentType}".`,
+    };
+  }
+  return supported;
+}
+
 export function resolvePublishCapability(input: PublishCapabilityInput): PublishCapability {
   const platform = (input.platform ?? "instagram").trim().toLowerCase();
   if (!PLATFORMS.has(platform)) {
     return {
       supported: false, permanent: true, code: "unsupported_platform",
-      reason: `Publishing to "${platform}" is not supported. Only Instagram is wired up.`,
+      reason: `Publishing to "${platform}" is not supported.`,
     };
+  }
+  if (platform === "facebook") {
+    return resolveFacebookPublishCapability(input);
   }
 
   const contentType = (input.contentType ?? "IMAGE").trim().toUpperCase();

@@ -29,6 +29,13 @@ import {
 } from "../_shared/instagram-reels-publish.ts";
 import { resolveReelPublicationEligibility, type FinalReelDeliverable } from "../_shared/final-reel-contract.ts";
 import { checkAutomationGate, resolveRetryCap, DEFAULT_AUTOMATION_LEVEL, type AutomationLevel } from "../_shared/automation-policy.ts";
+// Programme Stage 1B-D. Facebook uses its own orchestration entirely
+// (publishFacebookDistributionRecord for the synchronous IMAGE/TEXT_LINK
+// formats, advanceFacebookAsyncDistributionRecord for the async VIDEO/REELS
+// formats) — nothing above this line changes behaviour for platform =
+// "instagram", and no Facebook record is ever routed through the Instagram
+// Reel/Story-video machinery below (see the isFacebook/isReel guards).
+import { publishFacebookDistributionRecord, advanceFacebookAsyncDistributionRecord } from "../_shared/facebook-publish-orchestrator.ts";
 
 const FUNCTION_NAME = "process-scheduled-publishing";
 const MAX_PER_RUN = 3;                 // batch size (decision: 3)
@@ -161,8 +168,15 @@ Deno.serve(async (req: Request) => {
     // (real deliverable + project, via resolveReelPublicationEligibility)
     // before ever calling Meta, so skipping the shallow guard here does not
     // weaken validation — it defers to the check that can actually decide.
-    const isReel = contentType === "REELS" || record.asset_format === "reel_video";
-    const isStoryVideo = contentType === "STORIES" && record.asset_format === "story_video";
+    // Programme Stage 1B-D: Facebook records never enter Instagram's Reel/
+    // Story-video machinery (video_project_deliverables, final-reel-contract
+    // — entirely Instagram-specific provenance). Gating isReel/isStoryVideo
+    // behind !isFacebook is what makes that true even though a Facebook
+    // Reels rendition's contentType is also literally "REELS".
+    const isFacebook = (record.platform ?? "instagram") === "facebook";
+    const isReel = !isFacebook && (contentType === "REELS" || record.asset_format === "reel_video");
+    const isStoryVideo = !isFacebook && contentType === "STORIES" && record.asset_format === "story_video";
+    const isFacebookAsync = isFacebook && (contentType === "VIDEO" || contentType === "REELS");
 
     // Guard: never ATTEMPT an unsupported combination — mark it permanently
     // failed so the worker stops considering it. This is what prevents an
@@ -226,11 +240,35 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    // 3b) Everything else publishes through the shared synchronous path (record
-    //     is already 'publishing'). Wrapped so ONE record's unexpected throw never
-    //     aborts the whole batch.
+    // 3a-fb) Programme Stage 1B-D: Facebook VIDEO/REELS take their own
+    //        asynchronous, one-step-per-run path — structurally the same
+    //        discipline as 3a above (never publish without confirmed
+    //        evidence, always release-and-requeue between polls), but using
+    //        Facebook's own provider_processing_state column rather than
+    //        Instagram's dedicated container columns.
+    if (isFacebookAsync) {
+      try {
+        const disposition = await advanceFacebookAsync(sb, record, attemptBase, attemptNumber, retryCap);
+        results.push({ id: record.id, source_ref: record.source_ref, disposition });
+      } catch (thrown) {
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        await releaseReelForRetry(sb, record, attemptNumber, `Worker error: ${message}`, attemptBase, "worker_exception", retryCap);
+        results.push({ id: record.id, source_ref: record.source_ref, disposition: "facebook_worker_error" });
+      }
+      continue;
+    }
+
+    // 3b) Everything else publishes through a shared synchronous path
+    //     (record is already 'publishing'): Instagram's own publisher for
+    //     platform="instagram", Facebook's for platform="facebook" (Facebook
+    //     IMAGE/TEXT_LINK only — VIDEO/REELS took the 3a-fb branch above).
+    //     Both return the same PublishOutcome shape, so every line below
+    //     handles either platform identically without caring which one ran.
+    //     Wrapped so ONE record's unexpected throw never aborts the batch.
     try {
-      const outcome = await publishDistributionRecord(sb, record.id, "scheduled_worker");
+      const outcome = isFacebook
+        ? await publishFacebookDistributionRecord(sb, record.id, "scheduled_worker")
+        : await publishDistributionRecord(sb, record.id, "scheduled_worker");
       const completedAt = new Date().toISOString();
 
       if (outcome.ok) {
@@ -555,4 +593,86 @@ async function advanceReel(
       return "reel_failed_permanent";
     }
   }
+}
+
+// ── Programme Stage 1B-D: Facebook async publication (one step per run) ──
+//
+// Structurally identical discipline to advanceReel above: the shared
+// orchestrator (advanceFacebookAsyncDistributionRecord) advances Meta-side
+// state only; this wrapper owns the claim/attempt-budget bookkeeping
+// (release back to 'scheduled' between polls, restore attempt_count so
+// polling never consumes the publish-attempt budget, exponential backoff on
+// transient failure, permanent failure + exception filing otherwise) —
+// exactly like releaseReelForPolling/releaseReelForRetry, reused directly.
+
+async function advanceFacebookAsync(
+  sb: ReturnType<typeof svc>,
+  record: ClaimedRecord,
+  attemptBase: AttemptBase,
+  attemptNumber: number,
+  retryCap: number = MAX_ATTEMPTS,
+): Promise<string> {
+  const completedAt = new Date().toISOString();
+  const result = await advanceFacebookAsyncDistributionRecord(sb, record.id);
+
+  if (result.disposition === "already_published") {
+    await sb.from("client_distribution_records").update({ publish_status: "published", claimed_at: null, claimed_by: null, updated_at: completedAt }).eq("id", record.id);
+    return "facebook_already_published";
+  }
+
+  if (result.disposition === "published") {
+    await sb.from("client_publish_attempts").insert({
+      ...attemptBase, completed_at: completedAt, result: "published", retryable: false,
+      external_post_id: (result.record?.external_post_id as string) ?? null, message: "Published to Facebook.",
+    });
+    await sb.from("activity_log").insert({
+      client_id: record.client_id, event_type: "asset_published_scheduled",
+      plain_english_message: `${record.source_ref} published to Facebook on schedule.`,
+      metadata: { distribution_record_id: record.id, external_post_id: result.record?.external_post_id ?? null, attempt_number: attemptNumber },
+    }).then(() => {}, () => {});
+    return "facebook_published";
+  }
+
+  if (result.disposition === "processing" || result.disposition === "reel_upload_started") {
+    // A status poll (or the Reel upload step) is not a publish attempt —
+    // release back to scheduled and restore the pre-claim attempt_count,
+    // exactly like releaseReelForPolling.
+    await sb.from("client_distribution_records").update({
+      publish_status: "scheduled", claimed_at: null, claimed_by: null,
+      attempt_count: Math.max(attemptNumber - 1, 0),
+      next_attempt_at: new Date(Date.now() + REEL_POLL_INTERVAL_MS).toISOString(),
+      last_error: null, updated_at: completedAt,
+    }).eq("id", record.id);
+    await sb.from("client_publish_attempts").insert({
+      ...attemptBase, completed_at: completedAt, result: "started", retryable: true,
+      category: `facebook_${result.disposition}`,
+      message: result.disposition === "reel_upload_started" ? "Facebook Reel upload session started and uploaded; awaiting processing." : "Facebook is still processing this video.",
+    });
+    return `facebook_${result.disposition}`;
+  }
+
+  // transient_failure / permanent_failure
+  if (result.retryable) {
+    await releaseReelForRetry(
+      sb, record, attemptNumber,
+      `[${result.category}, retryable] ${result.error}`,
+      attemptBase, result.category ?? "meta_publish_failed", retryCap,
+    );
+    return "facebook_retry";
+  }
+  await sb.from("client_distribution_records").update({
+    publish_status: "failed", permanent_failure: true, claimed_at: null, claimed_by: null, next_attempt_at: null,
+    last_error: `[${result.category}, non-retryable] ${result.error}`, updated_at: completedAt,
+  }).eq("id", record.id);
+  await sb.from("client_publish_attempts").insert({
+    ...attemptBase, completed_at: completedAt, result: "permanent_failure", retryable: false,
+    category: result.category ?? null, message: result.error ?? null,
+  });
+  fileDistributionException(sb, record, result.category ?? null, result.error ?? null);
+  await sb.from("activity_log").insert({
+    client_id: record.client_id, event_type: "asset_publish_failed",
+    plain_english_message: `${record.source_ref} failed to publish to Facebook (permanent).`,
+    metadata: { distribution_record_id: record.id, category: result.category, attempt_number: attemptNumber },
+  }).then(() => {}, () => {});
+  return "facebook_failed_permanent";
 }

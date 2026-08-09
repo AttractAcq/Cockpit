@@ -682,11 +682,25 @@ test("no in-browser editor, compositing or assembly was introduced", async () =>
   assert.match(sources[0], /Cockpit does not assemble or edit video/i);
 });
 
-test("no additional publishing platform was added", async () => {
+test("no unauthorized publishing platform was added — only the Phase 1-B-approved Facebook addition", async () => {
+  // Originally asserted platforms stayed Instagram-only; Programme Phase
+  // 1-B (Stages 1B-A through 1B-D) deliberately and authoritatively adds
+  // Facebook as a real, first-class platform, so the literal assertion
+  // updates to match — the real protective intent (no unplanned platform
+  // sneaking in via unrelated work, and instagram-reels-publish.ts itself
+  // staying Instagram-only, since Facebook's video/Reels adapter lives in
+  // its own separate facebook-publish.ts) is unchanged and still enforced.
   const capability = await file("supabase/functions/_shared/publish-capability.ts");
   const reels = await file("supabase/functions/_shared/instagram-reels-publish.ts");
-  assert.match(capability, /SUPPORTED_PUBLISH_PLATFORMS = \["instagram"\]/);
+  assert.match(capability, /SUPPORTED_PUBLISH_PLATFORMS = \["instagram", "facebook"\]/);
   assert.doesNotMatch(reels, /tiktok|youtube|shorts/i);
+  // "facebook" and even "rupload"/"video_reels" legitimately appear in this
+  // file's own header comment (explaining the real Instagram Reels contract,
+  // and one line noting rupload.facebook.com is NOT needed for Instagram).
+  // What must never appear is Facebook *Page* publishing CODE merged into
+  // this Instagram-only module — checked by real exported identifiers, which
+  // only exist in the separate facebook-publish.ts this stage added.
+  assert.doesNotMatch(reels, /publishFacebookVideo|submitFacebookReel|resolvePageAccessToken|publishFacebookPhoto|publishFacebookFeedText/);
 });
 
 test("the Phase 3 migration is additive and preserves history", async () => {

@@ -2637,7 +2637,14 @@ export interface PublishResult {
  * record published. Success is only ever set by the edge function after a real
  * Meta API call — the frontend never fabricates a published state.
  */
-export async function publishDistributionRecordNow(recordId: string, payloadOverrides: Record<string, unknown> = {}): Promise<PublishResult> {
+/** Programme Stage 1B-D: dispatches to the right platform's publisher. platform/clientId default to Instagram's existing call shape for any caller that hasn't been updated to pass them. */
+export async function publishDistributionRecordNow(
+  recordId: string, payloadOverrides: Record<string, unknown> = {}, platform: string = "instagram", clientId?: string,
+): Promise<PublishResult> {
+  if (platform === "facebook") {
+    if (!clientId) throw new Error("clientId is required to publish a Facebook distribution record.");
+    return invokeFn<PublishResult>("publish-facebook-asset", { client_id: clientId, distribution_record_id: recordId });
+  }
   return invokeFn<PublishResult>("publish-instagram-asset", {
     distribution_record_id: recordId, mode: "publish_now", payload_overrides: payloadOverrides,
   });

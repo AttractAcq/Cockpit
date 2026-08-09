@@ -48,9 +48,10 @@ All 132 real tables (+1 view) in the `public` schema of `xivewedajschthjlblfb`, 
 
 ## Distribution & publishing
 
-- `client_distribution_records` — the real bridge table; every real publish, legacy or canonical-origin, passes through here. `content_item_id`/`content_brief_id` are the (currently unpopulated) forward links into the canonical spine.
-- `client_distribution_accounts`, `client_distribution_policies` — per-client platform account + policy config.
+- `client_distribution_records` — the real bridge table; every real publish, legacy or canonical-origin, passes through here. `content_item_id`/`content_brief_id` are the (currently unpopulated) forward links into the canonical spine. `platform` distinguishes `instagram` (legacy `asset_format` vocabulary) from `facebook` (Programme Stage 1B-B+: `content_item_rendition_id` links back to a `content_item_renditions` row; `provider_processing_state` carries the async VIDEO/REELS upload-session state, mirroring Instagram's dedicated `external_container_id`/`container_status` columns but namespaced per-platform since Facebook's Graph API shape differs).
+- `client_distribution_accounts`, `client_distribution_policies` — per-client platform account + policy config. `client_distribution_accounts.platform` now spans `instagram`/`facebook` (Stage 1B-B); `credential_reference`/`connection_status`/`last_verified_at`/`external_metadata` are Facebook-era additions, not yet consulted for Instagram.
 - `client_publish_attempts` — attempt-level log feeding `computePublishSuccessRate`.
+- `content_item_renditions` (Programme Stage 1B-C) — one row per (Content Item, platform) rendition version; `status` lifecycle mirrors `content_briefs` (draft → in_review → approved, plus `superseded`); the biconditional CHECK on `approved_by`/`approved_at` means any status transition away from `approved` must null both together, never just `status`.
 
 ## Analytics & performance
 

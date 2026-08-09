@@ -13,10 +13,13 @@ import {
   createFacebookRendition,
   updateFacebookRendition,
   reviewFacebookRendition,
+  createDistributionRecordFromFacebookRendition,
 } from "@/lib/content-items";
 import { fetchAssetsForItem } from "@/lib/production-studio";
+import { fetchClientDistributionAccounts } from "@/lib/api";
 import type { ContentItem, ContentBrief, ContentItemRendition, RenditionFormat } from "@/types/content-brief";
 import type { ContentItemAsset } from "@/types/production-studio";
+import type { ClientDistributionAccount } from "@/types/phase";
 
 const RENDITION_FORMATS: RenditionFormat[] = ["IMAGE", "VIDEO", "REELS", "TEXT_LINK", "CAROUSEL", "STORIES"];
 const RENDITION_STATUS_COLOR: Record<string, string> = {
@@ -37,15 +40,29 @@ function RenditionsSection({ clientId, contentItemId }: { clientId: string; cont
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCopy, setEditCopy] = useState("");
   const [editCta, setEditCta] = useState("");
+  const [destinations, setDestinations] = useState<ClientDistributionAccount[]>([]);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [r, a] = await Promise.all([fetchRenditionsForItem(contentItemId), fetchAssetsForItem(contentItemId)]);
+      const [r, a, d] = await Promise.all([fetchRenditionsForItem(contentItemId), fetchAssetsForItem(contentItemId), fetchClientDistributionAccounts(clientId, true)]);
       setRenditions(r); setAssets(a);
+      setDestinations(d.filter((account) => account.platform === "facebook" && account.connection_status === "connected"));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
-  }, [contentItemId]);
+  }, [clientId, contentItemId]);
   useEffect(() => { void load(); }, [load]);
+
+  async function sendToDistribution(renditionId: string) {
+    const destination = destinations.find((d) => d.is_default) ?? destinations[0];
+    if (!destination) { setError("No connected Facebook Page destination is configured for this client. Connect one in Client Settings first."); return; }
+    setSendingId(renditionId); setError(null);
+    try {
+      const result = await createDistributionRecordFromFacebookRendition({ clientId, renditionId, destinationAccountId: destination.id });
+      await load();
+      if (result.idempotent_replay) setError(null);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setSendingId(null); }
+  }
 
   const activeRenditions = renditions.filter((r) => r.status !== "superseded");
 
@@ -157,7 +174,15 @@ function RenditionsSection({ clientId, contentItemId }: { clientId: string; cont
                 <Button variant="secondary" size="sm" disabled={busy} onClick={() => void review(r.id, "request_changes")}>Request changes</Button>
               </>
             )}
+            {r.status === "approved" && r.platform === "facebook" && (
+              <Button variant="primary" size="sm" disabled={sendingId === r.id} onClick={() => void sendToDistribution(r.id)}>
+                {sendingId === r.id ? "Sending…" : "Send to Distribution"}
+              </Button>
+            )}
           </div>
+          {r.status === "approved" && r.platform === "facebook" && destinations.length === 0 && (
+            <p className="mt-1 text-2xs text-warn">No connected Facebook Page destination — connect one in Client Settings before sending.</p>
+          )}
         </div>
       ))}
     </div>

@@ -625,6 +625,13 @@ export interface DistributionRecordRow {
   client_approved_by?: string | null;
   client_approved_at?: string | null;
   permanent_failure?: boolean;
+  // Programme Stage 1B-C/D. Optional so reads work before the migration is applied.
+  content_item_rendition_id?: string | null;
+  /** Facebook's async video/Reel processing state — null for synchronous publishes and for Instagram, which keeps its own container_* columns. */
+  provider_processing_state?:
+    | { kind: "facebook_video"; videoId: string; pollCount: number; startedAt: string }
+    | { kind: "facebook_reel"; videoId: string; phase: "uploaded" | "processing"; pollCount: number; startedAt: string }
+    | null;
 }
 
 export type DistributionAccountConnectionStatus = "connected" | "needs_reauth" | "disconnected" | "error";

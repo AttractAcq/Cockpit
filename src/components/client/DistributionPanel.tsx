@@ -266,7 +266,7 @@ function PublishRecordModal({ record, reelContext, onClose, onUpdated }: {
       // Persist edits first so nothing is lost regardless of the publish outcome.
       const saved = await saveDistributionRecord(record.id, { publishPayload: buildPayload(), publishSettings: buildSettings(), destination: selectedDestination });
       onUpdated(saved);
-      const result = await publishDistributionRecordNow(record.id);
+      const result = await publishDistributionRecordNow(record.id, {}, editor.platform, record.client_id);
       if (result.ok && result.record) {
         onUpdated(result.record as unknown as DistributionRecordRow);
         setNotice({ error: false, message: result.message ?? "Published." });
@@ -309,7 +309,7 @@ function PublishRecordModal({ record, reelContext, onClose, onUpdated }: {
   const editorForm = (
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-2xs uppercase text-paper-3">Caption / copy</span><textarea className={`${field} min-h-28`} value={editor.caption} onChange={(event) => setEditor((current) => ({ ...current, caption: event.target.value }))} /></label>
-      <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Platform</span><select className={field} value={editor.platform} onChange={(event) => setEditor((current) => ({ ...current, platform: event.target.value }))}><option value="instagram">instagram</option></select></label>
+      <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Platform</span><select className={field} value={editor.platform} onChange={(event) => setEditor((current) => ({ ...current, platform: event.target.value }))}><option value="instagram">instagram</option><option value="facebook">facebook</option></select></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Distribution account</span><select className={field} value={selectedAccountId} disabled={accountsLoading || !accounts.length} onChange={(event) => setSelectedAccountId(event.target.value)}><option value="">Select a saved account…</option>{accounts.map((account) => <option key={account.id} value={account.id}>@{account.handle} — {account.external_account_id}</option>)}</select></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Content type</span><input className={field} value={editor.contentType} onChange={(event) => setEditor((current) => ({ ...current, contentType: event.target.value }))} /></label>
       <label className="flex flex-col gap-1"><span className="text-2xs uppercase text-paper-3">Aspect ratio</span><input className={field} value={editor.aspectRatio} onChange={(event) => setEditor((current) => ({ ...current, aspectRatio: event.target.value }))} /></label>
