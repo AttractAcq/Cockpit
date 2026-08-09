@@ -3,8 +3,6 @@ export const ROUTES = {
   clients: "/clients",
   client: (id: string) => `/clients/${id}`,
   clientSection: (id: string, section: string) => `/clients/${id}/${section}`,
-  website: "/website",
-  websiteClient: (id: string) => `/website/${id}`,
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -24,17 +22,15 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Cockpit",    path: ROUTES.cockpit,    shortcut: "⌘1", icon: "home" },
-  { label: "Marketing",  path: ROUTES.clients,    shortcut: "⌘2", icon: "users" },
-  { label: "Website",    path: ROUTES.website,    shortcut: "⌘3", icon: "external" },
-  { label: "Operations", path: ROUTES.operations, shortcut: "⌘4", icon: "ops" },
+  { label: "Delivery",   path: ROUTES.clients,    shortcut: "⌘2", icon: "users" },
+  { label: "Operations", path: ROUTES.operations, shortcut: "⌘3", icon: "ops" },
 ];
 
 export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "K"], label: "Command palette" },
   { keys: ["⌘", "1"], label: "Cockpit" },
-  { keys: ["⌘", "2"], label: "Marketing" },
-  { keys: ["⌘", "3"], label: "Website" },
-  { keys: ["⌘", "4"], label: "Operations" },
+  { keys: ["⌘", "2"], label: "Delivery" },
+  { keys: ["⌘", "3"], label: "Operations" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 

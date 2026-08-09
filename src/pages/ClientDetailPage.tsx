@@ -38,6 +38,9 @@ import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/fu
 
 type Section =
   | "avatar"
+  | "market_os"
+  | "lead_magnets"
+  | "landing_pages"
   | "calendar"
   | "context_inputs"
   | "context_files"
@@ -72,40 +75,45 @@ interface SectionLink {
   hidden?: boolean;
 }
 
-interface MarketingPage {
+interface DeliveryPage {
   label: string;
   tabs: SectionLink[];
   defaultSection?: Section;
-  destination?: "website";
 }
 
-// The first row follows the client marketing lifecycle. Stable internal section
+// The first row follows the client delivery lifecycle. Stable internal section
 // keys preserve every existing deep link while the second row keeps each page
 // small enough to scan. Market OS and Avatar OS can be added to their page
 // without growing the primary navigation.
-const MARKETING_PAGES: MarketingPage[] = [
+const DELIVERY_PAGES: DeliveryPage[] = [
   {
-    label: "Data",
+    label: "Overview",
     defaultSection: "overview",
     tabs: [
       { label: "Overview", section: "overview" },
       { label: "Pipeline", section: "pipeline" },
       { label: "Client Settings", section: "client_settings" },
+      { label: "Automations", section: "automations" },
+      { label: "Activity Log", section: "activity" },
+    ],
+  },
+  {
+    label: "Data",
+    defaultSection: "context_inputs",
+    tabs: [
       { label: "Context Inputs", section: "context_inputs" },
       { label: "Content Supply", section: "content_supply" },
       { label: "Context Files", section: "context_files" },
       { label: "Execution Files", section: "execution_files" },
       { label: "Execution Contract", section: "execution_contract" },
-      { label: "Automations", section: "automations" },
       { label: "Archive", section: "archive" },
-      { label: "Activity Log", section: "activity" },
       { label: "Proof Upload", section: "proof_upload", hidden: true },
     ],
   },
   {
     label: "Market",
-    defaultSection: "opportunity_pool",
-    tabs: [{ label: "Opportunity Pool", section: "opportunity_pool" }],
+    defaultSection: "market_os",
+    tabs: [{ label: "Market OS", section: "market_os" }],
   },
   {
     label: "Avatar",
@@ -117,6 +125,7 @@ const MARKETING_PAGES: MarketingPage[] = [
     defaultSection: "ideation",
     tabs: [
       { label: "Ideation", section: "ideation" },
+      { label: "Opportunity Pool", section: "opportunity_pool" },
       { label: "Calendar Planning", section: "calendar_planning" },
       { label: "Calendar", section: "calendar" },
       { label: "Content Items", section: "content_items" },
@@ -141,7 +150,14 @@ const MARKETING_PAGES: MarketingPage[] = [
       { label: "Paid", section: "paid_distribution" },
     ],
   },
-  { label: "Website", destination: "website", tabs: [] },
+  {
+    label: "Website",
+    defaultSection: "lead_magnets",
+    tabs: [
+      { label: "Lead Magnets", section: "lead_magnets" },
+      { label: "Landing Pages", section: "landing_pages" },
+    ],
+  },
   {
     label: "Iteration",
     defaultSection: "analytics",
@@ -152,7 +168,7 @@ const MARKETING_PAGES: MarketingPage[] = [
   },
 ];
 
-const VALID_SECTIONS = new Set(MARKETING_PAGES.flatMap((page) => page.tabs.map((tab) => tab.section)));
+const VALID_SECTIONS = new Set(DELIVERY_PAGES.flatMap((page) => page.tabs.map((tab) => tab.section)));
 
 function currentMonth(): string {
   const d = new Date();
@@ -328,7 +344,7 @@ export function ClientDetailPage() {
 
   const requestedSection = section === "sops" ? "execution_files" : section === "analysis" ? "analytics" : section;
   const activeSection: Section = VALID_SECTIONS.has(requestedSection as Section) ? requestedSection as Section : "overview";
-  const activePage = MARKETING_PAGES.find((page) => page.tabs.some((tab) => tab.section === activeSection)) ?? MARKETING_PAGES[0];
+  const activePage = DELIVERY_PAGES.find((page) => page.tabs.some((tab) => tab.section === activeSection)) ?? DELIVERY_PAGES[0];
   const visibleTabs = activePage.tabs.filter((tab) => !tab.hidden);
 
   useEffect(() => {
@@ -695,6 +711,10 @@ export function ClientDetailPage() {
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
       case "avatar":
         return <div className="flex flex-1 items-center justify-center p-8"><div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center"><h2 className="text-sm font-medium text-paper">Avatar OS</h2><p className="mt-2 text-xs leading-5 text-paper-3">The Avatar OS workspace will live here when its build is added.</p></div></div>;
+      case "market_os":
+      case "lead_magnets":
+      case "landing_pages":
+        return <div className="flex-1" />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":
@@ -799,18 +819,14 @@ export function ClientDetailPage() {
               and still gates the Run Phase buttons below. */}
         </div>
 
-        {/* Primary marketing pages */}
-        <nav aria-label="Marketing pages" className="flex flex-wrap items-center gap-1">
-          {MARKETING_PAGES.map((page) => {
+        {/* Primary delivery pages */}
+        <nav aria-label="Delivery pages" className="flex flex-wrap items-center gap-1">
+          {DELIVERY_PAGES.map((page) => {
             const isActive = page === activePage;
             return (
             <button
               key={page.label}
               onClick={() => {
-                if (page.destination === "website") {
-                  navigate(ROUTES.websiteClient(client.id));
-                  return;
-                }
                 if (page.defaultSection) navTo(page.defaultSection);
               }}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${

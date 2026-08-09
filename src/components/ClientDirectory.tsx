@@ -147,9 +147,7 @@ interface ClientDirectoryProps {
   getRowPath: (clientId: string) => string;
   /** Whether "+ New Client" creation is offered from this list. */
   allowCreate?: boolean;
-  /** Whether the Stage 3 pill links out to the client's Phase 3 calendar
-   *  (only meaningful on the Marketing directory — the Website directory has
-   *  no calendar tab to link to). */
+  /** Whether the Stage 3 pill links to the client's Phase 3 calendar. */
   showCalendarShortcut?: boolean;
 }
 

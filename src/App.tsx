@@ -6,8 +6,6 @@ import { AppShell } from "@/components/shell";
 import { CockpitPage } from "@/pages/CockpitPage";
 import { ClientsPage } from "@/pages/ClientsPage";
 import { ClientDetailPage } from "@/pages/ClientDetailPage";
-import { WebsitePage } from "@/pages/WebsitePage";
-import { WebsiteClientDetailPage } from "@/pages/WebsiteClientDetailPage";
 import { OperationsPage } from "@/pages/OperationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ROUTES } from "@/lib/constants";
@@ -30,8 +28,6 @@ export function App() {
             <Route path={ROUTES.clients} element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientDetailPage />} />
             <Route path="/clients/:id/:section" element={<ClientDetailPage />} />
-            <Route path={ROUTES.website} element={<WebsitePage />} />
-            <Route path="/website/:id" element={<WebsiteClientDetailPage />} />
             <Route path={ROUTES.operations} element={<OperationsPage />} />
             <Route path={ROUTES.settings} element={<SettingsPage />} />
             <Route path="*" element={<Navigate to={ROUTES.cockpit} replace />} />
