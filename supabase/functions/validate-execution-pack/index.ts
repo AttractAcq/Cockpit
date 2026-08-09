@@ -5,6 +5,7 @@
 //   validation_mode=masters validates Phase 3 master rows and calendar refs.
 
 import { svc, json, cors } from "../_shared/aa.ts";
+import { executionHonestyErrors } from "../_shared/execution-proof-validation.ts";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../_shared/execution-manifest.ts";
 import { expectedCalendarCellCount, PHASE3_EXPECTED_COUNTS } from "../_shared/phase3-contract.ts";
 
@@ -19,17 +20,6 @@ const EXPECTED_COUNTS = {
   ads_master: PHASE3_EXPECTED_COUNTS.ads,
   client_execution_files: EXECUTION_FILE_COUNT,
 } as const;
-
-const FORBIDDEN_OUTPUT: Array<{ label: string; pattern: RegExp }> = [
-  { label: "deprecated legacy offer", pattern: /Proof Brand Lite|Proof Engine Buildout|Authority Brand/i },
-  { label: "legacy currency or pricing", pattern: /\bZAR\b|\bR\d{4,}|\bR\d{1,3}(?:,\d{3})+/i },
-  { label: "guaranteed outcome claim", pattern: /guaranteed (?:leads|results|revenue|roi)/i },
-  { label: "invented client outcome framing", pattern: /our clients (?:achieved|generated|saw|increased|grew)/i },
-  { label: "invented trust claim", pattern: /trusted by (?:hundreds|thousands|leading|top)/i },
-  { label: "invented ROI claim", pattern: /\b(?:roi of|\d+(?:\.\d+)?x roi|\d+(?:\.\d+)?% roi)\b/i },
-  { label: "invented testimonial framing", pattern: /\b(?:client )?testimonial:\s*(?!not provided|none|absent|unavailable)/i },
-  { label: "invented case-study framing", pattern: /\bcase stud(?:y|ies):\s*(?!not provided|none|absent|unavailable)/i },
-];
 
 // ref → master table routing for calendar cell validation
 const ROW_TYPE_TABLE: Record<string, string> = {
@@ -165,13 +155,7 @@ Deno.serve(async (req: Request) => {
         if (!ALLOWED_EXECUTION_STATUSES.has(file.status)) errors.push(`${file.file_name} has invalid status "${file.status}".`);
         if (!file.content_md || file.content_md.trim().length < 500) errors.push(`${file.file_name} content is missing or too short.`);
       }
-      const rawText = JSON.stringify(executionFiles);
-      const prohibition = /\b(?:do not|never|must not|cannot|avoid|forbidden|not claim|not use|not invent|not guaranteed|no guarantees?|without guarantees?|no testimonials?|no case stud(?:y|ies)|no fabricated|no guaranteed)\b/i;
-      const scannable = rawText.split(/(?<=[.!?\n])/).map((sentence) => {
-        const namesForbidden = FORBIDDEN_OUTPUT.some(({ pattern }) => pattern.test(sentence));
-        return namesForbidden && prohibition.test(sentence) ? "[explicit proof-honesty constraint]" : sentence;
-      }).join("");
-      for (const { label, pattern } of FORBIDDEN_OUTPUT) if (pattern.test(scannable)) errors.push(`Forbidden execution-file content detected: ${label}.`);
+      for (const label of executionHonestyErrors(JSON.stringify(executionFiles))) errors.push(`Forbidden execution-file content detected: ${label}.`);
 
       const passed = errors.length === 0;
       await writeActivity(sb, clientId, passed ? "execution_files_validated" : "execution_files_validation_failed", passed
@@ -336,14 +320,7 @@ Deno.serve(async (req: Request) => {
 
     // 9. Proof honesty and current-offer integrity across all generated text.
     const rawGeneratedText = JSON.stringify({ organic, story, ads });
-    const prohibition = /\b(?:do not|never|must not|cannot|avoid|forbidden|not claim|not use|not invent|not guaranteed|no guarantees?|without guarantees?|no testimonials?|no case stud(?:y|ies)|no fabricated|no guaranteed)\b/i;
-    const generatedText = rawGeneratedText.split(/(?<=[.!?\n])/).map((sentence) => {
-      const namesForbiddenClaim = FORBIDDEN_OUTPUT.some(({ pattern }) => pattern.test(sentence));
-      return namesForbiddenClaim && prohibition.test(sentence) ? "[explicit proof-honesty constraint]" : sentence;
-    }).join("");
-    for (const { label, pattern } of FORBIDDEN_OUTPUT) {
-      if (pattern.test(generatedText)) errors.push(`Forbidden generated content detected: ${label}.`);
-    }
+    for (const label of executionHonestyErrors(rawGeneratedText)) errors.push(`Forbidden generated content detected: ${label}.`);
 
     const passed = errors.length === 0;
     const eventType = passed ? "execution_pack_validated" : "execution_pack_validation_failed";

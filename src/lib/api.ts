@@ -882,17 +882,35 @@ export async function generatePhase2Section(
   executionMonth: string,
   section: Phase2Section,
 ): Promise<Phase2Result> {
+  const invokeSection = () => invokeFn<Phase2Result>("generate-phase-2", {
+    client_id: clientId,
+    execution_month: executionMonth,
+    action: "section",
+    section,
+  });
   try {
-    return await invokeFn<Phase2Result>("generate-phase-2", {
-      client_id: clientId,
-      execution_month: executionMonth,
-      action: "section",
-      section,
-    });
+    return await invokeSection();
   } catch (e) {
-    const msg = `generate-phase-2 failed for ${section}: ${e instanceof Error ? e.message : String(e)}`;
+    let terminalError: unknown = e;
+    if (e instanceof EdgeFunctionInvocationError && e.functionName === "generate-phase-2" && e.status === 422) {
+      const body = e.responseBody && typeof e.responseBody === "object"
+        ? e.responseBody as { retryable?: unknown; stage?: unknown }
+        : null;
+      if (body?.retryable === true && body.stage === `section:${section}`) {
+        await logActivity(clientId, "phase_2_section_validation_retry", `Retrying ${section} once after proof/offer validation rejected the first draft.`, {
+          execution_month: executionMonth,
+          section,
+        }).catch(() => {});
+        try {
+          return await invokeSection();
+        } catch (retryError) {
+          terminalError = retryError;
+        }
+      }
+    }
+    const msg = `generate-phase-2 failed for ${section}: ${terminalError instanceof Error ? terminalError.message : String(terminalError)}`;
     await logActivity(clientId, "phase_2_error", msg, { execution_month: executionMonth, section }).catch(() => {});
-    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(e) };
+    return { ok: false, mode: "error", message: msg, warnings: [], missingContextFiles: [], error: String(terminalError) };
   }
 }
 

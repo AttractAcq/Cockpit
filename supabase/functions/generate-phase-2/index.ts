@@ -7,6 +7,7 @@
 
 import { svc, json, cors } from "../_shared/aa.ts";
 import { callAnthropic, hasAnthropicKey, isAiEnabled } from "../_shared/anthropic.ts";
+import { executionHonestyErrors } from "../_shared/execution-proof-validation.ts";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST, executionDefinitionByCode, type ExecutionFileCode } from "../_shared/execution-manifest.ts";
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -19,26 +20,6 @@ interface ContextFile {
   file_name: string;
   content_md: string | null;
   status: string;
-}
-
-const FORBIDDEN: Array<{ label: string; pattern: RegExp }> = [
-  { label: "deprecated offer", pattern: /Proof Brand Lite|Proof Engine Buildout|Authority Brand/i },
-  { label: "legacy pricing", pattern: /\bZAR\b|\bR\d{4,}|\bR\d{1,3}(?:,\d{3})+/i },
-  { label: "guaranteed outcome", pattern: /guaranteed (?:leads|results|revenue|roi)/i },
-  { label: "invented client outcome", pattern: /our clients (?:achieved|generated|saw|increased|grew)/i },
-  { label: "invented trust claim", pattern: /trusted by (?:hundreds|thousands|leading|top)/i },
-  { label: "invented ROI", pattern: /\b(?:roi of|\d+(?:\.\d+)?x roi|\d+(?:\.\d+)?% roi)\b/i },
-  { label: "invented testimonial", pattern: /\b(?:client )?testimonial:\s*(?!not provided|none|absent|unavailable)/i },
-  { label: "invented case study", pattern: /\bcase stud(?:y|ies):\s*(?!not provided|none|absent|unavailable)/i },
-];
-
-function honestyErrors(text: string): string[] {
-  const prohibition = /\b(?:do not|never|must not|cannot|avoid|forbidden|not claim|not use|not invent|not guaranteed|no guarantees?|without guarantees?|no testimonials?|no case stud(?:y|ies)|no fabricated|no guaranteed)\b/i;
-  const scannable = text.split(/(?<=[.!?\n])/).map((sentence) => {
-    const namesForbidden = FORBIDDEN.some(({ pattern }) => pattern.test(sentence));
-    return namesForbidden && prohibition.test(sentence) ? "[explicit honesty constraint]" : sentence;
-  }).join("");
-  return FORBIDDEN.filter(({ pattern }) => pattern.test(scannable)).map(({ label }) => label);
 }
 
 function clean(value: string): string {
@@ -117,7 +98,7 @@ Approved context files are authoritative. The business is pre-launch unless the 
 
 Active offers only: Proof Sprint, Proof Brand, Proof Brand Scale. Never name deprecated legacy offers or legacy South African Rand pricing. Never invent testimonials, case studies, logos, client results, leads, revenue, ROI, conversion data, scarcity, or guarantees.
 
-Return raw markdown only. Do not use a code fence. Do not quote examples of prohibited claim language; describe proof-honesty rules generically.`;
+Return raw markdown only. Do not use a code fence. Do not quote examples of prohibited claim language; describe proof-honesty rules generically. When documenting guardrails, say "outcome promises are prohibited" rather than placing "guaranteed" directly before leads, results, revenue, or ROI.`;
   const user = `${authorityFor(files, section)}
 
 Create ${definition.fileName}: ${definition.title}.
@@ -208,8 +189,22 @@ Deno.serve(async (req: Request) => {
       if (!result.ok) throw new Error(result.error);
       const content = result.text.trim().replace(/^```(?:markdown|md)?\s*/i, "").replace(/\s*```$/, "").trim();
       if (content.length < 500) throw new Error(`${definition.fileName} is empty or too short.`);
-      const forbidden = honestyErrors(content);
-      if (forbidden.length) throw new Error(`${definition.fileName} failed proof/offer validation: ${forbidden.join(", ")}.`);
+      const forbidden = executionHonestyErrors(content);
+      if (forbidden.length) {
+        const details = `${definition.fileName} failed proof/offer validation: ${forbidden.join(", ")}.`;
+        await sb.from("clients").update({ stage2_status: "error" }).eq("id", clientId);
+        await activity(sb, clientId, "phase2_file_validation_failed", `${definition.fileName} generated an unsafe or ambiguous draft and was not saved.`, {
+          execution_month: executionMonth,
+          section: sectionName,
+          validation_errors: forbidden,
+          retryable: true,
+        });
+        return failure(422, `section:${sectionName}`, "Generated execution file failed proof/offer validation. Retrying this section may produce a compliant draft.", {
+          details,
+          retryable: true,
+          validationErrors: forbidden,
+        });
+      }
 
       const { data: existing, error: existingError } = await sb.from("client_execution_files")
         .select("id, version").eq("client_id", clientId).eq("month", executionMonth).eq("file_name", definition.fileName).maybeSingle();
@@ -255,7 +250,7 @@ Deno.serve(async (req: Request) => {
     for (const definition of EXECUTION_FILE_MANIFEST) {
       const file = (files ?? []).find((candidate) => candidate.file_number === definition.fileNumber && candidate.file_name === definition.fileName);
       if (!file) errors.push(`missing ${definition.fileName}`);
-      else errors.push(...honestyErrors(file.content_md ?? "").map((error) => `${definition.fileName}: ${error}`));
+      else errors.push(...executionHonestyErrors(file.content_md ?? "").map((error) => `${definition.fileName}: ${error}`));
     }
     if (errors.length) return failure(422, "finalize_execution_files", "Execution files failed validation.", { details: errors });
 
