@@ -37,6 +37,7 @@ import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
 type Section =
+  | "avatar"
   | "calendar"
   | "context_inputs"
   | "context_files"
@@ -64,37 +65,94 @@ type Section =
   | "archive"
   | "activity";
 
-// Visible label + order per H4 cleanup. Internal section keys are kept stable
-// (masters, content_creation, distribution) so existing routes/links don't
-// break — only the user-facing labels and ordering change.
-const BUTTON_BAR: { label: string; section: Section }[] = [
-  { label: "Overview",         section: "overview" },
-  { label: "Client Settings",  section: "client_settings" },
-  { label: "Automations",      section: "automations" },
-  { label: "Pipeline",         section: "pipeline" },
-  { label: "Context Inputs",   section: "context_inputs" },
-  { label: "Context Files",    section: "context_files" },
-  { label: "Execution Files",  section: "execution_files" },
-  { label: "Execution Contract", section: "execution_contract" },
-  { label: "Content Supply",   section: "content_supply" },
-  { label: "Opportunity Pool", section: "opportunity_pool" },
-  { label: "Calendar Planning", section: "calendar_planning" },
-  { label: "Content Items",    section: "content_items" },
-  { label: "Production Studio", section: "production_studio" },
-  { label: "Proof Upload",     section: "proof_upload" },
-  { label: "Ideation",         section: "ideation" },
-  { label: "Calendar",         section: "calendar" },
-  { label: "Content",          section: "masters" },
-  { label: "Content Briefs",   section: "content_creation" },
-  { label: "Reel Studio",      section: "reel_studio" },
-  { label: "Assets",           section: "assets" },
-  { label: "Organic Distribution", section: "distribution" },
-  { label: "Paid Distribution",    section: "paid_distribution" },
-  { label: "Analytics",        section: "analytics" },
-  { label: "Performance & Iteration", section: "performance-iteration" },
-  { label: "Archive",          section: "archive" },
-  { label: "Activity Log",     section: "activity" },
+interface SectionLink {
+  label: string;
+  section: Section;
+  /** Keep an old deep link working without showing a duplicate navigation item. */
+  hidden?: boolean;
+}
+
+interface MarketingPage {
+  label: string;
+  tabs: SectionLink[];
+  defaultSection?: Section;
+  destination?: "website";
+}
+
+// The first row follows the client marketing lifecycle. Stable internal section
+// keys preserve every existing deep link while the second row keeps each page
+// small enough to scan. Market OS and Avatar OS can be added to their page
+// without growing the primary navigation.
+const MARKETING_PAGES: MarketingPage[] = [
+  {
+    label: "Data",
+    defaultSection: "overview",
+    tabs: [
+      { label: "Overview", section: "overview" },
+      { label: "Pipeline", section: "pipeline" },
+      { label: "Client Settings", section: "client_settings" },
+      { label: "Context Inputs", section: "context_inputs" },
+      { label: "Content Supply", section: "content_supply" },
+      { label: "Context Files", section: "context_files" },
+      { label: "Execution Files", section: "execution_files" },
+      { label: "Execution Contract", section: "execution_contract" },
+      { label: "Automations", section: "automations" },
+      { label: "Archive", section: "archive" },
+      { label: "Activity Log", section: "activity" },
+      { label: "Proof Upload", section: "proof_upload", hidden: true },
+    ],
+  },
+  {
+    label: "Market",
+    defaultSection: "opportunity_pool",
+    tabs: [{ label: "Opportunity Pool", section: "opportunity_pool" }],
+  },
+  {
+    label: "Avatar",
+    defaultSection: "avatar",
+    tabs: [{ label: "Avatar OS", section: "avatar" }],
+  },
+  {
+    label: "Ideation",
+    defaultSection: "ideation",
+    tabs: [
+      { label: "Ideation", section: "ideation" },
+      { label: "Calendar Planning", section: "calendar_planning" },
+      { label: "Calendar", section: "calendar" },
+      { label: "Content Items", section: "content_items" },
+    ],
+  },
+  {
+    label: "Creation",
+    defaultSection: "masters",
+    tabs: [
+      { label: "Content", section: "masters" },
+      { label: "Content Briefs", section: "content_creation" },
+      { label: "Production Studio", section: "production_studio" },
+      { label: "Reel Studio", section: "reel_studio" },
+      { label: "Assets", section: "assets" },
+    ],
+  },
+  {
+    label: "Distribution",
+    defaultSection: "distribution",
+    tabs: [
+      { label: "Organic", section: "distribution" },
+      { label: "Paid", section: "paid_distribution" },
+    ],
+  },
+  { label: "Website", destination: "website", tabs: [] },
+  {
+    label: "Iteration",
+    defaultSection: "analytics",
+    tabs: [
+      { label: "Analytics", section: "analytics" },
+      { label: "Performance & Iteration", section: "performance-iteration" },
+    ],
+  },
 ];
+
+const VALID_SECTIONS = new Set(MARKETING_PAGES.flatMap((page) => page.tabs.map((tab) => tab.section)));
 
 function currentMonth(): string {
   const d = new Date();
@@ -269,7 +327,9 @@ export function ClientDetailPage() {
   const [executionFiles, setExecutionFiles] = useState<ClientExecutionFile[]>([]);
 
   const requestedSection = section === "sops" ? "execution_files" : section === "analysis" ? "analytics" : section;
-  const activeSection: Section = BUTTON_BAR.some((item) => item.section === requestedSection) ? requestedSection as Section : "overview";
+  const activeSection: Section = VALID_SECTIONS.has(requestedSection as Section) ? requestedSection as Section : "overview";
+  const activePage = MARKETING_PAGES.find((page) => page.tabs.some((tab) => tab.section === activeSection)) ?? MARKETING_PAGES[0];
+  const visibleTabs = activePage.tabs.filter((tab) => !tab.hidden);
 
   useEffect(() => {
     if (!id || section === activeSection) return;
@@ -633,6 +693,8 @@ export function ClientDetailPage() {
     switch (activeSection) {
       case "context_inputs":
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
+      case "avatar":
+        return <div className="flex flex-1 items-center justify-center p-8"><div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center"><h2 className="text-sm font-medium text-paper">Avatar OS</h2><p className="mt-2 text-xs leading-5 text-paper-3">The Avatar OS workspace will live here when its build is added.</p></div></div>;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":
@@ -737,26 +799,54 @@ export function ClientDetailPage() {
               and still gates the Run Phase buttons below. */}
         </div>
 
-        {/* Button bar */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {BUTTON_BAR.map(({ label, section: s }) => (
+        {/* Primary marketing pages */}
+        <nav aria-label="Marketing pages" className="flex flex-wrap items-center gap-1">
+          {MARKETING_PAGES.map((page) => {
+            const isActive = page === activePage;
+            return (
             <button
-              key={s}
-              onClick={() => navTo(s)}
-              className={`px-2.5 py-1 text-2xs rounded-md transition-colors font-medium ${
-                activeSection === s
+              key={page.label}
+              onClick={() => {
+                if (page.destination === "website") {
+                  navigate(ROUTES.websiteClient(client.id));
+                  return;
+                }
+                if (page.defaultSection) navTo(page.defaultSection);
+              }}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                isActive
                   ? "bg-teal/15 text-teal"
-                  : "text-paper-3 hover:text-paper hover:bg-ink-200"
+                  : "text-paper-2 hover:bg-ink-200 hover:text-paper"
               }`}
             >
-              {label}
+              {page.label}
             </button>
-          ))}
+            );
+          })}
+        </nav>
 
-          {/* Phase run controls relocated (G1): Phase 1 & 2 live on the Overview
-              tab, Phase 3 on the Calendar tab. Handlers/gating/progress are
-              unchanged — only where the buttons render moved out of the header. */}
-        </div>
+        {/* Tabs inside the active page */}
+        {visibleTabs.length > 0 && (
+          <nav aria-label={`${activePage.label} tabs`} className="flex flex-wrap items-center gap-1 border-t border-line pt-2">
+            {visibleTabs.map(({ label, section: tabSection }) => (
+              <button
+                key={tabSection}
+                onClick={() => navTo(tabSection)}
+                className={`rounded-md px-2.5 py-1 text-2xs font-medium transition-colors ${
+                  activeSection === tabSection
+                    ? "bg-ink-100 text-paper"
+                    : "text-paper-3 hover:bg-ink-200 hover:text-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            {/* Phase run controls relocated (G1): Phase 1 & 2 live on the Overview
+                tab, Phase 3 on the Calendar tab. Handlers/gating/progress are
+                unchanged — only where the buttons render moved out of the header. */}
+          </nav>
+        )}
       </div>
 
       {/* Phase 1 sequential generation progress */}
