@@ -9,8 +9,160 @@ import {
   fetchContentBriefsForItem,
   generateContentBrief,
   reviewContentBrief,
+  fetchRenditionsForItem,
+  createFacebookRendition,
+  updateFacebookRendition,
+  reviewFacebookRendition,
 } from "@/lib/content-items";
-import type { ContentItem, ContentBrief } from "@/types/content-brief";
+import { fetchAssetsForItem } from "@/lib/production-studio";
+import type { ContentItem, ContentBrief, ContentItemRendition, RenditionFormat } from "@/types/content-brief";
+import type { ContentItemAsset } from "@/types/production-studio";
+
+const RENDITION_FORMATS: RenditionFormat[] = ["IMAGE", "VIDEO", "REELS", "TEXT_LINK", "CAROUSEL", "STORIES"];
+const RENDITION_STATUS_COLOR: Record<string, string> = {
+  draft: "text-paper-3", in_review: "text-warn", approved: "text-teal", superseded: "text-paper-3",
+};
+
+function RenditionsSection({ clientId, contentItemId }: { clientId: string; contentItemId: string }) {
+  const [renditions, setRenditions] = useState<ContentItemRendition[]>([]);
+  const [assets, setAssets] = useState<ContentItemAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [draftFormat, setDraftFormat] = useState<RenditionFormat>("IMAGE");
+  const [draftCopy, setDraftCopy] = useState("");
+  const [draftCta, setDraftCta] = useState("");
+  const [draftMedia, setDraftMedia] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editCopy, setEditCopy] = useState("");
+  const [editCta, setEditCta] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [r, a] = await Promise.all([fetchRenditionsForItem(contentItemId), fetchAssetsForItem(contentItemId)]);
+      setRenditions(r); setAssets(a);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
+  }, [contentItemId]);
+  useEffect(() => { void load(); }, [load]);
+
+  const activeRenditions = renditions.filter((r) => r.status !== "superseded");
+
+  async function handleCreate() {
+    setBusy(true); setError(null);
+    try {
+      await createFacebookRendition({ clientId, contentItemId, format: draftFormat, copy: draftCopy, cta: draftCta, media: draftMedia });
+      setCreating(false); setDraftCopy(""); setDraftCta(""); setDraftMedia([]);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  function startEdit(r: ContentItemRendition) {
+    setEditingId(r.id); setEditCopy(r.copy); setEditCta(r.cta);
+  }
+
+  async function saveEdit(renditionId: string) {
+    setBusy(true); setError(null);
+    try { await updateFacebookRendition({ clientId, renditionId, copy: editCopy, cta: editCta }); setEditingId(null); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  async function review(renditionId: string, action: "submit_for_review" | "approve" | "request_changes") {
+    setBusy(true); setError(null);
+    try { await reviewFacebookRendition({ clientId, renditionId, action }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mt-6 border-t border-line pt-4">
+      <div className="mb-2 flex items-center gap-2">
+        <h4 className="text-xs font-medium text-paper">Platform Renditions</h4>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={() => setCreating((v) => !v)}>
+          {creating ? "Cancel" : "Create Facebook rendition"}
+        </Button>
+      </div>
+      {error && <p className="mb-2 text-2xs text-neg">{error}</p>}
+      {loading && <p className="text-2xs text-paper-3">Loading renditions…</p>}
+
+      {creating && (
+        <div className="mb-3 rounded border border-line p-3">
+          <label className="mb-2 block text-2xs text-paper-3">
+            Format
+            <select className="ml-2 border border-line bg-ink px-1 py-0.5 text-2xs text-paper" value={draftFormat} onChange={(e) => setDraftFormat(e.target.value as RenditionFormat)}>
+              {RENDITION_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </label>
+          <textarea className="mb-2 w-full border border-line bg-ink p-1 text-2xs text-paper" placeholder="Facebook copy…" value={draftCopy} onChange={(e) => setDraftCopy(e.target.value)} />
+          <input className="mb-2 w-full border border-line bg-ink p-1 text-2xs text-paper" placeholder="Call to action…" value={draftCta} onChange={(e) => setDraftCta(e.target.value)} />
+          {assets.length > 0 && (
+            <div className="mb-2">
+              <span className="text-2xs text-paper-3">Media:</span>
+              {assets.map((a) => (
+                <label key={a.id} className="ml-2 text-2xs text-paper-2">
+                  <input
+                    type="checkbox"
+                    checked={draftMedia.includes(a.id)}
+                    onChange={(e) => setDraftMedia((m) => e.target.checked ? [...m, a.id] : m.filter((id) => id !== a.id))}
+                  />
+                  {" "}{a.asset_category ?? a.kind}
+                </label>
+              ))}
+            </div>
+          )}
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void handleCreate()}>Create</Button>
+        </div>
+      )}
+
+      {!loading && activeRenditions.length === 0 && <p className="text-2xs text-paper-3">No platform renditions yet.</p>}
+
+      {activeRenditions.map((r) => (
+        <div key={r.id} className="mb-2 rounded border border-line p-3">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="text-2xs uppercase text-paper">{r.platform}</span>
+            <span className="text-2xs text-paper-3">{r.format}</span>
+            <span className="text-2xs text-paper-3">v{r.rendition_version}</span>
+            <span className={`text-2xs ${RENDITION_STATUS_COLOR[r.status]}`}>{r.status}</span>
+            {!r.capability_snapshot.supported && (
+              <span className="text-2xs text-neg">Unsupported: {r.capability_snapshot.reason}</span>
+            )}
+          </div>
+
+          {editingId === r.id ? (
+            <div>
+              <textarea className="mb-2 w-full border border-line bg-ink p-1 text-2xs text-paper" value={editCopy} onChange={(e) => setEditCopy(e.target.value)} />
+              <input className="mb-2 w-full border border-line bg-ink p-1 text-2xs text-paper" value={editCta} onChange={(e) => setEditCta(e.target.value)} />
+              <Button variant="primary" size="sm" disabled={busy} onClick={() => void saveEdit(r.id)}>Save</Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => setEditingId(null)}>Cancel</Button>
+            </div>
+          ) : (
+            <>
+              <p className="text-2xs text-paper-2">{r.copy || <em className="text-paper-3">No copy yet.</em>}</p>
+              <p className="text-2xs text-paper-3">CTA: {r.cta || <em>none</em>}</p>
+              <p className="text-2xs text-paper-3">{r.media.length} media asset(s)</p>
+              {r.change_request_notes && <p className="text-2xs text-warn">Changes requested: {r.change_request_notes}</p>}
+            </>
+          )}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {r.status === "draft" && editingId !== r.id && (
+              <>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => startEdit(r)}>Edit</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void review(r.id, "submit_for_review")}>Submit for review</Button>
+              </>
+            )}
+            {r.status === "in_review" && (
+              <>
+                <Button variant="primary" size="sm" disabled={busy} onClick={() => void review(r.id, "approve")}>Approve</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void review(r.id, "request_changes")}>Request changes</Button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 
@@ -179,6 +331,8 @@ export function ContentItemsPanel({ clientId }: Props) {
                 )}
               </div>
             )}
+
+            <RenditionsSection clientId={clientId} contentItemId={selectedItem.id} />
           </div>
         )}
       </div>

@@ -7,6 +7,9 @@ import type {
   ReviewBriefAction,
   GenerateContentBriefResponse,
   ReviewContentBriefResponse,
+  ContentItemRendition,
+  RenditionFormat,
+  RenditionPlatform,
 } from "@/types/content-brief";
 
 export async function fetchContentItems(clientId: string): Promise<ContentItem[]> {
@@ -46,5 +49,45 @@ export async function reviewContentBrief(input: {
     client_id: input.clientId,
     content_brief_id: input.contentBriefId,
     action: input.action,
+  });
+}
+
+// ── Programme Stage 1B-C: Facebook Renditions ─────────────────────────────
+
+export async function fetchRenditionsForItem(contentItemId: string): Promise<ContentItemRendition[]> {
+  const { data, error } = await supabase
+    .from("content_item_renditions")
+    .select("*")
+    .eq("content_item_id", contentItemId)
+    .order("platform", { ascending: true })
+    .order("rendition_version", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ContentItemRendition[];
+}
+
+export async function createFacebookRendition(input: {
+  clientId: string; contentItemId: string; format: RenditionFormat; platform?: RenditionPlatform;
+  copy?: string; cta?: string; media?: string[]; schedulingGuidance?: Record<string, unknown>;
+}): Promise<{ ok: true; rendition: ContentItemRendition }> {
+  return await invokeFn("create-facebook-rendition", {
+    client_id: input.clientId, content_item_id: input.contentItemId, platform: input.platform ?? "facebook",
+    format: input.format, copy: input.copy, cta: input.cta, media: input.media, scheduling_guidance: input.schedulingGuidance,
+  });
+}
+
+export async function updateFacebookRendition(input: {
+  clientId: string; renditionId: string; copy?: string; cta?: string; media?: string[]; schedulingGuidance?: Record<string, unknown>;
+}): Promise<{ ok: true; rendition: ContentItemRendition }> {
+  return await invokeFn("update-facebook-rendition", {
+    client_id: input.clientId, rendition_id: input.renditionId,
+    copy: input.copy, cta: input.cta, media: input.media, scheduling_guidance: input.schedulingGuidance,
+  });
+}
+
+export async function reviewFacebookRendition(input: {
+  clientId: string; renditionId: string; action: "submit_for_review" | "approve" | "request_changes"; changeRequestNotes?: string;
+}): Promise<{ ok: true; rendition: ContentItemRendition }> {
+  return await invokeFn("review-facebook-rendition", {
+    client_id: input.clientId, rendition_id: input.renditionId, action: input.action, change_request_notes: input.changeRequestNotes,
   });
 }

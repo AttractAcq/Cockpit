@@ -136,6 +136,40 @@ export function validateStructuredBrief(raw: unknown): StructuredContentBrief | 
   };
 }
 
+// Programme Stage 1B-C — Facebook Renditions. One canonical Content Item can
+// produce an independent, platform-specific Rendition without mutating the
+// canonical Brief above or another platform's Rendition.
+
+export type RenditionFormat = "IMAGE" | "CAROUSEL" | "STORIES" | "REELS" | "VIDEO" | "TEXT_LINK";
+export type RenditionPlatform = "instagram" | "facebook";
+export type RenditionStatus = "draft" | "in_review" | "approved" | "superseded";
+
+export interface RenditionCapabilitySnapshot {
+  supported: boolean;
+  reason: string | null;
+}
+
+export interface ContentItemRendition {
+  id: string;
+  client_id: string;
+  content_item_id: string;
+  platform: RenditionPlatform;
+  rendition_version: number;
+  status: RenditionStatus;
+  format: RenditionFormat;
+  copy: string;
+  cta: string;
+  media: string[];
+  scheduling_guidance: Record<string, unknown>;
+  capability_snapshot: RenditionCapabilitySnapshot;
+  change_request_notes: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ReviewBriefAction = "submit_for_review" | "approve" | "request_changes";
 
 export interface GenerateContentBriefResponse {

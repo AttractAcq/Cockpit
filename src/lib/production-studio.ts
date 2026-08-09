@@ -32,6 +32,18 @@ export async function fetchAssetsForJob(productionJobId: string): Promise<Conten
   return (data ?? []) as ContentItemAsset[];
 }
 
+/** Programme Stage 1B-C — every current asset for a Content Item, across all its production jobs, for the Facebook Rendition media picker. */
+export async function fetchAssetsForItem(contentItemId: string): Promise<ContentItemAsset[]> {
+  const { data, error } = await supabase
+    .from("content_item_assets")
+    .select("*")
+    .eq("content_item_id", contentItemId)
+    .eq("is_current", true)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ContentItemAsset[];
+}
+
 export async function fetchReviewsForJob(productionJobId: string): Promise<ProductionReview[]> {
   const { data, error } = await supabase
     .from("production_reviews")
