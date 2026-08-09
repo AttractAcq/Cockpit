@@ -5,6 +5,7 @@ import { fetchActivityLog, fetchClients } from "@/lib/api";
 import type { ActivityLogEntry, Client } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
 import { resolveOperationDestination } from "@/lib/operation-destination";
+import { OperationsControlPanel } from "@/components/operations/OperationsControlPanel";
 
 const EVENT_TYPE_COLOURS: Record<string, string> = {
   phase1_started:   "text-teal",
@@ -20,6 +21,7 @@ const EVENT_TYPE_COLOURS: Record<string, string> = {
 
 export function OperationsPage() {
   const [searchParams] = useSearchParams();
+  const [pageTab, setPageTab] = useState<"log" | "control">("log");
   const [entries, setEntries]     = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
@@ -65,11 +67,28 @@ export function OperationsPage() {
   const visible = filtered.slice(0, pageSize);
   const focusedOperationId = searchParams.get("operation_id");
 
+  const tabBar = (
+    <div className="flex gap-2 border-b border-line pb-2">
+      <button onClick={() => setPageTab("log")} className={`rounded px-2 py-1 text-xs ${pageTab === "log" ? "bg-teal/10 text-teal" : "text-paper-3 hover:text-paper"}`}>Activity Log</button>
+      <button onClick={() => setPageTab("control")} className={`rounded px-2 py-1 text-xs ${pageTab === "control" ? "bg-teal/10 text-teal" : "text-paper-3 hover:text-paper"}`}>Operational Control</button>
+    </div>
+  );
+
+  if (pageTab === "control") {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+        {tabBar}
+        <OperationsControlPanel />
+      </div>
+    );
+  }
+
   if (loading) return <div className="flex-1 flex items-center justify-center text-paper-3 text-xs">Loading…</div>;
   if (error)   return <div className="flex-1 flex items-center justify-center text-neg text-xs">{error}</div>;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+      {tabBar}
       <div className="flex items-center justify-between">
         <h1 className="text-sm font-medium text-paper">Operations Log</h1>
         <span className="text-2xs text-paper-3 font-mono">Showing {visible.length} of {filtered.length} matching entries</span>

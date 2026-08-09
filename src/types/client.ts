@@ -29,6 +29,9 @@ export interface Client {
   stage2_completed_at: string | null;
   health_score: number;
   health_updated_at: string | null;
+  monthly_revenue_estimate: number | null;
+  onboarded_from_template_id: string | null;
+  onboarded_at: string | null;
   created_at: string;
   updated_at: string;
 }
