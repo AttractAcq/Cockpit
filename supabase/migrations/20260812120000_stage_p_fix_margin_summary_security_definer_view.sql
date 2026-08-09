@@ -1,0 +1,25 @@
+-- Programme Stage P — End-to-End Hardening and Legacy Retirement.
+--
+-- Real security bug found via the Supabase security advisor during this
+-- stage's hardening review (ERROR level, name: security_definer_view):
+-- public.client_margin_summary (created in Stage O) was a SECURITY DEFINER
+-- view. Postgres views run with the VIEW OWNER's permissions against their
+-- underlying tables by default (the historical default, superseded by
+-- security_invoker in PG15+), not the querying user's -- combined with RLS,
+-- this means the view's owner (a privileged migration-runner role) would
+-- see every client's cost ledger and revenue estimate regardless of the
+-- querying user's own client-scoped RLS policy on client_cost_ledger and
+-- clients, defeating the isolation those policies exist to enforce.
+--
+-- Fix: security_invoker = true (native since PG15; this project runs
+-- PG17) makes the view evaluate RLS as the QUERYING user, exactly like a
+-- direct table query would -- the same isolation client_cost_ledger's own
+-- RLS policy already enforces is now actually respected through the view.
+--
+-- No real live impact found: the only real user in this database today is
+-- role='admin', which legitimately sees every client via auth_client_ids()
+-- regardless of this bug, so no real cross-client data has ever actually
+-- leaked through it. Fixed immediately regardless, before any non-admin
+-- user could be affected.
+
+alter view public.client_margin_summary set (security_invoker = true);
