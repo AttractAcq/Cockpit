@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ASSOCIATION_CORE_MODULES,
   extractAssociationResearchSources,
+  normaliseAssociationAuthorityRecordKey,
   parseAssociationModuleOutput,
 } from "../supabase/functions/_shared/intelligence/association-research-provider.ts";
 
@@ -63,6 +64,16 @@ test("Association provider preserves Context, Market, Avatar, Competitor, and we
   assert.throws(() => parseAssociationModuleOutput(payload, "trust_credibility_signals"), /invalid identity/i);
 });
 
+test("Association authority keys accept exact keys and unambiguous type/key drift only", () => {
+  const allowed = ["economic_decision_owner", "marketing_or_commercial_operator"];
+  assert.equal(normaliseAssociationAuthorityRecordKey("economic_decision_owner", allowed), "economic_decision_owner");
+  assert.equal(
+    normaliseAssociationAuthorityRecordKey("buyer_role_system/economic_decision_owner", allowed),
+    "economic_decision_owner",
+  );
+  assert.equal(normaliseAssociationAuthorityRecordKey("buyer_role_system/invented_role", allowed), null);
+});
+
 test("Association source extraction keeps only inspectable, deduplicated HTTP sources", () => {
   const sources = extractAssociationResearchSources({
     output: [
@@ -97,6 +108,8 @@ test("Association orchestration requires every upstream OS and preserves refresh
   assert.match(edge, /association_fingerprint/);
   assert.match(edge, /change_status/);
   assert.match(edge, /unsupportedAvatarKeys/);
+  assert.match(edge, /retry_step/);
+  assert.match(edge, /failed_module_requeued/);
   assert.match(edge, /refresh_interval_days: 180/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
@@ -119,4 +132,6 @@ test("Association tab renders the real one-button workspace", async () => {
   assert.match(panel, /meanings and signals that make approved buyer roles trust, value, doubt, avoid, or reject/i);
   assert.match(panel, /positive.*negative.*changed/i);
   assert.match(panel, /Approve &amp; activate/);
+  assert.match(panel, /Retry all failed/);
+  assert.match(panel, /Retry module/);
 });

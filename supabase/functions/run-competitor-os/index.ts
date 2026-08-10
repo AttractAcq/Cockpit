@@ -14,7 +14,7 @@ import {
   type CompetitorModuleFinding,
 } from "../_shared/intelligence/competitor-research-provider.ts";
 
-type Action = "prepare" | "step" | "finalize";
+type Action = "prepare" | "step" | "finalize" | "retry_step";
 type ServiceClient = ReturnType<typeof svc>;
 
 interface ContextFileRow {
@@ -1082,18 +1082,87 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
   return json({ ok: true, message: "Competitor OS is ready for human review.", release: updatedRelease, run: updatedRun });
 }
 
+async function retryFailedStep(
+  sb: ServiceClient,
+  clientId: string,
+  researchRunId: string,
+  stepId: string,
+  userId: string,
+) {
+  const [runResult, releaseResult, stepResult] = await Promise.all([
+    sb.from("client_research_runs").select("*")
+      .eq("id", researchRunId).eq("client_id", clientId).eq("intelligence_domain", "competitor_os").maybeSingle(),
+    sb.from("client_intelligence_releases").select("*")
+      .eq("client_id", clientId).eq("research_run_id", researchRunId).in("status", ["draft", "needs_review"]).maybeSingle(),
+    sb.from("client_research_steps").select("*")
+      .eq("id", stepId).eq("client_id", clientId).eq("research_run_id", researchRunId).maybeSingle(),
+  ]);
+  const error = runResult.error ?? releaseResult.error ?? stepResult.error;
+  if (error) return json({ ok: false, message: error.message }, 500);
+  if (!runResult.data || !releaseResult.data || !stepResult.data) {
+    return json({ ok: false, message: "The failed Competitor OS module is no longer available to retry." }, 404);
+  }
+  if (stepResult.data.status !== "failed") {
+    return json({ ok: false, message: "Only a failed Competitor OS module can be retried." }, 409);
+  }
+
+  await cleanupStepArtifacts(sb, clientId, releaseResult.data.id, stepId, stepResult.data.step_key);
+  const { error: stepError } = await sb.from("client_research_steps").update({
+    status: "queued",
+    attempt_count: 0,
+    failure_code: null,
+    failure_message: null,
+    output_summary: {},
+    started_at: null,
+    completed_at: null,
+    lease_owner: null,
+    lease_expires_at: null,
+  }).eq("id", stepId).eq("client_id", clientId);
+  if (stepError) return json({ ok: false, message: stepError.message }, 500);
+
+  const { error: releaseError } = await sb.from("client_intelligence_releases").update({
+    status: "draft",
+    generated_at: null,
+    submitted_at: null,
+  }).eq("id", releaseResult.data.id).in("status", ["draft", "needs_review"]);
+  if (releaseError) return json({ ok: false, message: releaseError.message }, 500);
+  const { error: runError } = await sb.from("client_research_runs").update({
+    status: "queued",
+    retryable: true,
+    failure_code: null,
+    failure_message: null,
+    completed_at: null,
+  }).eq("id", researchRunId).eq("client_id", clientId);
+  if (runError) return json({ ok: false, message: runError.message }, 500);
+
+  await audit(sb, "competitor_os.failed_module_requeued", "client_research_steps", stepId, {
+    client_id: clientId,
+    research_run_id: researchRunId,
+    release_id: releaseResult.data.id,
+    step_key: stepResult.data.step_key,
+    requested_by: userId,
+  });
+  return json({
+    ok: true,
+    mode: "resumed",
+    message: `${stepResult.data.title} was cleared and queued for regeneration.`,
+    research_run_id: researchRunId,
+    release_id: releaseResult.data.id,
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ ok: false, message: "Method not allowed." }, 405);
 
-  let body: { action?: Action; client_id?: string; research_run_id?: string };
+  let body: { action?: Action; client_id?: string; research_run_id?: string; step_id?: string };
   try { body = await req.json(); }
   catch { return json({ ok: false, message: "Invalid JSON body." }, 400); }
   const clientId = (body.client_id ?? "").trim();
   const action = body.action;
   if (!clientId) return json({ ok: false, message: "client_id is required." }, 400);
-  if (!action || !new Set<Action>(["prepare", "step", "finalize"]).has(action)) {
-    return json({ ok: false, message: "action must be prepare, step, or finalize." }, 400);
+  if (!action || !new Set<Action>(["prepare", "step", "finalize", "retry_step"]).has(action)) {
+    return json({ ok: false, message: "action must be prepare, step, finalize, or retry_step." }, 400);
   }
 
   const access = await validateIntelligenceAccess(req.headers.get("Authorization"), clientId);
@@ -1103,6 +1172,11 @@ Deno.serve(async (req) => {
     if (action === "prepare") return await prepare(sb, clientId, access.userId);
     const researchRunId = (body.research_run_id ?? "").trim();
     if (!researchRunId) return json({ ok: false, message: "research_run_id is required." }, 400);
+    if (action === "retry_step") {
+      const stepId = (body.step_id ?? "").trim();
+      if (!stepId) return json({ ok: false, message: "step_id is required." }, 400);
+      return await retryFailedStep(sb, clientId, researchRunId, stepId, access.userId);
+    }
     if (action === "step") return await runStep(sb, clientId, researchRunId);
     return await finalize(sb, clientId, researchRunId);
   } catch (error) {

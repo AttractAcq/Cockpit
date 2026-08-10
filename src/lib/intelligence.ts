@@ -284,6 +284,21 @@ export async function prepareAssociationOS(clientId: string): Promise<PrepareAss
   return invokeFn<PrepareAssociationOSResponse>("run-association-os", { action: "prepare", client_id: clientId });
 }
 
+export async function retryIntelligenceResearchStep(
+  clientId: string,
+  domain: "competitor_os" | "association_os",
+  researchRunId: string,
+  stepId: string,
+): Promise<PrepareMarketOSResponse> {
+  const functionName = domain === "competitor_os" ? "run-competitor-os" : "run-association-os";
+  return invokeFn<PrepareMarketOSResponse>(functionName, {
+    action: "retry_step",
+    client_id: clientId,
+    research_run_id: researchRunId,
+    step_id: stepId,
+  });
+}
+
 export async function runAssociationOSStep(
   clientId: string,
   researchRunId: string,

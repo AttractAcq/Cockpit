@@ -4,6 +4,7 @@ import { IntelligenceExportActions } from "@/components/client/IntelligenceExpor
 import {
   driveCompetitorOSBuild,
   fetchIntelligenceWorkspace,
+  retryIntelligenceResearchStep,
   reviewIntelligenceRelease,
 } from "@/lib/intelligence";
 import type {
@@ -122,6 +123,27 @@ export function CompetitorOSPanel({ clientId, clientName }: { clientId: string; 
     }
   }
 
+  async function retryFailedModules(stepIds: string[]) {
+    if (!workspace?.latestRun || stepIds.length === 0) return;
+    setWorking(true);
+    setError(null);
+    setMessage(null);
+    setProgress(null);
+    try {
+      for (const stepId of stepIds) {
+        await retryIntelligenceResearchStep(clientId, "competitor_os", workspace.latestRun.id, stepId);
+      }
+      const result = await driveCompetitorOSBuild(clientId, setProgress);
+      setMessage(result.message);
+      await reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      await reload();
+    } finally {
+      setWorking(false);
+    }
+  }
+
   if (loading && !workspace) {
     return <div className="flex flex-1 items-center justify-center text-xs text-paper-3">Loading Competitor OS…</div>;
   }
@@ -130,6 +152,7 @@ export function CompetitorOSPanel({ clientId, clientName }: { clientId: string; 
   const active = workspace?.activeRelease ?? null;
   const run = workspace?.latestRun ?? null;
   const waitingForReview = latest?.status === "needs_review";
+  const failedSteps = workspace?.steps.filter((step) => step.status === "failed") ?? [];
   const records = workspace?.records ?? [];
   const recordGroups = [...records.reduce<Map<string, IntelligenceRecord[]>>((groups, record) => {
     const group = groups.get(record.record_type) ?? [];
@@ -161,7 +184,11 @@ export function CompetitorOSPanel({ clientId, clientName }: { clientId: string; 
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <IntelligenceExportActions clientName={clientName} workspace={workspace} />
-            {waitingForReview ? (
+            {waitingForReview && failedSteps.length > 0 ? (
+              <Button variant="primary" disabled={working} onClick={() => void retryFailedModules(failedSteps.map((step) => step.id))}>
+                Retry all failed ({failedSteps.length})
+              </Button>
+            ) : waitingForReview ? (
               <>
                 <Button disabled={working} onClick={() => void review("changes_requested")}>Request changes</Button>
                 <Button variant="primary" disabled={working} onClick={() => void review("approved")}>Approve &amp; activate</Button>
@@ -229,6 +256,9 @@ export function CompetitorOSPanel({ clientId, clientName }: { clientId: string; 
                     <div className="text-xs text-paper">{step.title}</div>
                     {step.failure_message && <div className="mt-1 truncate text-2xs text-neg">{step.failure_message}</div>}
                   </div>
+                  {step.status === "failed" && (
+                    <Button size="sm" disabled={working} onClick={() => void retryFailedModules([step.id])}>Retry module</Button>
+                  )}
                   <span className="font-mono text-2xs capitalize text-paper-3">{readable(step.status)}</span>
                 </div>
               ))}

@@ -96,6 +96,19 @@ export interface AssociationResearchProviderResult {
   retrievedAt: string;
 }
 
+export function normaliseAssociationAuthorityRecordKey(
+  value: string,
+  allowedKeys: Iterable<string>,
+): string | null {
+  const allowed = new Set(allowedKeys);
+  const candidate = value.trim();
+  if (allowed.has(candidate)) return candidate;
+  const slashIndex = candidate.lastIndexOf("/");
+  if (slashIndex < 0) return null;
+  const unqualified = candidate.slice(slashIndex + 1).trim();
+  return allowed.has(unqualified) ? unqualified : null;
+}
+
 interface OpenAIResponsePayload {
   id?: string;
   status?: string;
@@ -285,6 +298,7 @@ When a finding relies on the active approved Market OS, list the exact Market OS
 When a finding relies on the active approved Avatar OS, list the exact Avatar OS record key(s) in avatar_record_keys.
 When a finding relies on the active approved Competitor OS, list the exact Competitor OS record key(s) in competitor_record_keys.
 applies_to_avatar_record_keys may contain only exact keys from the approved Avatar OS. An empty list means category-wide scope, not an invented universal buyer truth.
+Use the Avatar OS record_key value alone. Never prefix it with record_type, buyer_role_system/, or any other path.
 The association_map module establishes canonical association keys. Later modules must reuse those keys and must not silently create duplicate identities.
 Describe supported associations only. Do not recommend a brand position, message, visual identity, offer, content, campaign, channel, or targeting action.`,
       },

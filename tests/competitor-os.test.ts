@@ -93,6 +93,8 @@ test("Competitor orchestration requires approved Market and Avatar authority and
   assert.match(edge, /refresh_interval_days: 30/);
   assert.match(edge, /"completed_partial"/);
   assert.match(edge, /exhaustedFailedStepIds/);
+  assert.match(edge, /retry_step/);
+  assert.match(edge, /failed_module_requeued/);
   assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
@@ -115,4 +117,6 @@ test("Competitor tab renders the real one-button workspace", async () => {
   assert.match(panel, /buyer-visible competitive system/i);
   assert.match(panel, /changed observations/i);
   assert.match(panel, /Approve &amp; activate/);
+  assert.match(panel, /Retry all failed/);
+  assert.match(panel, /Retry module/);
 });
