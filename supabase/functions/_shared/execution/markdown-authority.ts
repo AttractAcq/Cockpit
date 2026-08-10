@@ -152,6 +152,7 @@ export function parseSlotTargets(content: string): {
   const targets: DeclaredSlotTarget[] = [];
   let organicTotal: number | null = null;
   const seen = new Set<OrganicAssetType>();
+  let duplicateTarget = false;
 
   for (const cells of rows.slice(1)) {
     if (cells.length <= weeklyIndex) continue;
@@ -164,13 +165,16 @@ export function parseSlotTargets(content: string): {
     }
     const assetType = ASSET_LABELS[label];
     if (!assetType || weekly === null) continue; // paid stints, notes, blanks
-    if (seen.has(assetType)) continue; // a duplicate row is not silently merged
+    if (seen.has(assetType)) {
+      duplicateTarget = true;
+      continue;
+    }
     seen.add(assetType);
     targets.push({ asset_type: assetType, weekly_target: weekly });
   }
 
   return {
-    targets: targets.length > 0 ? targets : null,
+    targets: targets.length > 0 && !duplicateTarget ? targets : null,
     organic_weekly_total: organicTotal,
   };
 }

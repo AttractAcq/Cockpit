@@ -9,6 +9,7 @@ import { svc, json, cors } from "../_shared/aa.ts";
 import { callAnthropic, hasAnthropicKey, isAiEnabled } from "../_shared/anthropic.ts";
 import { executionHonestyErrors } from "../_shared/execution-proof-validation.ts";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST, executionDefinitionByCode, type ExecutionFileCode } from "../_shared/execution-manifest.ts";
+import { containsIdeationQuantityHeading, quantityAuthorityFromCalendar } from "../_shared/execution/quantity-authority.ts";
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const EXPECTED_CONTEXT_FILES = 21;
@@ -121,6 +122,8 @@ ${definition.directOutputs.map((item) => `- ${item}`).join("\n")}
 
 ${definition.instruction}
 
+${section === "E05" ? `E05 MUST contain one complete Rule 2 table with a Weekly Target column and exactly one row each for Reels, Carousels, Statics, and Stories. Values must be integers from 0 to 14. Do not write an "Ideation Quantity Contract" heading; the server derives and appends that machine-readable section deterministically from Rule 2.` : ""}
+
 The markdown must include: title, purpose, canonical metadata table, source inputs, downstream consumers, monthly execution rules, client-specific execution plan, required downstream Phase 3 fields/schema, proof and claim boundaries where relevant, status and confidence, needs-founder-input/needs-verification sections, and a human review checklist.
 
 Make it operational and client-specific. Do not create finished Phase 3 content rows.`;
@@ -187,7 +190,7 @@ Deno.serve(async (req: Request) => {
         timeoutMs: 120_000,
       });
       if (!result.ok) throw new Error(result.error);
-      const content = result.text.trim().replace(/^```(?:markdown|md)?\s*/i, "").replace(/\s*```$/, "").trim();
+      let content = result.text.trim().replace(/^```(?:markdown|md)?\s*/i, "").replace(/\s*```$/, "").trim();
       if (content.length < 500) throw new Error(`${definition.fileName} is empty or too short.`);
       const forbidden = executionHonestyErrors(content);
       if (forbidden.length) {
@@ -204,6 +207,14 @@ Deno.serve(async (req: Request) => {
           retryable: true,
           validationErrors: forbidden,
         });
+      }
+      if (sectionName === "E05") {
+        if (containsIdeationQuantityHeading(content)) {
+          throw new Error(`${definition.fileName} returned an AI-authored Ideation Quantity Contract. Only the server may derive that section from Rule 2.`);
+        }
+        const quantityAuthority = quantityAuthorityFromCalendar(content);
+        if (!quantityAuthority.ok) throw new Error(`${definition.fileName} quantity authority is invalid: ${quantityAuthority.error}`);
+        content = `${content}\n\n${quantityAuthority.markdown}`;
       }
 
       const { data: existing, error: existingError } = await sb.from("client_execution_files")
@@ -250,7 +261,12 @@ Deno.serve(async (req: Request) => {
     for (const definition of EXECUTION_FILE_MANIFEST) {
       const file = (files ?? []).find((candidate) => candidate.file_number === definition.fileNumber && candidate.file_name === definition.fileName);
       if (!file) errors.push(`missing ${definition.fileName}`);
-      else errors.push(...executionHonestyErrors(file.content_md ?? "").map((error) => `${definition.fileName}: ${error}`));
+      else {
+        errors.push(...executionHonestyErrors(file.content_md ?? "").map((error) => `${definition.fileName}: ${error}`));
+        if (definition.code === "E05" && !/^##[ \t]+Ideation Quantity Contract[ \t]*$/im.test(file.content_md ?? "")) {
+          errors.push(`${definition.fileName}: missing the server-derived ## Ideation Quantity Contract section`);
+        }
+      }
     }
     if (errors.length) return failure(422, "finalize_execution_files", "Execution files failed validation.", { details: errors });
 

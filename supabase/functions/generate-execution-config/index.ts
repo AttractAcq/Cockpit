@@ -124,6 +124,7 @@ Deno.serve(async (req) => {
     return json({ code: "CALENDAR_AUTHORITY_MISSING", message: `Approved E05 is required for ${month}.` }, 422);
   }
   const declared = extractDeclaredAuthority(calendarFile.content_md);
+  const legacyQuantityAuthority = plan.monthly_plans[0]?.authority_mode === "legacy_rule_2";
 
   // The approved Execution file is the authority for the month, so its declared
   // platform wins. clients.primary_platform is only a fallback for a client
@@ -173,7 +174,11 @@ Deno.serve(async (req) => {
 
   // Reconciliation against the independent human-authored Rule 2 table. If an
   // operator edits one representation and not the other, this blocks approval.
-  if (declared.slot_targets) {
+  if (legacyQuantityAuthority) {
+    checks.push(check("weekly_target_reconcile", "pass",
+      "Legacy compatibility: quantities were derived directly from the single approved E05 Rule 2 table because this approved file predates the machine-readable quantity block. Human review remains required.",
+      "warning"));
+  } else if (declared.slot_targets) {
     const declaredWeekly = new Map(declared.slot_targets.map((t) => [t.asset_type, t.weekly_target]));
     for (const assetType of ASSET_TYPES) {
       const contractWeekly = plan.monthly_plans[0]?.weekly_quotas[assetType];

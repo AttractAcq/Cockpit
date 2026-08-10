@@ -19,6 +19,10 @@ import {
   parseWeeklyThemes,
   sectionBody,
 } from "../supabase/functions/_shared/execution/markdown-authority.ts";
+import {
+  containsIdeationQuantityHeading,
+  quantityAuthorityFromCalendar,
+} from "../supabase/functions/_shared/execution/quantity-authority.ts";
 
 // Shaped exactly like the real approved 05_Content_Calendar.md, including the
 // bold "Organic total" checksum row and the em-dash paid row that must not be
@@ -119,6 +123,35 @@ test("a duplicated heading is treated as ambiguous, not silently resolved", () =
   const duplicated = `${CALENDAR}\n### Rule 2 — Monthly Slot Targets\n\n| Format | Weekly Target |\n|---|---|\n| Reels | 99 |\n`;
   assert.equal(sectionBody(duplicated, /^#{2,4}[ \t]+Rule 2[^\n]*$/gim), null);
   assert.equal(parseSlotTargets(duplicated).targets, null);
+});
+
+test("a duplicated asset row is ambiguous rather than silently merged", () => {
+  const duplicated = CALENDAR.replace("| Carousels | 2 | ~8 |", "| Reels | 4 | ~16 |\n| Carousels | 2 | ~8 |");
+  assert.equal(parseSlotTargets(duplicated).targets, null);
+  assert.equal(quantityAuthorityFromCalendar(duplicated).ok, false);
+});
+
+test("the server derives the exact quantity contract from a complete Rule 2 table", () => {
+  const result = quantityAuthorityFromCalendar(CALENDAR);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.weeklyQuotas, { reel: 4, carousel: 2, static: 2, story: 7 });
+  assert.equal(result.markdown, `## Ideation Quantity Contract
+schema: aa.ideation.quantity.v1
+reel_per_week: 4
+carousel_per_week: 2
+static_per_week: 2
+story_per_week: 7`);
+  assert.equal(containsIdeationQuantityHeading(result.markdown), true);
+});
+
+test("quantity derivation rejects an incomplete table and a contradictory checksum", () => {
+  const incomplete = CALENDAR.replace("| Stories | 7 | ~30 |\n", "");
+  const contradiction = CALENDAR.replace("| **Organic total** | **15** |", "| **Organic total** | **99** |");
+  assert.equal(quantityAuthorityFromCalendar(incomplete).ok, false);
+  const result = quantityAuthorityFromCalendar(contradiction);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /sum to 15/);
 });
 
 test("a table without a weekly column does not guess a different column", () => {

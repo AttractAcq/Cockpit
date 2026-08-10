@@ -29,6 +29,7 @@ export interface IdeationRun {
       total: number;
       source_file_name: string;
       source_section: string;
+      authority_mode?: "machine_contract" | "legacy_rule_2";
     }>;
   };
   configuration_snapshot: Record<string, unknown>;

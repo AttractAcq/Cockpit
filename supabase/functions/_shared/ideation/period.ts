@@ -1,4 +1,5 @@
 import type { ApprovedExecutionFile } from "../client-authority.ts";
+import { LEGACY_QUANTITY_SECTION, quantityAuthorityFromCalendar } from "../execution/quantity-authority.ts";
 import { IDEATION_QUANTITY_SCHEMA_VERSION } from "./config.ts";
 
 export type IdeationPeriodType = "one_day" | "one_week" | "date_range" | "one_month";
@@ -26,7 +27,8 @@ export interface IdeationMonthlyQuantityPlan {
   source_file_id: string;
   source_file_name: string;
   source_file_version: number;
-  source_section: "Ideation Quantity Contract";
+  source_section: "Ideation Quantity Contract" | typeof LEGACY_QUANTITY_SECTION;
+  authority_mode: "machine_contract" | "legacy_rule_2";
   source_fields: Record<IdeationAssetType, string>;
 }
 
@@ -121,6 +123,8 @@ export function resolveIdeationPeriod(
 interface ParsedQuantityContract {
   weeklyQuotas: Record<IdeationAssetType, number>;
   sourceFile: ApprovedExecutionFile;
+  sourceSection: IdeationMonthlyQuantityPlan["source_section"];
+  authorityMode: IdeationMonthlyQuantityPlan["authority_mode"];
 }
 
 function sectionBodies(content: string): string[] {
@@ -146,7 +150,17 @@ function parseQuantityContract(month: string, files: ApprovedExecutionFile[]): P
   const candidates = relevantFiles
     .flatMap((file) => sectionBodies(file.content_md).map((body) => ({ file, body })));
   if (candidates.length === 0) {
-    throw new Error(`${month} is missing the exact "## ${QUANTITY_SECTION_HEADING}" authority section.`);
+    const calendarFile = relevantFiles.find((file) => file.file_number === 5)!;
+    const legacy = quantityAuthorityFromCalendar(calendarFile.content_md);
+    if (!legacy.ok) {
+      throw new Error(`${month} is missing the exact "## ${QUANTITY_SECTION_HEADING}" authority section, and its approved E05 legacy authority cannot be used: ${legacy.error}`);
+    }
+    return {
+      weeklyQuotas: legacy.weeklyQuotas,
+      sourceFile: calendarFile,
+      sourceSection: LEGACY_QUANTITY_SECTION,
+      authorityMode: "legacy_rule_2",
+    };
   }
   if (candidates.length > 1) {
     throw new Error(`${month} contains duplicate Ideation quantity authority sections.`);
@@ -180,7 +194,12 @@ function parseQuantityContract(month: string, files: ApprovedExecutionFile[]): P
     }
     weeklyQuotas[assetType] = Number(raw);
   }
-  return { weeklyQuotas, sourceFile: file };
+  return {
+    weeklyQuotas,
+    sourceFile: file,
+    sourceSection: QUANTITY_SECTION_HEADING,
+    authorityMode: "machine_contract",
+  };
 }
 
 function occurrencesForWeekday(assetType: IdeationAssetType, weeklyCount: number, weekday: number): number {
@@ -232,7 +251,8 @@ export function deriveIdeationQuantityPlan(
       source_file_id: contract.sourceFile.id,
       source_file_name: contract.sourceFile.file_name,
       source_file_version: contract.sourceFile.version,
-      source_section: QUANTITY_SECTION_HEADING,
+      source_section: contract.sourceSection,
+      authority_mode: contract.authorityMode,
       source_fields: QUANTITY_FIELDS,
     };
   });

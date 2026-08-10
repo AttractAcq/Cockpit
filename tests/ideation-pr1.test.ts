@@ -268,6 +268,27 @@ test("quantity parser ignores incidental prose and rejects missing, malformed, o
   assert.throws(() => deriveIdeationQuantityPlan(period, new Map([["2026-07", missingFile]])), /exactly one approved E04/);
 });
 
+test("approved legacy E05 Rule 2 authority remains executable without inventing quantities", () => {
+  const period = resolveIdeationPeriod({ period_type: "one_week", start_date: "2026-07-20" });
+  const legacy = executionAuthority("2026-07");
+  legacy[2] = {
+    ...legacy[2],
+    content_md: `### Rule 2 — Monthly Slot Targets
+
+| Format | Weekly Target | Monthly Total |
+|---|---|---|
+| Reels | 4 | ~16 |
+| Carousels | 2 | ~8 |
+| Statics | 2 | ~8 |
+| Stories | 7 | ~30 |
+| **Organic total** | **15** | **~62** |`,
+  };
+  const plan = deriveIdeationQuantityPlan(period, new Map([["2026-07", legacy]]));
+  assert.deepEqual(plan.by_asset_type, { reel: 4, carousel: 2, static: 2, story: 7 });
+  assert.equal(plan.monthly_plans[0].authority_mode, "legacy_rule_2");
+  assert.match(plan.monthly_plans[0].source_section, /legacy compatibility/);
+});
+
 test("non-default quantity contract is honored without a silent fallback", () => {
   const week = resolveIdeationPeriod(
     { period_type: "one_week" },
