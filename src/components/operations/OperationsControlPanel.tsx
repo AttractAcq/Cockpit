@@ -20,6 +20,7 @@ import { ALL_ROLES, ROLE_LABEL, COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/t
 import { AUTOMATION_AREAS } from "@/types/automation";
 import type { Client } from "@/types/client";
 import type { TeamMemberRow, ClientWorkItemRow, WorkItemStatus, ClientMarginSummaryRow, ClientOnboardingTemplateRow, CostCategory } from "@/types/operations";
+import { IntelligenceOperationsPanel } from "./IntelligenceOperationsPanel";
 
 type Notice = { kind: "success" | "error"; text: string } | null;
 function errorMessage(error: unknown): string {
@@ -27,9 +28,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
-const TABS = ["metrics", "team", "work", "cost", "onboarding"] as const;
+const TABS = ["metrics", "intelligence", "team", "work", "cost", "onboarding"] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", team: "Team & Roles", work: "Work Items", cost: "Cost & Margin", onboarding: "Onboarding" };
+const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", intelligence: "Intelligence", team: "Team & Roles", work: "Work Items", cost: "Cost & Margin", onboarding: "Onboarding" };
 
 function MetricsSection({ clients }: { clients: Client[] }) {
   const [attempts, setAttempts] = useState<PublishAttemptLike[]>([]);
@@ -339,6 +340,7 @@ export function OperationsControlPanel() {
       {TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded px-2 py-1 text-2xs ${tab === t ? "bg-teal/10 text-teal" : "text-paper-3 hover:text-paper"}`}>{TAB_LABEL[t]}</button>)}
     </div>
     {tab === "metrics" && <MetricsSection clients={clients} />}
+    {tab === "intelligence" && <IntelligenceOperationsPanel clients={clients} />}
     {tab === "team" && <TeamRolesSection clients={clients} />}
     {tab === "work" && <WorkItemsSection clients={clients} />}
     {tab === "cost" && <CostMarginSection clients={clients} />}

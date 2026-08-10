@@ -9,6 +9,7 @@ import { validateIdeationAccess } from "../_shared/ideation/auth.ts";
 import { reconstructScoringAuthority } from "../_shared/ideation/scoring/authority.ts";
 import { buildCalendarConflictSnapshot } from "../_shared/ideation/proposal/conflicts.ts";
 import { sha256 } from "../_shared/ideation/hash.ts";
+import { verifyIntelligenceAuthoritySnapshot } from "../_shared/intelligence/operational-authority.ts";
 import { createCommitHandler, type CommitBundle, type CommitPersistence } from "./handler.ts";
 
 function createProductionPersistence(): CommitPersistence {
@@ -156,9 +157,15 @@ export const handleCommitIdeationContentRequest = createCommitHandler({
       contextRows: contextResult.data ?? [],
       executionRows: executionResult.data ?? [],
     });
-    return result.ok
+    if (!result.ok) return { ok: false as const, message: result.message };
+    const intelligence = await verifyIntelligenceAuthoritySnapshot(
+      sb,
+      clientId,
+      authoritySnapshot.intelligence,
+    );
+    return intelligence.ok
       ? { ok: true as const }
-      : { ok: false as const, message: result.message };
+      : { ok: false as const, message: intelligence.message };
   },
 });
 

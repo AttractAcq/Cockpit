@@ -64,6 +64,7 @@ function createProductionPersistence(): IdeationPersistence {
     renewLease: (args) => sb.rpc("renew_ideation_run_lease", args),
     completeRun: (args) => sb.rpc("complete_ideation_run", args),
     failRun: (args) => sb.rpc("fail_ideation_run", args),
+    recordIntelligenceConsumption: (args) => sb.rpc("record_intelligence_consumption", args),
     fetchRunBundle,
   };
 }

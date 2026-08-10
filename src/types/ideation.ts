@@ -87,6 +87,7 @@ export interface IdeationResearchResult {
     | "approved_context"
     | "approved_strategic_playbook"
     | "approved_execution"
+    | "approved_intelligence"
     | "approved_authority_bundle"
     | "external_research";
   source_url: string;

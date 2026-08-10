@@ -58,6 +58,7 @@ export interface IdeationPersistence {
   renewLease(args: Record<string, unknown>): Promise<RpcResult>;
   completeRun(args: Record<string, unknown>): Promise<RpcResult>;
   failRun(args: Record<string, unknown>): Promise<RpcResult>;
+  recordIntelligenceConsumption?(args: Record<string, unknown>): Promise<RpcResult>;
   fetchRunBundle(cycleId: string): Promise<RunBundle>;
 }
 
@@ -534,6 +535,19 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
     const cycleId = beginData.cycle.id;
 
     try {
+      if (persistence.recordIntelligenceConsumption) {
+        const consumption = await persistence.recordIntelligenceConsumption({
+          p_client_id: clientId,
+          p_consumer_type: "ideation_cycle",
+          p_consumer_key: cycleId,
+          p_purpose: "ideation_generation",
+          p_required_domains: ["market_os", "avatar_os", "competitor_os", "association_os", "brand_strategist"],
+          p_expected_authority: authoritySnapshot.intelligence ?? {},
+        });
+        if (consumption.error) {
+          throw new Error(`Intelligence consumption could not be recorded: ${safeMessage(consumption.error.message)}`);
+        }
+      }
       const existing = await persistence.fetchRunBundle(cycleId);
       const persistedRunsBySlug = new Map(
         existing.technique_runs.map((run) => [run.technique_slug as IdeationTechniqueSlug, run]),

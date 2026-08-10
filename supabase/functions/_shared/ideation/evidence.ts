@@ -4,6 +4,7 @@ export type IdeationEvidenceSourceType =
   | "approved_context"
   | "approved_strategic_playbook"
   | "approved_execution"
+  | "approved_intelligence"
   | "external_research";
 
 export interface IdeationEvidenceSource {

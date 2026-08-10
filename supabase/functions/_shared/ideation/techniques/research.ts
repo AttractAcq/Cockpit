@@ -1,8 +1,10 @@
 import {
   boundedAuthorityExcerpt,
+  boundedIntelligenceExcerpt,
   STRATEGIC_PLAYBOOK_CONTEXT_FILES,
   type ApprovedClientAuthority,
 } from "../../client-authority.ts";
+import { buildIntelligenceEvidenceSources } from "../authority-evidence.ts";
 import { createEvidenceSource } from "../evidence.ts";
 import { sha256 } from "../hash.ts";
 import type { TechniqueModuleResult } from "./types.ts";
@@ -22,18 +24,17 @@ export async function authorityResearch(
   const bounded = boundedAuthorityExcerpt(
     authority.allContextFiles,
     options.contextFileNumbers,
-    8000,
-    Math.max(900, Math.floor(8000 / options.contextFileNumbers.length)),
+    5000,
+    Math.max(700, Math.floor(5000 / options.contextFileNumbers.length)),
   );
   if (!bounded.excerpt.trim()) {
     throw new Error(`${options.techniqueSlug} has no usable approved authority.`);
   }
-  const contentHash = await sha256(bounded.excerpt);
   const wanted = new Set(options.contextFileNumbers);
   const strategicNumbers = new Set<number>(
     STRATEGIC_PLAYBOOK_CONTEXT_FILES.map((file) => file.file_number),
   );
-  const evidenceSources = await Promise.all(
+  const contextEvidenceSources = await Promise.all(
     authority.allContextFiles
       .filter((file) => wanted.has(file.file_number))
       .sort((left, right) => left.file_number - right.file_number)
@@ -47,6 +48,12 @@ export async function authorityResearch(
         excerpt: file.content_md,
       })),
   );
+  const intelligence = boundedIntelligenceExcerpt(authority.intelligenceReleases, 3000, 600);
+  const intelligenceEvidenceSources = await buildIntelligenceEvidenceSources(authority);
+  const evidenceSources = [...contextEvidenceSources, ...intelligenceEvidenceSources];
+  const combinedExcerpt = `${bounded.excerpt}\n\n${intelligence.excerpt}`.trim().slice(0, 8000);
+  const combinedReferences = [...bounded.references, ...intelligence.references];
+  const contentHash = await sha256(combinedExcerpt);
   return {
     techniqueNumber: options.techniqueNumber,
     techniqueSlug: options.techniqueSlug,
@@ -60,20 +67,23 @@ export async function authorityResearch(
       sourceType: "approved_authority_bundle",
       sourceUrl: `aa-authority://client/${authority.client.id}/technique/${options.techniqueNumber}`,
       sourceTitle: options.sourceTitle,
-      sourceExcerpt: bounded.excerpt,
+      sourceExcerpt: combinedExcerpt,
       sourceProvider: "approved_client_authority",
       retrievedAt: new Date().toISOString(),
       contentHash,
       status: "processed",
       structuredFindings: {
         focus: options.focus,
-        authority_references: bounded.references,
+        authority_references: combinedReferences,
         evidence_mode: "classified_approved_client_authority",
         context_source_ids: evidenceSources
           .filter((source) => source.source_type === "approved_context")
           .map((source) => source.source_id),
         strategic_playbook_source_ids: evidenceSources
           .filter((source) => source.source_type === "approved_strategic_playbook")
+          .map((source) => source.source_id),
+        intelligence_source_ids: evidenceSources
+          .filter((source) => source.source_type === "approved_intelligence")
           .map((source) => source.source_id),
         raw_html_stored: false,
       },

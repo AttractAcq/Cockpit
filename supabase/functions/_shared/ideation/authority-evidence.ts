@@ -37,6 +37,23 @@ export async function buildExecutionEvidenceSources(
   })));
 }
 
+export async function buildIntelligenceEvidenceSources(
+  authority: ApprovedClientAuthority,
+): Promise<IdeationEvidenceSource[]> {
+  return await Promise.all(authority.intelligenceReleases.map((release) => createEvidenceSource({
+    sourceId: `intelligence:${release.intelligence_domain}:${release.id}:v${release.version}`,
+    sourceRef: `${release.intelligence_domain}:v${release.version}`,
+    sourceType: "approved_intelligence",
+    sourceUrl: `aa-authority://client/${authority.client.id}/intelligence/${release.id}`,
+    excerpt: [
+      `${release.title}: ${release.summary}`,
+      ...release.records.map((record) =>
+        `[${record.record_type}/${record.record_key}] ${record.title}: ${record.summary}`
+      ),
+    ].join("\n"),
+  })));
+}
+
 export async function buildAuthorityConfigurationSnapshot(authority: ApprovedClientAuthority) {
   const context = await Promise.all(authority.contextFiles
     .slice()
@@ -57,9 +74,30 @@ export async function buildAuthorityConfigurationSnapshot(authority: ApprovedCli
       month: file.month,
       ...authorityRowSnapshot(file, await sha256(file.content_md)),
     })));
+  const intelligence = Object.fromEntries(await Promise.all(authority.intelligenceReleases.map(async (release) => {
+    const contentHash = await sha256(JSON.stringify({
+      title: release.title,
+      summary: release.summary,
+      records: release.records.map((record) => ({
+        record_type: record.record_type,
+        record_key: record.record_key,
+        title: record.title,
+        summary: record.summary,
+        payload: record.payload,
+      })),
+    }));
+    return [release.intelligence_domain, {
+      release_id: release.id,
+      version: release.version,
+      approved_at: release.approved_at,
+      freshness: release.freshness,
+      content_hash: contentHash,
+    }];
+  })));
   return {
     context,
     strategic_playbooks: strategicPlaybooks,
     execution,
+    intelligence,
   };
 }
