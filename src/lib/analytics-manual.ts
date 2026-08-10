@@ -3,12 +3,22 @@ export type ManualAnalyticsStatus = "no_metrics" | "partial_metrics" | "metrics_
 
 export const FEED_METRIC_FIELDS = ["impressions", "reach", "likes", "comments", "shares", "saves", "profile_visits", "follows", "website_clicks"] as const;
 export const STORY_METRIC_FIELDS = ["impressions", "reach", "replies", "shares", "profile_visits", "follows", "taps_forward", "taps_back", "exits", "completion_rate"] as const;
+// Programme Stage 1B-E: Facebook has no Story surface (Stage 1B-A/1B-D:
+// CAROUSEL/STORIES remain blocked) and a narrower confirmed metric set than
+// Instagram — see _shared/facebook-insights.ts for why (post_impressions/
+// reach and post_engaged_users are deprecated at the Graph API version this
+// build targets; there is no "saves"/"profile_visits"/"follows" figure
+// exposed on a Page post). Kept in sync with upsert_manual_metric_snapshot's
+// own v_allowed array in the 1B-E migration — the DB is authoritative, this
+// is only for the UI's field list.
+export const FACEBOOK_METRIC_FIELDS = ["impressions", "clicks", "likes", "comments", "shares", "video_views"] as const;
 
 export function analyticsContentKind(assetFormat: string | null | undefined, contentType?: string | null): AnalyticsContentKind {
   return contentType?.toUpperCase() === "STORIES" || (assetFormat ?? "").toLowerCase().includes("story") ? "story" : "feed";
 }
 
-export function metricFieldsForFormat(assetFormat: string | null | undefined, contentType?: string | null): readonly string[] {
+export function metricFieldsForFormat(assetFormat: string | null | undefined, contentType?: string | null, platform?: string | null): readonly string[] {
+  if ((platform ?? "instagram").toLowerCase() === "facebook") return FACEBOOK_METRIC_FIELDS;
   return analyticsContentKind(assetFormat, contentType) === "story" ? STORY_METRIC_FIELDS : FEED_METRIC_FIELDS;
 }
 

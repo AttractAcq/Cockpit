@@ -702,7 +702,7 @@ export interface AnalyticsRecordRow {
 
 export type MetricSnapshotLabel = "manual" | "t_plus_1h" | "t_plus_6h" | "t_plus_24h" | "t_plus_48h" | "t_plus_7d" | "story_t_plus_1h" | "story_t_plus_6h" | "story_t_plus_23h";
 export type MetricCollectionMethod = "manual" | "api_later" | "api";
-export type SupportedMetricKey = "impressions" | "reach" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "follows" | "website_clicks" | "replies" | "taps_forward" | "taps_back" | "exits" | "completion_rate" | "views" | "navigation" | "total_interactions";
+export type SupportedMetricKey = "impressions" | "reach" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "follows" | "website_clicks" | "replies" | "taps_forward" | "taps_back" | "exits" | "completion_rate" | "views" | "navigation" | "total_interactions" | "clicks" | "video_views";
 export type ManualAnalyticsStatus = "no_metrics" | "partial_metrics" | "metrics_entered" | "business_signals_entered";
 export type AutomaticInsightsStatus = "no_automatic_metrics" | "automatic_metrics_pending" | "automatic_metrics_collected" | "collection_failed" | "story_metrics_expired";
 
@@ -803,6 +803,35 @@ export interface ClientIterationCandidate {
 export interface ClientIterationReview {
   id: string; client_id: string; iteration_candidate_id: string; previous_status: IterationCandidateStatus | null;
   new_status: IterationCandidateStatus; review_note: string | null; reviewed_by: string; created_at: string;
+}
+
+// Programme Stage 1B-E: controlled Facebook-vs-Instagram experiments. An
+// experiment's two arms are the real client_distribution_records rows
+// carrying its id in their platform_experiment_id column, not a separate
+// assignment table.
+export type PlatformExperimentStatus = "draft" | "running" | "completed" | "abandoned";
+export type PlatformExperimentPlatform = "instagram" | "facebook";
+export type PlatformExperimentCommercialObjective = "awareness" | "consideration" | "decision" | "retention";
+
+export interface ClientPlatformExperiment {
+  id: string; client_id: string; title: string; hypothesis: string;
+  avatar_label: string | null; segment_label: string | null; content_format: string | null;
+  commercial_objective: PlatformExperimentCommercialObjective | null;
+  platform_a: PlatformExperimentPlatform; platform_b: PlatformExperimentPlatform;
+  status: PlatformExperimentStatus;
+  outcome_summary: string | null; outcome_confidence: "low" | "medium" | "high" | null;
+  iteration_candidate_id: string | null;
+  started_at: string | null; completed_at: string | null;
+  created_by: string | null; created_at: string; updated_at: string;
+}
+
+export interface PlatformArmComparison {
+  platform: PlatformExperimentPlatform;
+  sampleSize: number;
+  averageOverallScore: number | null;
+  averageAttentionScore: number | null;
+  averageEngagementScore: number | null;
+  averageConversionScore: number | null;
 }
 
 export type ContextUpdateProposalStatus = "needs_review" | "approved" | "dismissed" | "converted_to_patch";

@@ -695,7 +695,9 @@ import type {
   AssetGenerationJobRow, AssetGenerationItemRow, AssetJobProgress,
   ScopedPhase3Format, Phase3DuplicatePolicy, Phase3ScopePreview, Phase3ScopedRunRow, Phase3SlotProgress,
   DestructiveTargetInput, DestructivePlan, DestructiveExecuteResult,
+  ClientPlatformExperiment, PlatformExperimentPlatform, PlatformExperimentCommercialObjective,
 } from "@/types/phase";
+import type { ScoreForComparison } from "@/lib/platform-experiments";
 
 export async function fetchClientInputs(clientId: string): Promise<ClientInputs | null> {
   const { data, error } = await supabase
@@ -2762,6 +2764,61 @@ export async function promoteIterationCandidateToOpportunity(input: {
   });
   if (error) throw error;
   return data as string;
+}
+
+// ── Programme Stage 1B-E: platform experiments ────────────────────────────
+
+export async function fetchPlatformExperiments(clientId: string): Promise<ClientPlatformExperiment[]> {
+  const { data, error } = await supabase.from("client_platform_experiments").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ClientPlatformExperiment[];
+}
+
+export async function createPlatformExperiment(input: {
+  clientId: string; title: string; hypothesis: string; platformA: PlatformExperimentPlatform; platformB: PlatformExperimentPlatform;
+  avatarLabel?: string | null; segmentLabel?: string | null; contentFormat?: string | null; commercialObjective?: PlatformExperimentCommercialObjective | null;
+}): Promise<ClientPlatformExperiment> {
+  const { data, error } = await supabase.rpc("create_platform_experiment", {
+    p_client_id: input.clientId, p_title: input.title, p_hypothesis: input.hypothesis,
+    p_platform_a: input.platformA, p_platform_b: input.platformB,
+    p_avatar_label: input.avatarLabel ?? null, p_segment_label: input.segmentLabel ?? null,
+    p_content_format: input.contentFormat ?? null, p_commercial_objective: input.commercialObjective ?? null,
+  });
+  if (error) throw error;
+  return data as ClientPlatformExperiment;
+}
+
+export async function assignDistributionRecordToExperiment(experimentId: string, distributionRecordId: string): Promise<void> {
+  const { error } = await supabase.rpc("assign_distribution_record_to_experiment", { p_experiment_id: experimentId, p_distribution_record_id: distributionRecordId });
+  if (error) throw error;
+}
+
+export async function completePlatformExperiment(experimentId: string, outcomeSummary: string, outcomeConfidence: "low" | "medium" | "high"): Promise<void> {
+  const { error } = await supabase.rpc("complete_platform_experiment", { p_experiment_id: experimentId, p_outcome_summary: outcomeSummary, p_outcome_confidence: outcomeConfidence });
+  if (error) throw error;
+}
+
+export async function linkPlatformExperimentToIterationCandidate(experimentId: string, iterationCandidateId: string): Promise<void> {
+  const { error } = await supabase.rpc("link_platform_experiment_to_iteration_candidate", { p_experiment_id: experimentId, p_iteration_candidate_id: iterationCandidateId });
+  if (error) throw error;
+}
+
+/** Every real published distribution record for a client (Instagram or Facebook) that a Platform Experiment could assign. */
+export async function fetchDistributionRecordsForExperimentAssignment(clientId: string): Promise<Array<{ id: string; source_ref: string; title: string | null; platform: string | null; published_at: string | null; platform_experiment_id: string | null }>> {
+  const { data, error } = await supabase.from("client_distribution_records")
+    .select("id,source_ref,title,platform,published_at,platform_experiment_id")
+    .eq("client_id", clientId).eq("publish_status", "published").order("published_at", { ascending: false }).limit(200);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** All scored performance rows for a client's real organic content, for the Facebook-vs-Instagram comparison view. */
+export async function fetchPlatformPerformanceScores(clientId: string): Promise<ScoreForComparison[]> {
+  const { data, error } = await supabase.from("client_performance_scores")
+    .select("platform,overall_score,attention_score,engagement_score,conversion_signal_score,sample_quality,score_status")
+    .eq("client_id", clientId).not("distribution_record_id", "is", null);
+  if (error) throw error;
+  return (data ?? []) as ScoreForComparison[];
 }
 
 export async function fetchContextUpdateProposals(clientId: string): Promise<ClientContextUpdateProposal[]> {
