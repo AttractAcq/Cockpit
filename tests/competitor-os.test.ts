@@ -119,4 +119,5 @@ test("Competitor tab renders the real one-button workspace", async () => {
   assert.match(panel, /Approve &amp; activate/);
   assert.match(panel, /Retry all failed/);
   assert.match(panel, /Retry module/);
+  assert.match(panel, /New version required/);
 });

@@ -256,8 +256,11 @@ export function CompetitorOSPanel({ clientId, clientName }: { clientId: string; 
                     <div className="text-xs text-paper">{step.title}</div>
                     {step.failure_message && <div className="mt-1 truncate text-2xs text-neg">{step.failure_message}</div>}
                   </div>
-                  {step.status === "failed" && (
+                  {step.status === "failed" && latest?.status !== "approved" && (
                     <Button size="sm" disabled={working} onClick={() => void retryFailedModules([step.id])}>Retry module</Button>
+                  )}
+                  {step.status === "failed" && latest?.status === "approved" && (
+                    <span className="text-2xs text-paper-3">New version required</span>
                   )}
                   <span className="font-mono text-2xs capitalize text-paper-3">{readable(step.status)}</span>
                 </div>
