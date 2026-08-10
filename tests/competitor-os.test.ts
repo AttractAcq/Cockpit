@@ -91,6 +91,9 @@ test("Competitor orchestration requires approved Market and Avatar authority and
   assert.match(edge, /observation_fingerprint/);
   assert.match(edge, /change_status/);
   assert.match(edge, /refresh_interval_days: 30/);
+  assert.match(edge, /"completed_partial"/);
+  assert.match(edge, /exhaustedFailedStepIds/);
+  assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
 });

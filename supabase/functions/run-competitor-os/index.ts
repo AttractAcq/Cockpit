@@ -417,7 +417,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
 
   const { data: openRuns, error: openRunError } = await sb.from("client_research_runs")
     .select("*").eq("client_id", clientId).eq("intelligence_domain", "competitor_os")
-    .in("status", ["queued", "running", "waiting_provider", "failed"])
+    .in("status", ["queued", "running", "waiting_provider", "failed", "completed_partial"])
     .order("created_at", { ascending: false }).limit(5);
   if (openRunError) return json({ ok: false, mode: "blocked", message: openRunError.message }, 500);
 
@@ -426,9 +426,31 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
       .select("id,status").eq("client_id", clientId).eq("research_run_id", run.id)
       .in("status", ["draft", "needs_review"]).maybeSingle();
     if (!release || release.status === "needs_review") continue;
-    const { data: steps, error: stepsError } = await sb.from("client_research_steps")
+    const { data: loadedSteps, error: stepsError } = await sb.from("client_research_steps")
       .select("*").eq("research_run_id", run.id).order("step_order");
     if (stepsError) return json({ ok: false, mode: "blocked", message: stepsError.message }, 500);
+    let steps = loadedSteps ?? [];
+    if (run.status === "completed_partial") {
+      const exhaustedFailedStepIds = steps
+        .filter((step) => step.status === "failed" && step.attempt_count >= step.maximum_attempts)
+        .map((step) => step.id);
+      if (exhaustedFailedStepIds.length > 0) {
+        const { error: resetError } = await sb.from("client_research_steps").update({
+          status: "queued",
+          attempt_count: 0,
+          failure_code: null,
+          failure_message: null,
+          started_at: null,
+          completed_at: null,
+          lease_owner: null,
+          lease_expires_at: null,
+        }).in("id", exhaustedFailedStepIds).eq("client_id", clientId);
+        if (resetError) return json({ ok: false, mode: "blocked", message: resetError.message }, 500);
+        steps = steps.map((step) => exhaustedFailedStepIds.includes(step.id)
+          ? { ...step, status: "queued", attempt_count: 0, failure_code: null, failure_message: null }
+          : step);
+      }
+    }
     const canResume = (steps ?? []).some((step) =>
       step.status === "queued" || step.status === "running" || step.status === "waiting_provider" ||
       (step.status === "failed" && step.attempt_count < step.maximum_attempts)
@@ -442,7 +464,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
       message: "Resuming the existing Competitor OS build.",
       research_run_id: run.id,
       release_id: release.id,
-      steps: steps ?? [],
+      steps,
     });
   }
 
