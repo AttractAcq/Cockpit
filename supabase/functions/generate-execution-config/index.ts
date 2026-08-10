@@ -128,25 +128,16 @@ Deno.serve(async (req) => {
 
   // The approved Execution file is the authority for the month, so its declared
   // platform wins. clients.primary_platform is only a fallback for a client
-  // whose approved file names none. If neither declares one, refuse — a
-  // platform is never inferred from the formats that happen to be present.
-  const platform = declared.primary_platform
+  // whose approved file names none. Platform is optional at planning time: an
+  // undeclared value is represented honestly rather than blocking generation
+  // or being inferred from the formats that happen to be present.
+  const declaredPlatform = declared.primary_platform
     ?? (client.primary_platform as string | null)?.trim()?.toLowerCase()
     ?? null;
-  if (!platform) {
-    return json({
-      code: "PLATFORM_NOT_DECLARED",
-      message: "Neither the approved Execution files nor the client record declares a primary platform. Structured requirements cannot name a platform that was never declared.",
-    }, 422);
-  }
+  const platform = declaredPlatform ?? "unassigned";
 
   const themes = declared.weekly_themes;
-  if (!themes || themes.length === 0) {
-    return json({
-      code: "OBJECTIVE_AUTHORITY_MISSING",
-      message: "The approved calendar declares no weekly themes, so no objective vocabulary exists. Objectives are never invented.",
-    }, 422);
-  }
+  const hasDeclaredThemes = Boolean(themes && themes.length > 0);
 
   const requirements: ExecutionRequirementSpec[] = ASSET_TYPES
     .map((assetType) => {
@@ -157,7 +148,9 @@ Deno.serve(async (req) => {
         channel: "organic",
         quantity,
         cadence: "weekly" as const,
-        objective_mix: objectiveMixFromThemes(quantity, themes),
+        objective_mix: hasDeclaredThemes
+          ? objectiveMixFromThemes(quantity, themes!)
+          : { unassigned: quantity },
         ...(declared.content_pillars ? { content_pillar_rotation: declared.content_pillars } : {}),
       };
     })
@@ -171,6 +164,28 @@ Deno.serve(async (req) => {
 
   // --- checks -------------------------------------------------------------
   const checks: ExecutionConfigCheck[] = [...validateExecutionConfig(config)];
+
+  checks.push(check(
+    "platform_authority",
+    "pass",
+    declaredPlatform
+      ? `Primary platform is declared as ${declaredPlatform}.`
+      : "No primary platform is declared. Requirements remain platform-neutral as unassigned until a platform is selected.",
+    declaredPlatform ? "blocking" : "warning",
+    declaredPlatform,
+    platform,
+  ));
+
+  checks.push(check(
+    "objective_authority",
+    "pass",
+    hasDeclaredThemes
+      ? "Objectives are derived from the weekly themes declared in the approved calendar."
+      : "No weekly themes are declared. Objective allocation remains unassigned and does not block the pre-intelligence execution contract.",
+    hasDeclaredThemes ? "blocking" : "warning",
+    hasDeclaredThemes ? "declared weekly themes" : null,
+    hasDeclaredThemes ? themes!.join(", ") : "unassigned",
+  ));
 
   // Reconciliation against the independent human-authored Rule 2 table. If an
   // operator edits one representation and not the other, this blocks approval.

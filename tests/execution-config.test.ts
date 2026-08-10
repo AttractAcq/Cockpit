@@ -80,6 +80,32 @@ test("a consistent configuration validates clean", () => {
   assert.equal(reconciliationOutcome(checks), "passed");
 });
 
+test("an unassigned planning platform does not block configuration or slot derivation", () => {
+  const config = baseConfig();
+  config.requirements = config.requirements.map((requirement) => ({
+    ...requirement,
+    platform: "unassigned",
+  }));
+
+  const checks = validateExecutionConfig(config);
+  assert.equal(hasBlockingFailure(checks), false);
+  assert.equal(reconciliationOutcome(checks), "passed");
+  assert.ok(generateCalendarSlots(config, false).every((slot) => slot.platform === "unassigned"));
+});
+
+test("an unassigned pre-intelligence objective allocation remains internally consistent", () => {
+  const config = baseConfig();
+  config.requirements = config.requirements.map((requirement) => ({
+    ...requirement,
+    objective_mix: { unassigned: requirement.quantity },
+  }));
+
+  const checks = validateExecutionConfig(config);
+  assert.equal(hasBlockingFailure(checks), false);
+  assert.equal(reconciliationOutcome(checks), "passed");
+  assert.ok(generateCalendarSlots(config, false).every((slot) => slot.objective === "unassigned"));
+});
+
 test("an objective mix that does not sum to quantity fails closed", () => {
   const config = baseConfig();
   config.requirements[0].objective_mix = { authority: 4, proof: 3 };

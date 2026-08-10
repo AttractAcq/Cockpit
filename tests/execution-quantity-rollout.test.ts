@@ -17,3 +17,15 @@ test("legacy compatibility remains explicit in config evidence", () => {
   assert.match(executionConfig, /Legacy compatibility:/);
   assert.match(executionConfig, /Human review remains required/);
 });
+
+test("missing platform authority remains non-blocking and explicit", () => {
+  assert.match(executionConfig, /const platform = declaredPlatform \?\? "unassigned"/);
+  assert.match(executionConfig, /Requirements remain platform-neutral as unassigned/);
+  assert.doesNotMatch(executionConfig, /PLATFORM_NOT_DECLARED/);
+});
+
+test("missing weekly themes remain non-blocking before intelligence exists", () => {
+  assert.match(executionConfig, /\{ unassigned: quantity \}/);
+  assert.match(executionConfig, /does not block the pre-intelligence execution contract/);
+  assert.doesNotMatch(executionConfig, /OBJECTIVE_AUTHORITY_MISSING/);
+});

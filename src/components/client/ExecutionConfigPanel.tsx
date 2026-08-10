@@ -7,6 +7,7 @@
 // happy path.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/primitives";
 import {
   approveExecutionConfig,
   generateExecutionConfig,
@@ -31,12 +32,11 @@ type Notice = { kind: "ok" | "error"; text: string } | null;
 
 function StatusPill({ status }: { status: string }) {
   const tone =
-    status === "approved" ? "bg-emerald-100 text-emerald-800"
-      : status === "needs_review" ? "bg-amber-100 text-amber-900"
-      : status === "superseded" ? "bg-slate-200 text-slate-600"
-      : status === "rejected" ? "bg-rose-100 text-rose-800"
-      : "bg-slate-100 text-slate-700";
-  return <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
+    status === "approved" ? "border-teal/20 bg-teal/10 text-teal"
+      : status === "needs_review" ? "border-warn/20 bg-warn/10 text-warn"
+      : status === "rejected" ? "border-neg/20 bg-neg/10 text-neg"
+      : "border-line bg-ink text-paper-3";
+  return <span className={`rounded border px-1.5 py-0.5 font-mono text-2xs ${tone}`}>{status.replaceAll("_", " ")}</span>;
 }
 
 export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
@@ -149,39 +149,40 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
   }
 
   if (loading) {
-    return <div className="p-6 text-sm text-slate-500">Loading execution authority…</div>;
+    return <div className="min-h-0 flex-1 overflow-y-auto p-6 text-xs text-paper-3">Loading execution authority…</div>;
   }
 
   const structured = (selected?.config ?? null) as ExecutionConfig | null;
   const openFile = files.find((f) => f.id === openFileId) ?? null;
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Execution Contract — {executionMonth}</h2>
-          <p className="text-sm text-slate-600">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-medium text-paper">Execution Contract · {executionMonth}</h2>
+          <p className="mt-1 max-w-4xl text-xs leading-5 text-paper-3">
             The approved Execution files remain the authority. This is the machine-executable twin
             derived from them, and the evidence that the two do not contradict each other.
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="md"
           onClick={() => void onGenerate()}
           disabled={busy || files.length === 0}
-          className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy ? "Working…" : "Generate from approved files"}
-        </button>
+        </Button>
       </header>
 
       {notice && (
         <div
           role="status"
-          className={`rounded border px-3 py-2 text-sm ${
+          className={`rounded-md border px-3 py-2 text-xs ${
             notice.kind === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-rose-200 bg-rose-50 text-rose-900"
+              ? "border-teal/20 bg-teal/5 text-teal"
+              : "border-neg/20 bg-neg/5 text-neg"
           }`}
         >
           {notice.text}
@@ -189,28 +190,30 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
       )}
 
       {files.length === 0 && (
-        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+        <div className="rounded-md border border-warn/20 bg-warn/5 px-3 py-3 text-xs text-warn">
           No approved Execution files exist for {executionMonth}. Structured authority is never derived
           from unapproved Markdown, so there is nothing to generate from yet.
         </div>
       )}
 
       {files.length > 0 && configs.length === 0 && (
-        <div className="rounded border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+        <div className="rounded-md border border-line bg-ink-200 px-3 py-3 text-xs text-paper-2">
           {files.length} approved Execution files are present, but no structured config has been
           generated for {executionMonth} yet.
         </div>
       )}
 
       {configs.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {configs.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => setSelectedId(c.id)}
-              className={`rounded border px-3 py-1.5 text-sm ${
-                c.id === selectedId ? "border-slate-900 bg-white font-medium" : "border-slate-200 bg-slate-50"
+              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                c.id === selectedId
+                  ? "border-teal/30 bg-teal/10 text-paper"
+                  : "border-line bg-ink-200 text-paper-3 hover:border-line-2 hover:text-paper"
               }`}
             >
               v{c.config_version} <StatusPill status={c.status} />
@@ -221,13 +224,14 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
 
       {selected && (
         <>
-          <section className="rounded border border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
-              <h3 className="text-sm font-semibold text-slate-800">
+          <section className="overflow-hidden rounded-[10px] border border-line bg-ink-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-ink-100 px-4 py-3">
+              <h3 className="text-2xs font-medium uppercase tracking-wide text-paper-2">
                 Reconciliation — {selected.reconciliation_status}
               </h3>
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="md"
                 onClick={() => void onApprove()}
                 disabled={busy || !canApprove}
                 title={
@@ -236,41 +240,41 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
                       ? "Blocked: the structured config contradicts the approved Execution files"
                       : undefined
                 }
-                className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Approve and make slots operational
-              </button>
+              </Button>
             </div>
 
             {blockingFailures.length > 0 && (
-              <p className="border-b border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+              <p className="border-b border-neg/20 bg-neg/5 px-4 py-2.5 text-xs text-neg">
                 {blockingFailures.length} blocking check{blockingFailures.length === 1 ? "" : "s"} failed.
                 Approval is refused by the database until the approved files and the structured values agree.
               </p>
             )}
 
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-line">
               {checks.length === 0 && (
-                <li className="px-3 py-2 text-sm text-slate-500">No checks recorded.</li>
+                <li className="px-4 py-3 text-xs text-paper-3">No checks recorded.</li>
               )}
               {checks.map((c) => (
-                <li key={c.id} className="flex items-start gap-3 px-3 py-2 text-sm">
+                <li key={c.id} className="flex min-w-0 items-start gap-3 px-4 py-3 text-xs">
                   <span
-                    className={`mt-0.5 rounded px-1.5 py-0.5 text-xs font-medium ${
+                    className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 font-mono text-2xs ${
                       c.status === "pass"
-                        ? "bg-emerald-100 text-emerald-800"
+                        ? "border-teal/20 bg-teal/10 text-teal"
                         : c.severity === "blocking"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-amber-100 text-amber-900"
+                          ? "border-neg/20 bg-neg/10 text-neg"
+                          : "border-warn/20 bg-warn/10 text-warn"
                     }`}
                   >
                     {c.status === "pass" ? "pass" : c.severity}
                   </span>
-                  <span className="flex-1">
-                    <span className="font-mono text-xs text-slate-500">{c.check_code}</span>
-                    <span className="block text-slate-800">{c.detail}</span>
+                  <span className="min-w-0 flex-1 break-words">
+                    <span className="font-mono text-2xs text-paper-3">{c.check_code}</span>
+                    <span className="mt-0.5 block leading-5 text-paper-2">{c.detail}</span>
                     {c.expected_value !== null && c.actual_value !== null && (
-                      <span className="block text-xs text-slate-500">
+                      <span className="mt-0.5 block font-mono text-2xs text-paper-3">
                         expected {c.expected_value} · actual {c.actual_value}
                       </span>
                     )}
@@ -281,47 +285,50 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded border border-slate-200">
-              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
-                <h3 className="text-sm font-semibold text-slate-800">Approved Execution Markdown</h3>
+            <section className="min-w-0 overflow-hidden rounded-[10px] border border-line bg-ink-200">
+              <div className="border-b border-line bg-ink-100 px-4 py-3">
+                <h3 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Approved Execution Markdown</h3>
               </div>
-              <div className="flex flex-wrap gap-1 border-b border-slate-100 px-3 py-2">
+              <div className="flex flex-wrap gap-1 border-b border-line px-4 py-2.5">
                 {files.map((f) => (
                   <button
                     key={f.id}
                     type="button"
                     onClick={() => setOpenFileId(f.id)}
-                    className={`rounded px-2 py-1 text-xs ${
-                      f.id === openFileId ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"
+                    className={`rounded-md border px-2 py-1 font-mono text-2xs transition-colors ${
+                      f.id === openFileId
+                        ? "border-teal/30 bg-teal/10 text-teal"
+                        : "border-line bg-ink text-paper-3 hover:text-paper"
                     }`}
                   >
                     E{String(f.file_number).padStart(2, "0")}
                   </button>
                 ))}
               </div>
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap px-3 py-2 text-xs text-slate-800">
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-ink px-4 py-3 font-mono text-xs leading-6 text-paper-2">
                 {openFile?.content_md ?? "Select a file."}
               </pre>
             </section>
 
-            <section className="rounded border border-slate-200">
-              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
-                <h3 className="text-sm font-semibold text-slate-800">Structured values</h3>
+            <section className="min-w-0 overflow-hidden rounded-[10px] border border-line bg-ink-200">
+              <div className="border-b border-line bg-ink-100 px-4 py-3">
+                <h3 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Structured values</h3>
               </div>
-              <div className="space-y-3 px-3 py-2 text-sm">
+              <div className="space-y-4 px-4 py-3 text-xs text-paper-2">
                 <div>
-                  <span className="text-xs uppercase tracking-wide text-slate-500">Content pillars</span>
-                  <p className="text-slate-800">
+                  <span className="text-2xs uppercase tracking-wide text-paper-3">Content pillars</span>
+                  <p className="mt-1 text-paper-2">
                     {structured?.content_pillars?.join(" · ") ?? "none declared"}
                   </p>
                 </div>
-                <table className="w-full text-left text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[360px] text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                      <th className="py-1">Format</th>
-                      <th className="py-1">Channel</th>
-                      <th className="py-1 text-right">Qty</th>
-                      <th className="py-1 text-right">Slots</th>
+                    <tr className="border-b border-line text-2xs uppercase tracking-wide text-paper-3">
+                      <th className="py-2">Format</th>
+                      <th className="py-2">Channel</th>
+                      <th className="py-2 text-right">Qty</th>
+                      <th className="py-2 text-right">Slots</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -331,19 +338,20 @@ export function ExecutionConfigPanel({ clientId, executionMonth }: Props) {
                       );
                       const slotCount = row ? slots.filter((s) => s.content_requirement_id === row.id).length : 0;
                       return (
-                        <tr key={`${r.platform}/${r.channel}/${r.asset_format}`} className="border-b border-slate-100">
-                          <td className="py-1">{r.asset_format}</td>
-                          <td className="py-1">{r.channel}</td>
-                          <td className="py-1 text-right">{r.quantity}</td>
-                          <td className="py-1 text-right">
-                            {row ? slotCount : <span className="text-slate-400">—</span>}
+                        <tr key={`${r.platform}/${r.channel}/${r.asset_format}`} className="border-b border-line last:border-b-0">
+                          <td className="py-2 text-paper">{r.asset_format}</td>
+                          <td className="py-2 text-paper-2">{r.channel}</td>
+                          <td className="py-2 text-right font-mono text-paper">{r.quantity}</td>
+                          <td className="py-2 text-right font-mono text-paper">
+                            {row ? slotCount : <span className="text-paper-3">—</span>}
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-                <p className="text-xs text-slate-500">
+                </div>
+                <p className="text-2xs leading-5 text-paper-3">
                   {requirements.length === 0
                     ? "Requirements and slots are derived on approval. Nothing is operational yet."
                     : `${requirements.length} requirements · ${slots.length} slots · ${
