@@ -1,6 +1,10 @@
 import { invokeFn, supabase } from "@/lib/supabase";
 import type {
   FinalizeMarketOSResponse,
+  FinalizeAvatarOSResponse,
+  FinalizeCompetitorOSResponse,
+  FinalizeAssociationOSResponse,
+  FinalizeBrandStrategistResponse,
   IntelligenceDomain,
   IntelligenceEvidence,
   IntelligenceFinding,
@@ -14,7 +18,15 @@ import type {
   IntelligenceSource,
   IntelligenceWorkspace,
   PrepareMarketOSResponse,
+  PrepareAvatarOSResponse,
+  PrepareCompetitorOSResponse,
+  PrepareAssociationOSResponse,
+  PrepareBrandStrategistResponse,
   RunMarketOSStepResponse,
+  RunAvatarOSStepResponse,
+  RunCompetitorOSStepResponse,
+  RunAssociationOSStepResponse,
+  RunBrandStrategistStepResponse,
 } from "@/types/intelligence";
 
 function freshnessFor(
@@ -184,6 +196,170 @@ export async function driveMarketOSBuild(
     if (result.terminal) return finalizeMarketOS(clientId, prepared.research_run_id);
   }
   throw new Error("Market OS workflow exceeded its step guard.");
+}
+
+export async function prepareAvatarOS(clientId: string): Promise<PrepareAvatarOSResponse> {
+  return invokeFn<PrepareAvatarOSResponse>("run-avatar-os", { action: "prepare", client_id: clientId });
+}
+
+export async function runAvatarOSStep(
+  clientId: string,
+  researchRunId: string,
+): Promise<RunAvatarOSStepResponse> {
+  return invokeFn<RunAvatarOSStepResponse>("run-avatar-os", {
+    action: "step",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function finalizeAvatarOS(
+  clientId: string,
+  researchRunId: string,
+): Promise<FinalizeAvatarOSResponse> {
+  return invokeFn<FinalizeAvatarOSResponse>("run-avatar-os", {
+    action: "finalize",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function driveAvatarOSBuild(
+  clientId: string,
+  onProgress?: (progress: RunAvatarOSStepResponse["progress"]) => void,
+): Promise<FinalizeAvatarOSResponse> {
+  const prepared = await prepareAvatarOS(clientId);
+  if (!prepared.ok || !prepared.research_run_id) throw new Error(prepared.message);
+  for (let guard = 0; guard < 30; guard += 1) {
+    const result = await runAvatarOSStep(clientId, prepared.research_run_id);
+    onProgress?.(result.progress);
+    if (!result.ok && result.terminal) throw new Error(result.message);
+    if (result.terminal) return finalizeAvatarOS(clientId, prepared.research_run_id);
+  }
+  throw new Error("Avatar OS workflow exceeded its step guard.");
+}
+
+export async function prepareCompetitorOS(clientId: string): Promise<PrepareCompetitorOSResponse> {
+  return invokeFn<PrepareCompetitorOSResponse>("run-competitor-os", { action: "prepare", client_id: clientId });
+}
+
+export async function runCompetitorOSStep(
+  clientId: string,
+  researchRunId: string,
+): Promise<RunCompetitorOSStepResponse> {
+  return invokeFn<RunCompetitorOSStepResponse>("run-competitor-os", {
+    action: "step",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function finalizeCompetitorOS(
+  clientId: string,
+  researchRunId: string,
+): Promise<FinalizeCompetitorOSResponse> {
+  return invokeFn<FinalizeCompetitorOSResponse>("run-competitor-os", {
+    action: "finalize",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function driveCompetitorOSBuild(
+  clientId: string,
+  onProgress?: (progress: RunCompetitorOSStepResponse["progress"]) => void,
+): Promise<FinalizeCompetitorOSResponse> {
+  const prepared = await prepareCompetitorOS(clientId);
+  if (!prepared.ok || !prepared.research_run_id) throw new Error(prepared.message);
+  for (let guard = 0; guard < 30; guard += 1) {
+    const result = await runCompetitorOSStep(clientId, prepared.research_run_id);
+    onProgress?.(result.progress);
+    if (!result.ok && result.terminal) throw new Error(result.message);
+    if (result.terminal) return finalizeCompetitorOS(clientId, prepared.research_run_id);
+  }
+  throw new Error("Competitor OS workflow exceeded its step guard.");
+}
+
+export async function prepareAssociationOS(clientId: string): Promise<PrepareAssociationOSResponse> {
+  return invokeFn<PrepareAssociationOSResponse>("run-association-os", { action: "prepare", client_id: clientId });
+}
+
+export async function runAssociationOSStep(
+  clientId: string,
+  researchRunId: string,
+): Promise<RunAssociationOSStepResponse> {
+  return invokeFn<RunAssociationOSStepResponse>("run-association-os", {
+    action: "step",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function finalizeAssociationOS(
+  clientId: string,
+  researchRunId: string,
+): Promise<FinalizeAssociationOSResponse> {
+  return invokeFn<FinalizeAssociationOSResponse>("run-association-os", {
+    action: "finalize",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function driveAssociationOSBuild(
+  clientId: string,
+  onProgress?: (progress: RunAssociationOSStepResponse["progress"]) => void,
+): Promise<FinalizeAssociationOSResponse> {
+  const prepared = await prepareAssociationOS(clientId);
+  if (!prepared.ok || !prepared.research_run_id) throw new Error(prepared.message);
+  for (let guard = 0; guard < 30; guard += 1) {
+    const result = await runAssociationOSStep(clientId, prepared.research_run_id);
+    onProgress?.(result.progress);
+    if (!result.ok && result.terminal) throw new Error(result.message);
+    if (result.terminal) return finalizeAssociationOS(clientId, prepared.research_run_id);
+  }
+  throw new Error("Association OS workflow exceeded its step guard.");
+}
+
+export async function prepareBrandStrategist(clientId: string): Promise<PrepareBrandStrategistResponse> {
+  return invokeFn<PrepareBrandStrategistResponse>("run-brand-strategist", { action: "prepare", client_id: clientId });
+}
+
+export async function runBrandStrategistStep(
+  clientId: string,
+  researchRunId: string,
+): Promise<RunBrandStrategistStepResponse> {
+  return invokeFn<RunBrandStrategistStepResponse>("run-brand-strategist", {
+    action: "step",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function finalizeBrandStrategist(
+  clientId: string,
+  researchRunId: string,
+): Promise<FinalizeBrandStrategistResponse> {
+  return invokeFn<FinalizeBrandStrategistResponse>("run-brand-strategist", {
+    action: "finalize",
+    client_id: clientId,
+    research_run_id: researchRunId,
+  });
+}
+
+export async function driveBrandStrategistBuild(
+  clientId: string,
+  onProgress?: (progress: RunBrandStrategistStepResponse["progress"]) => void,
+): Promise<FinalizeBrandStrategistResponse> {
+  const prepared = await prepareBrandStrategist(clientId);
+  if (!prepared.ok || !prepared.research_run_id) throw new Error(prepared.message);
+  for (let guard = 0; guard < 20; guard += 1) {
+    const result = await runBrandStrategistStep(clientId, prepared.research_run_id);
+    onProgress?.(result.progress);
+    if (!result.ok && result.terminal) throw new Error(result.message);
+    if (result.terminal) return finalizeBrandStrategist(clientId, prepared.research_run_id);
+  }
+  throw new Error("Brand Strategist workflow exceeded its step guard.");
 }
 
 export async function reviewIntelligenceRelease(

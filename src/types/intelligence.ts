@@ -210,3 +210,16 @@ export interface FinalizeMarketOSResponse {
   release: IntelligenceRelease;
   run: IntelligenceResearchRun;
 }
+
+export type PrepareAvatarOSResponse = PrepareMarketOSResponse;
+export type RunAvatarOSStepResponse = RunMarketOSStepResponse;
+export type FinalizeAvatarOSResponse = FinalizeMarketOSResponse;
+export type PrepareCompetitorOSResponse = PrepareMarketOSResponse;
+export type RunCompetitorOSStepResponse = RunMarketOSStepResponse;
+export type FinalizeCompetitorOSResponse = FinalizeMarketOSResponse;
+export type PrepareAssociationOSResponse = PrepareMarketOSResponse;
+export type RunAssociationOSStepResponse = RunMarketOSStepResponse;
+export type FinalizeAssociationOSResponse = FinalizeMarketOSResponse;
+export type PrepareBrandStrategistResponse = PrepareMarketOSResponse;
+export type RunBrandStrategistStepResponse = RunMarketOSStepResponse;
+export type FinalizeBrandStrategistResponse = FinalizeMarketOSResponse;

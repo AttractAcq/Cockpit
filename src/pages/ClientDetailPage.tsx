@@ -34,6 +34,10 @@ import { AdStudioPanel } from "@/components/client/AdStudioPanel";
 import { AutomationPanel } from "@/components/client/AutomationPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
 import { MarketOSPanel } from "@/components/client/MarketOSPanel";
+import { AvatarOSPanel } from "@/components/client/AvatarOSPanel";
+import { CompetitorOSPanel } from "@/components/client/CompetitorOSPanel";
+import { AssociationOSPanel } from "@/components/client/AssociationOSPanel";
+import { BrandStrategistPanel } from "@/components/client/BrandStrategistPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
@@ -179,39 +183,6 @@ const DELIVERY_PAGES: DeliveryPage[] = [
 ];
 
 const VALID_SECTIONS = new Set(DELIVERY_PAGES.flatMap((page) => page.tabs.map((tab) => tab.section)));
-
-const INTELLIGENCE_PLACEHOLDERS: Partial<Record<Section, { title: string; body: string }>> = {
-  avatar: {
-    title: "Avatar OS",
-    body: "Not started. Avatar OS will use approved Context and Market OS to model buyer roles and decision behaviour.",
-  },
-  competitor_os: {
-    title: "Competitor OS",
-    body: "Not started. Competitor OS will map direct, indirect, substitute, in-house, and do-nothing alternatives.",
-  },
-  association_os: {
-    title: "Association OS",
-    body: "Not started. Association OS will map the positive and negative associations that shape buyer trust.",
-  },
-  brand_strategist: {
-    title: "Brand Strategist",
-    body: "Not started. Brand Strategist will activate after all required intelligence operating systems are approved.",
-  },
-};
-
-function IntelligencePlaceholder({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center">
-        <div className="mx-auto mb-3 w-fit rounded-full border border-line px-2 py-1 font-mono text-[9.5px] uppercase tracking-cap text-paper-3">
-          Not started
-        </div>
-        <h2 className="text-sm font-medium text-paper">{title}</h2>
-        <p className="mt-2 text-xs leading-5 text-paper-3">{body}</p>
-      </div>
-    </div>
-  );
-}
 
 function currentMonth(): string {
   const d = new Date();
@@ -752,19 +723,20 @@ export function ClientDetailPage() {
     switch (activeSection) {
       case "context_inputs":
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
-      case "avatar":
-      case "competitor_os":
-      case "association_os":
-      case "brand_strategist": {
-        const placeholder = INTELLIGENCE_PLACEHOLDERS[activeSection];
-        return placeholder ? <IntelligencePlaceholder {...placeholder} /> : null;
-      }
       case "offer":
       case "lead_magnets":
       case "landing_pages":
         return <div className="flex-1" />;
       case "market_os":
         return <MarketOSPanel clientId={id} />;
+      case "avatar":
+        return <AvatarOSPanel clientId={id} />;
+      case "competitor_os":
+        return <CompetitorOSPanel clientId={id} />;
+      case "association_os":
+        return <AssociationOSPanel clientId={id} />;
+      case "brand_strategist":
+        return <BrandStrategistPanel clientId={id} />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":
