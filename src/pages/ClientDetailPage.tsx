@@ -728,15 +728,15 @@ export function ClientDetailPage() {
       case "landing_pages":
         return <div className="flex-1" />;
       case "market_os":
-        return <MarketOSPanel clientId={id} />;
+        return <MarketOSPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "avatar":
-        return <AvatarOSPanel clientId={id} />;
+        return <AvatarOSPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "competitor_os":
-        return <CompetitorOSPanel clientId={id} />;
+        return <CompetitorOSPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "association_os":
-        return <AssociationOSPanel clientId={id} />;
+        return <AssociationOSPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "brand_strategist":
-        return <BrandStrategistPanel clientId={id} />;
+        return <BrandStrategistPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Panel, StatusDot, Tag } from "@/components/primitives";
+import { IntelligenceExportActions } from "@/components/client/IntelligenceExportActions";
 import {
   driveBrandStrategistBuild,
   fetchIntelligenceWorkspace,
@@ -58,7 +59,7 @@ function findingTag(finding: IntelligenceFinding): "approve" | "decision" | "mut
     : "decision";
 }
 
-export function BrandStrategistPanel({ clientId }: { clientId: string }) {
+export function BrandStrategistPanel({ clientId, clientName }: { clientId: string; clientName: string }) {
   const [workspace, setWorkspace] = useState<IntelligenceWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -167,6 +168,7 @@ export function BrandStrategistPanel({ clientId }: { clientId: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <IntelligenceExportActions clientName={clientName} workspace={workspace} />
             {waitingForReview ? (
               <>
                 <Button disabled={working} onClick={() => void review("changes_requested")}>Request changes</Button>
