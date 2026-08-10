@@ -33,11 +33,15 @@ import { ProductionStudioPanel } from "@/components/client/ProductionStudioPanel
 import { AdStudioPanel } from "@/components/client/AdStudioPanel";
 import { AutomationPanel } from "@/components/client/AutomationPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
+import { MarketOSPanel } from "@/components/client/MarketOSPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
 type Section =
   | "avatar"
+  | "competitor_os"
+  | "association_os"
+  | "brand_strategist"
   | "offer"
   | "market_os"
   | "lead_magnets"
@@ -83,9 +87,8 @@ interface DeliveryPage {
 }
 
 // The first row follows the client delivery lifecycle. Stable internal section
-// keys preserve every existing deep link while the second row keeps each page
-// small enough to scan. Market OS and Avatar OS can be added to their page
-// without growing the primary navigation.
+// keys preserve existing deep links while Context holds source authority and
+// Intelligence groups the derived, approved operating systems.
 const DELIVERY_PAGES: DeliveryPage[] = [
   {
     label: "Overview",
@@ -99,7 +102,7 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     ],
   },
   {
-    label: "Data",
+    label: "Context",
     defaultSection: "context_inputs",
     tabs: [
       { label: "Context Inputs", section: "context_inputs" },
@@ -111,14 +114,15 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     ],
   },
   {
-    label: "Market",
+    label: "Intelligence",
     defaultSection: "market_os",
-    tabs: [{ label: "Market OS", section: "market_os" }],
-  },
-  {
-    label: "Avatar",
-    defaultSection: "avatar",
-    tabs: [{ label: "Avatar OS", section: "avatar" }],
+    tabs: [
+      { label: "Market OS", section: "market_os" },
+      { label: "Avatar OS", section: "avatar" },
+      { label: "Competitor OS", section: "competitor_os" },
+      { label: "Association OS", section: "association_os" },
+      { label: "Brand Strategist", section: "brand_strategist" },
+    ],
   },
   {
     label: "Offer",
@@ -175,6 +179,39 @@ const DELIVERY_PAGES: DeliveryPage[] = [
 ];
 
 const VALID_SECTIONS = new Set(DELIVERY_PAGES.flatMap((page) => page.tabs.map((tab) => tab.section)));
+
+const INTELLIGENCE_PLACEHOLDERS: Partial<Record<Section, { title: string; body: string }>> = {
+  avatar: {
+    title: "Avatar OS",
+    body: "Not started. Avatar OS will use approved Context and Market OS to model buyer roles and decision behaviour.",
+  },
+  competitor_os: {
+    title: "Competitor OS",
+    body: "Not started. Competitor OS will map direct, indirect, substitute, in-house, and do-nothing alternatives.",
+  },
+  association_os: {
+    title: "Association OS",
+    body: "Not started. Association OS will map the positive and negative associations that shape buyer trust.",
+  },
+  brand_strategist: {
+    title: "Brand Strategist",
+    body: "Not started. Brand Strategist will activate after all required intelligence operating systems are approved.",
+  },
+};
+
+function IntelligencePlaceholder({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-8">
+      <div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center">
+        <div className="mx-auto mb-3 w-fit rounded-full border border-line px-2 py-1 font-mono text-[9.5px] uppercase tracking-cap text-paper-3">
+          Not started
+        </div>
+        <h2 className="text-sm font-medium text-paper">{title}</h2>
+        <p className="mt-2 text-xs leading-5 text-paper-3">{body}</p>
+      </div>
+    </div>
+  );
+}
 
 function currentMonth(): string {
   const d = new Date();
@@ -716,12 +753,18 @@ export function ClientDetailPage() {
       case "context_inputs":
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
       case "avatar":
-        return <div className="flex flex-1 items-center justify-center p-8"><div className="max-w-md rounded-[10px] border border-dashed border-line bg-ink-200 p-8 text-center"><h2 className="text-sm font-medium text-paper">Avatar OS</h2><p className="mt-2 text-xs leading-5 text-paper-3">The Avatar OS workspace will live here when its build is added.</p></div></div>;
+      case "competitor_os":
+      case "association_os":
+      case "brand_strategist": {
+        const placeholder = INTELLIGENCE_PLACEHOLDERS[activeSection];
+        return placeholder ? <IntelligencePlaceholder {...placeholder} /> : null;
+      }
       case "offer":
-      case "market_os":
       case "lead_magnets":
       case "landing_pages":
         return <div className="flex-1" />;
+      case "market_os":
+        return <MarketOSPanel clientId={id} />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":
