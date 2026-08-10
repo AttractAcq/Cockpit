@@ -12,6 +12,10 @@ const providerPath = new URL("../supabase/functions/_shared/intelligence/avatar-
 const edgePath = new URL("../supabase/functions/run-avatar-os/index.ts", import.meta.url);
 const pagePath = new URL("../src/pages/ClientDetailPage.tsx", import.meta.url);
 const panelPath = new URL("../src/components/client/AvatarOSPanel.tsx", import.meta.url);
+const researchDomainMigrationPath = new URL(
+  "../supabase/migrations/20260812160000_phase_2a_research_domain_compatibility.sql",
+  import.meta.url,
+);
 
 function structuredModule(moduleKey = "buyer_role_system") {
   return {
@@ -85,6 +89,14 @@ test("Avatar orchestration requires approved Market authority and selects condit
   assert.match(edge, /AVATAR_CORE_MODULES\.slice\(0, 1\)/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
+});
+
+test("the preserved research-run table accepts every Phase 2A execution domain", async () => {
+  const migration = await readFile(researchDomainMigrationPath, "utf8");
+  for (const domain of ["market", "avatar", "competitor", "association", "brand_strategist"]) {
+    assert.match(migration, new RegExp(`'${domain}'`));
+  }
+  assert.match(migration, /drop constraint if exists client_research_runs_domain_check/);
 });
 
 test("Avatar provider prohibits fictional detail, sensitive inference, and strategy", async () => {
