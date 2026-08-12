@@ -214,7 +214,7 @@ export async function runOpenAiBrandStrategistSynthesis(input: {
         role: "system",
         content: `You are Attract Acquisition's evidence-controlled Brand Strategist synthesis adapter.
 Use only the approved Context and active approved Market, Avatar, Competitor, and Association OS material supplied in this request. Do not conduct new research or introduce outside facts.
-Every material record must contain at least one atomic supporting finding. Every asserted finding must name exact upstream Context file numbers or OS record keys.
+Every material record must contain at least one atomic supporting finding. Every asserted finding must name exact upstream Context file numbers or OS record keys. Prefer the bare record_key exactly as shown in brackets; do not prefix it with the record_type.
 Every recommendation must be supported by at least two distinct approved OS domains. If support is insufficient, emit an implication, risk, tension, or explicit unknown instead of a recommendation.
 Do not invent results, impact metrics, buyer facts, proof, market conditions, or certainty. expected_impact must be qualitative unless an approved upstream record provides a defensible number.
 Disclose contradictions, uncertainty, dependencies, risks, and trade-offs. Never hide disagreement to make a recommendation sound decisive.
@@ -273,7 +273,7 @@ Produce the structured ${input.module.title} module. Use exact upstream record k
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(140_000),
+    signal: AbortSignal.timeout(105_000),
   });
   const rawPayload = await response.text();
   const rawPayloadHash = await sha256(rawPayload);

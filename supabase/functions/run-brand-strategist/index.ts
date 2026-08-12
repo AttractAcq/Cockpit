@@ -168,6 +168,31 @@ function strategyIdentity(record: { record_kind: string; recommendation_type: st
   return `${subject}|${kind}|${key}`;
 }
 
+function recordLookup<T extends { record_type: string; record_key: string }>(records: T[]): Map<string, T> {
+  const lookup = new Map<string, T>();
+  for (const record of records) {
+    lookup.set(record.record_key, record);
+    lookup.set(`${record.record_type}/${record.record_key}`, record);
+  }
+  return lookup;
+}
+
+function unsupportedRecordKeys<T>(keys: string[], lookup: Map<string, T>): string[] {
+  return keys.filter((key) => !lookup.has(key));
+}
+
+function resolveRecordKeys<T>(keys: string[], lookup: Map<string, T>): T[] {
+  const records: T[] = [];
+  const seen = new Set<T>();
+  for (const key of keys) {
+    const record = lookup.get(key);
+    if (!record || seen.has(record)) continue;
+    records.push(record);
+    seen.add(record);
+  }
+  return records;
+}
+
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -646,6 +671,10 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     const { data: steps, error: stepsError } = await sb.from("client_research_steps")
       .select("*").eq("research_run_id", run.id).order("step_order");
     if (stepsError) return json({ ok: false, mode: "blocked", message: stepsError.message }, 500);
+    const hasExhaustedFailure = (steps ?? []).some((step) =>
+      step.status === "failed" && step.attempt_count >= step.maximum_attempts
+    );
+    if (hasExhaustedFailure) continue;
     const canResume = (steps ?? []).some((step) =>
       step.status === "queued" || step.status === "running" || step.status === "waiting_provider" ||
       (step.status === "failed" && step.attempt_count < step.maximum_attempts)
@@ -779,10 +808,10 @@ async function persistModule(input: {
   const { sb, clientId, runId, releaseId, step, authority, result } = input;
   await cleanupStepArtifacts(sb, clientId, releaseId, step.id, step.step_key);
   const contextByNumber = new Map(authority.files.map((file) => [file.file_number, file]));
-  const marketByKey = new Map(authority.marketRecords.map((record) => [record.record_key, record]));
-  const avatarByKey = new Map(authority.avatarRecords.map((record) => [record.record_key, record]));
-  const competitorByKey = new Map(authority.competitorRecords.map((record) => [record.record_key, record]));
-  const associationByKey = new Map(authority.associationRecords.map((record) => [record.record_key, record]));
+  const marketByKey = recordLookup(authority.marketRecords);
+  const avatarByKey = recordLookup(authority.avatarRecords);
+  const competitorByKey = recordLookup(authority.competitorRecords);
+  const associationByKey = recordLookup(authority.associationRecords);
   const previousByIdentity = new Map(authority.previousBrandStrategistRecords.flatMap((record) => {
     const identity = typeof record.payload?.strategy_identity === "string" ? record.payload.strategy_identity : null;
     return identity ? [[identity, record] as const] : [];
@@ -803,8 +832,8 @@ async function persistModule(input: {
     if (step.step_key !== "cross_os_synthesis" && record.record_kind !== "recommendation") {
       throw new Error("Brand Strategist returned an invalid identity: recommendation modules may emit recommendation records only.");
     }
-    const unsupportedBuyerRoles = record.buyer_role_keys.filter((key) => !avatarByKey.has(key));
-    const unsupportedMarketConditions = record.market_condition_keys.filter((key) => !marketByKey.has(key));
+    const unsupportedBuyerRoles = unsupportedRecordKeys(record.buyer_role_keys, avatarByKey);
+    const unsupportedMarketConditions = unsupportedRecordKeys(record.market_condition_keys, marketByKey);
     if (unsupportedBuyerRoles.length > 0 || unsupportedMarketConditions.length > 0) {
       throw new Error(`Brand Strategist returned unsupported traceability keys: ${[...unsupportedBuyerRoles, ...unsupportedMarketConditions].join(", ")}`);
     }
@@ -816,18 +845,10 @@ async function persistModule(input: {
       const matchedContext = providerFinding.context_file_numbers
         .map((fileNumber) => contextByNumber.get(fileNumber))
         .filter((file): file is ContextFileRow => Boolean(file));
-      const matchedMarketRecords = providerFinding.market_record_keys
-        .map((recordKey) => marketByKey.get(recordKey))
-        .filter((record): record is BrandStrategistAuthority["marketRecords"][number] => Boolean(record));
-      const matchedAvatarRecords = providerFinding.avatar_record_keys
-        .map((recordKey) => avatarByKey.get(recordKey))
-        .filter((record): record is BrandStrategistAuthority["avatarRecords"][number] => Boolean(record));
-      const matchedCompetitorRecords = providerFinding.competitor_record_keys
-        .map((recordKey) => competitorByKey.get(recordKey))
-        .filter((record): record is BrandStrategistAuthority["competitorRecords"][number] => Boolean(record));
-      const matchedAssociationRecords = providerFinding.association_record_keys
-        .map((recordKey) => associationByKey.get(recordKey))
-        .filter((record): record is BrandStrategistAuthority["associationRecords"][number] => Boolean(record));
+      const matchedMarketRecords = resolveRecordKeys(providerFinding.market_record_keys, marketByKey);
+      const matchedAvatarRecords = resolveRecordKeys(providerFinding.avatar_record_keys, avatarByKey);
+      const matchedCompetitorRecords = resolveRecordKeys(providerFinding.competitor_record_keys, competitorByKey);
+      const matchedAssociationRecords = resolveRecordKeys(providerFinding.association_record_keys, associationByKey);
       if (matchedMarketRecords.length > 0) supportedOsDomains.add("market_os");
       if (matchedAvatarRecords.length > 0) supportedOsDomains.add("avatar_os");
       if (matchedCompetitorRecords.length > 0) supportedOsDomains.add("competitor_os");

@@ -76,10 +76,12 @@ test("Brand Strategist provider is synthesis-only and treats recommendations as 
   const provider = await readFile(providerPath, "utf8");
   assert.match(provider, /Do not conduct new research or introduce outside facts/i);
   assert.match(provider, /Every recommendation must be supported by at least two distinct approved OS domains/i);
+  assert.match(provider, /Prefer the bare record_key exactly as shown in brackets/i);
   assert.match(provider, /Do not invent results, impact metrics, buyer facts, proof, market conditions, or certainty/i);
   assert.match(provider, /Recommendations are proposals for human approval/i);
   assert.match(provider, /not approved experiments, completed work, instructions to mutate an upstream OS/i);
   assert.match(provider, /expected_impact must be qualitative unless an approved upstream record provides a defensible number/i);
+  assert.match(provider, /AbortSignal\.timeout\(105_000\)/);
   assert.doesNotMatch(provider, /tools:\s*\[/);
   assert.doesNotMatch(provider, /web_search_preview/);
 });
@@ -97,6 +99,7 @@ test("Brand Strategist requires complete, current authority and snapshots readin
   assert.match(edge, /\.in\("intelligence_domain", \["market_os", "avatar_os", "competitor_os", "association_os"\]\)/);
   assert.match(edge, /readinessWarnings/);
   assert.match(edge, /status: readinessWarnings\.length > 0 \? "degraded" : "ready"/);
+  assert.match(edge, /hasExhaustedFailure/);
   assert.match(edge, /association_os: \{/);
   assert.match(edge, /expectedAssociationAuthority\.release_id/);
   assert.match(edge, /previous_brand_strategist:/);
@@ -108,6 +111,8 @@ test("Brand Strategist enforces evidence-bound recommendations and human review"
   assert.match(edge, /supportedOsDomains\.size < 2/);
   assert.match(edge, /every recommendation requires support from at least two approved OS domains/i);
   assert.match(edge, /finding_ids: Array\.isArray\(record\.payload\?\.finding_ids\)/);
+  assert.match(edge, /lookup\.set\(`\$\{record\.record_type\}\/\$\{record\.record_key\}`/);
+  assert.match(edge, /resolveRecordKeys\(providerFinding\.market_record_keys, marketByKey\)/);
   assert.match(edge, /upstream_domain: "market_os"/);
   assert.match(edge, /upstream_domain: "avatar_os"/);
   assert.match(edge, /upstream_domain: "competitor_os"/);
