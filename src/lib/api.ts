@@ -49,6 +49,7 @@ import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMo
 import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, ReelContinuityPlan, ReelStoryStrategy, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
   IdeationCandidate,
+  IdeationAuthorityInput,
   IdeationOverview,
   IdeationResearchResult,
   IdeationRun,
@@ -1090,7 +1091,7 @@ export async function fetchIdeationOverview(clientId: string, signal?: AbortSign
   const { data: runsData, error: runsError } = await runsQuery;
   if (runsError) throw runsError;
   const runs = (runsData ?? []) as IdeationRun[];
-  if (!runs.length) return { runs: [], technique_runs: [], research_results: [], candidates: [] };
+  if (!runs.length) return { runs: [], technique_runs: [], research_results: [], candidates: [], authority_inputs: [] };
 
   const cycleIds = runs.map((run) => run.id);
   const techniqueRunsQuery = supabase
@@ -1100,12 +1101,18 @@ export async function fetchIdeationOverview(clientId: string, signal?: AbortSign
     .order("technique_order");
   const researchQuery = supabase.from("client_ideation_research_results").select("*").in("ideation_cycle_id", cycleIds).order("created_at");
   const candidatesQuery = supabase.from("client_ideation_candidates").select("*").in("ideation_cycle_id", cycleIds).order("created_at");
-  const [techniqueRunsResult, researchResult, candidatesResult] = await Promise.all([
+  const authorityInputsQuery = supabase
+    .from("client_ideation_authority_inputs")
+    .select("*")
+    .in("ideation_cycle_id", cycleIds)
+    .order("display_order");
+  const [techniqueRunsResult, researchResult, candidatesResult, authorityInputsResult] = await Promise.all([
     signal ? techniqueRunsQuery.abortSignal(signal) : techniqueRunsQuery,
     signal ? researchQuery.abortSignal(signal) : researchQuery,
     signal ? candidatesQuery.abortSignal(signal) : candidatesQuery,
+    signal ? authorityInputsQuery.abortSignal(signal) : authorityInputsQuery,
   ]);
-  const error = techniqueRunsResult.error ?? researchResult.error ?? candidatesResult.error;
+  const error = techniqueRunsResult.error ?? researchResult.error ?? candidatesResult.error ?? authorityInputsResult.error;
   if (error) throw error;
 
   const techniqueRuns = (techniqueRunsResult.data ?? []) as IdeationTechniqueRun[];
@@ -1134,6 +1141,7 @@ export async function fetchIdeationOverview(clientId: string, signal?: AbortSign
     technique_runs: techniqueRuns,
     research_results: researchResults,
     candidates,
+    authority_inputs: (authorityInputsResult.data ?? []) as IdeationAuthorityInput[],
   };
 }
 
@@ -1147,6 +1155,7 @@ export async function runIdeation(input: RunIdeationInput): Promise<RunIdeationR
     end_date: input.end_date,
     month: input.month,
     idempotency_key: input.idempotency_key,
+    strategic_input_sources: input.strategic_input_sources,
   });
 }
 

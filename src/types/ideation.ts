@@ -2,6 +2,7 @@ export type IdeationPeriodType = "one_day" | "one_week" | "date_range" | "one_mo
 export type IdeationAssetType = "reel" | "carousel" | "static" | "story";
 export type IdeationCandidateStatus = "draft" | "needs_review";
 export type IdeationEvidenceType = "exact_quote" | "paraphrase" | "derived_claim";
+export type IdeationStrategicSourceKind = "campaign_intelligence" | "main_offer" | "seasonal_offer";
 
 export interface IdeationTechnique {
   slug: string;
@@ -90,6 +91,9 @@ export interface IdeationResearchResult {
     | "approved_execution"
     | "approved_intelligence"
     | "approved_authority_bundle"
+    | "approved_campaign_intelligence"
+    | "approved_main_offer"
+    | "approved_seasonal_offer"
     | "external_research";
   source_url: string;
   source_title: string;
@@ -106,6 +110,23 @@ export interface IdeationResearchResult {
   analyzed_at: string | null;
   analysis_findings: Record<string, unknown>;
   analysis_source_references: unknown[];
+  created_at: string;
+}
+
+export interface IdeationAuthorityInput {
+  id: string;
+  client_id: string;
+  ideation_cycle_id: string;
+  source_kind: IdeationStrategicSourceKind;
+  source_release_id: string;
+  campaign_period_id: string | null;
+  main_offer_id: string | null;
+  seasonal_offer_id: string | null;
+  title: string;
+  summary: string;
+  source_url: string;
+  payload: Record<string, unknown>;
+  display_order: number;
   created_at: string;
 }
 
@@ -151,6 +172,7 @@ export interface IdeationOverview {
   technique_runs: IdeationTechniqueRun[];
   research_results: IdeationResearchResult[];
   candidates: IdeationCandidate[];
+  authority_inputs: IdeationAuthorityInput[];
 }
 
 export interface RunIdeationInput {
@@ -160,6 +182,7 @@ export interface RunIdeationInput {
   end_date?: string;
   month?: string;
   idempotency_key: string;
+  strategic_input_sources?: IdeationStrategicSourceKind[];
 }
 
 export interface RunIdeationResponse {

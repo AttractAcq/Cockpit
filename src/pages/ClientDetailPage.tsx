@@ -38,6 +38,8 @@ import { AvatarOSPanel } from "@/components/client/AvatarOSPanel";
 import { CompetitorOSPanel } from "@/components/client/CompetitorOSPanel";
 import { AssociationOSPanel } from "@/components/client/AssociationOSPanel";
 import { BrandStrategistPanel } from "@/components/client/BrandStrategistPanel";
+import { CampaignIntelligencePanel } from "@/components/client/CampaignIntelligencePanel";
+import { OffersPanel } from "@/components/client/OffersPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
@@ -46,7 +48,10 @@ type Section =
   | "competitor_os"
   | "association_os"
   | "brand_strategist"
+  | "campaign_intelligence"
   | "offer"
+  | "main_offers"
+  | "seasonal_offers"
   | "market_os"
   | "lead_magnets"
   | "landing_pages"
@@ -126,12 +131,17 @@ const DELIVERY_PAGES: DeliveryPage[] = [
       { label: "Competitor OS", section: "competitor_os" },
       { label: "Association OS", section: "association_os" },
       { label: "Brand Strategist", section: "brand_strategist" },
+      { label: "Campaign Intelligence", section: "campaign_intelligence" },
     ],
   },
   {
     label: "Offer",
-    defaultSection: "offer",
-    tabs: [{ label: "Offer", section: "offer" }],
+    defaultSection: "main_offers",
+    tabs: [
+      { label: "Main Offers", section: "main_offers" },
+      { label: "Seasonal Offers", section: "seasonal_offers" },
+      { label: "Offer", section: "offer", hidden: true },
+    ],
   },
   {
     label: "Ideation",
@@ -724,6 +734,10 @@ export function ClientDetailPage() {
       case "context_inputs":
         return <ContextInputsPanel key={contextInputsKey} clientId={id} onInputsLoaded={handleInputsLoaded} />;
       case "offer":
+      case "main_offers":
+        return <OffersPanel clientId={id} offerType="main" />;
+      case "seasonal_offers":
+        return <OffersPanel clientId={id} offerType="seasonal" />;
       case "lead_magnets":
       case "landing_pages":
         return <div className="flex-1" />;
@@ -737,6 +751,8 @@ export function ClientDetailPage() {
         return <AssociationOSPanel clientId={id} clientName={client?.name ?? "Client"} />;
       case "brand_strategist":
         return <BrandStrategistPanel clientId={id} clientName={client?.name ?? "Client"} />;
+      case "campaign_intelligence":
+        return <CampaignIntelligencePanel clientId={id} />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":

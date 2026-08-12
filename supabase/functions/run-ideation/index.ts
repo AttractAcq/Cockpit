@@ -23,6 +23,7 @@ import {
   deriveIdeationQuantityPlan,
   resolveIdeationPeriod,
 } from "../_shared/ideation/period.ts";
+import { loadIdeationStrategicInputs } from "../_shared/ideation/strategic-inputs.ts";
 import { runAllTechniqueModules } from "../_shared/ideation/techniques/index.ts";
 import {
   createRunIdeationHandler,
@@ -65,6 +66,19 @@ function createProductionPersistence(): IdeationPersistence {
     completeRun: (args) => sb.rpc("complete_ideation_run", args),
     failRun: (args) => sb.rpc("fail_ideation_run", args),
     recordIntelligenceConsumption: (args) => sb.rpc("record_intelligence_consumption", args),
+    recordAuthorityInputs: async (args) => {
+      const rows = ((args.p_inputs as Array<Record<string, unknown>> | undefined) ?? []).map((row) => ({
+        ...row,
+        client_id: args.p_client_id,
+        ideation_cycle_id: args.p_cycle_id,
+      }));
+      if (rows.length === 0) return { data: { inserted: 0 }, error: null };
+      const { error } = await sb.from("client_ideation_authority_inputs").upsert(rows, {
+        onConflict: "ideation_cycle_id,source_url",
+        ignoreDuplicates: true,
+      });
+      return error ? { data: null, error } : { data: { inserted: rows.length }, error: null };
+    },
     fetchRunBundle,
   };
 }
@@ -94,6 +108,8 @@ export const handleRunIdeationRequest = createRunIdeationHandler({
     runAllTechniqueModules(result.authority as unknown as ApprovedClientAuthority),
   buildExecutionEvidenceSources: (result) =>
     buildExecutionEvidenceSources(result.authority as unknown as ApprovedClientAuthority),
+  buildStrategicInputEvidenceSources: (persistence, clientId, sourceKinds) =>
+    loadIdeationStrategicInputs(persistence.context as ReturnType<typeof svc>, clientId, { sourceKinds }),
   generateTechniqueCandidates,
   now: () => new Date(),
   randomUUID: () => crypto.randomUUID(),

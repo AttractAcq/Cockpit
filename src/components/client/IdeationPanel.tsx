@@ -43,11 +43,13 @@ import {
   type IdeationRequestCoordinator,
 } from "@/lib/ideation-request-coordinator";
 import type {
+  IdeationAuthorityInput,
   IdeationAssetType,
   IdeationCandidate,
   IdeationOverview,
   IdeationPeriodType,
   IdeationRun,
+  IdeationStrategicSourceKind,
   RunIdeationResponse,
 } from "@/types/ideation";
 import type {
@@ -73,6 +75,21 @@ const GROUPS: Array<{ assetType: IdeationAssetType; label: string }> = [
   { assetType: "static", label: "Statics" },
   { assetType: "story", label: "Stories" },
 ];
+const STRATEGIC_SOURCE_OPTIONS: Array<{
+  value: IdeationStrategicSourceKind;
+  label: string;
+  description: string;
+}> = [
+  { value: "campaign_intelligence", label: "Campaign Intelligence", description: "Use approved timing, customer context, and strategic themes." },
+  { value: "main_offer", label: "Main Offers", description: "Use approved commercial architecture and offer value equation." },
+  { value: "seasonal_offer", label: "Seasonal Offers", description: "Use approved campaign-specific offer packaging." },
+];
+
+const STRATEGIC_SOURCE_LABEL: Record<IdeationStrategicSourceKind, string> = {
+  campaign_intelligence: "Campaign",
+  main_offer: "Main Offer",
+  seasonal_offer: "Seasonal Offer",
+};
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -118,6 +135,28 @@ function _sourceDomain(candidate: IdeationCandidate): string {
   if (url.startsWith("aa-authority://")) return "Approved authority";
   try { return new URL(url).hostname.replace(/^www\./, ""); }
   catch { return "Source unavailable"; }
+}
+
+function strategicKindsForCandidate(candidate: IdeationCandidate): IdeationStrategicSourceKind[] {
+  const kinds = new Set<IdeationStrategicSourceKind>();
+  for (const reference of candidate.evidence_references) {
+    if (reference.source_url.includes("/campaign-intelligence/")) kinds.add("campaign_intelligence");
+    if (reference.source_url.includes("/main-offers/")) kinds.add("main_offer");
+    if (reference.source_url.includes("/seasonal-offers/")) kinds.add("seasonal_offer");
+  }
+  return [...kinds];
+}
+
+function selectedSourceKinds(run: IdeationRun | null): IdeationStrategicSourceKind[] {
+  const authority = run?.configuration_snapshot?.authority;
+  if (!authority || typeof authority !== "object" || Array.isArray(authority)) return STRATEGIC_SOURCE_OPTIONS.map((source) => source.value);
+  const inputs = (authority as Record<string, unknown>).ideation_hub_inputs;
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) return STRATEGIC_SOURCE_OPTIONS.map((source) => source.value);
+  const selected = (inputs as Record<string, unknown>).selected_source_kinds;
+  if (!Array.isArray(selected)) return STRATEGIC_SOURCE_OPTIONS.map((source) => source.value);
+  return selected.filter((value): value is IdeationStrategicSourceKind =>
+    value === "campaign_intelligence" || value === "main_offer" || value === "seasonal_offer",
+  );
 }
 
 function CandidateDetail({
@@ -214,6 +253,7 @@ function CandidateCard({
   const scoreSummary = score
     ? `, ${bandDescription(score.priority_band, score.overall_score)}${score.rank !== null ? `, rank ${score.rank}` : ""}`
     : "";
+  const strategicKinds = strategicKindsForCandidate(candidate);
   return (
     <button
       type="button"
@@ -241,11 +281,80 @@ function CandidateCard({
         <span>{candidate.technique?.name ?? "Technique"}</span>
         <span>·</span>
         <span>{candidate.asset_type}</span>
+        {strategicKinds.map((kind) => (
+          <Tag key={kind} kind="muted">{STRATEGIC_SOURCE_LABEL[kind]}</Tag>
+        ))}
         <span>·</span>
         <span className="min-w-0 truncate">{scoreIndicator(score)}</span>
         <span className="ml-auto">{new Date(candidate.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
       </div>
     </button>
+  );
+}
+
+function StrategicInputsCard({
+  inputs,
+  selectedKinds,
+}: {
+  inputs: IdeationAuthorityInput[];
+  selectedKinds: IdeationStrategicSourceKind[];
+}) {
+  const counts = inputs.reduce<Record<IdeationAuthorityInput["source_kind"], number>>((acc, input) => {
+    acc[input.source_kind] += 1;
+    return acc;
+  }, { campaign_intelligence: 0, main_offer: 0, seasonal_offer: 0 });
+  const preview = inputs.slice(0, 5);
+  return (
+    <div className="mt-4 rounded border border-line bg-ink p-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Strategic Inputs</h2>
+          <p className="mt-1 text-2xs text-paper-3">
+            Optional Campaign and Offer authority available to this Ideation cycle.
+          </p>
+          <p className="mt-1 font-mono text-2xs text-paper-3">
+            Source policy: {selectedKinds.length
+              ? selectedKinds.map((kind) => STRATEGIC_SOURCE_LABEL[kind]).join(", ")
+              : "No Campaign or Offer authority"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Tag kind={counts.campaign_intelligence ? "decision" : "muted"}>
+            Campaign {counts.campaign_intelligence}
+          </Tag>
+          <Tag kind={counts.main_offer ? "task" : "muted"}>
+            Main Offers {counts.main_offer}
+          </Tag>
+          <Tag kind={counts.seasonal_offer ? "task" : "muted"}>
+            Seasonal {counts.seasonal_offer}
+          </Tag>
+        </div>
+      </div>
+      {preview.length > 0 ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {preview.map((input) => (
+            <div key={input.id} className="rounded border border-line bg-ink-200 px-3 py-2 text-2xs">
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 rounded border border-line bg-ink px-1.5 py-0.5 font-mono text-paper-3">
+                  {input.source_kind.replaceAll("_", " ")}
+                </span>
+                <span className="min-w-0 truncate text-paper">{input.title}</span>
+              </div>
+              {input.summary && <p className="mt-1 line-clamp-2 text-paper-3">{input.summary}</p>}
+            </div>
+          ))}
+          {inputs.length > preview.length && (
+            <div className="rounded border border-dashed border-line px-3 py-2 text-2xs text-paper-3">
+              {inputs.length - preview.length} more approved inputs are included in the run snapshot.
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 rounded border border-dashed border-line px-3 py-3 text-2xs text-paper-3">
+          No approved Campaign Intelligence or Offer inputs were active when this run was created.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -432,6 +541,9 @@ function GenerationModal({
   const [startDate, setStartDate] = useState(todayIso());
   const [endDate, setEndDate] = useState(plusDays(todayIso(), 6));
   const [month, setMonth] = useState(executionMonth);
+  const [strategicSourceKinds, setStrategicSourceKinds] = useState<IdeationStrategicSourceKind[]>(
+    STRATEGIC_SOURCE_OPTIONS.map((source) => source.value),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef<string | null>(null);
@@ -444,6 +556,13 @@ function GenerationModal({
   };
   const updateMaterialField = (setter: (value: string) => void, value: string) => {
     setter(value);
+    setError(null);
+    idempotencyKey.current = null;
+  };
+  const toggleStrategicSource = (source: IdeationStrategicSourceKind) => {
+    setStrategicSourceKinds((current) => current.includes(source)
+      ? current.filter((item) => item !== source)
+      : [...current, source]);
     setError(null);
     idempotencyKey.current = null;
   };
@@ -471,6 +590,7 @@ function GenerationModal({
         end_date: periodType === "date_range" ? endDate : undefined,
         month: periodType === "one_month" ? month : undefined,
         idempotency_key: idempotencyKey.current,
+        strategic_input_sources: strategicSourceKinds,
       });
       if (coordinator.isCurrent(token)) await onGenerated(result, token);
     } catch (value) {
@@ -558,6 +678,28 @@ function GenerationModal({
           <input type="month" className={FIELD_CLASS} value={month} onChange={(event) => updateMaterialField(setMonth, event.target.value)} />
         </label>
       )}
+      <fieldset className="mt-4 space-y-2">
+        <legend className="mb-2 text-2xs font-medium uppercase tracking-wide text-paper-3">Strategic source mix</legend>
+        <div className="grid gap-2">
+          {STRATEGIC_SOURCE_OPTIONS.map((source) => (
+            <label key={source.value} className={`flex cursor-pointer items-start gap-3 rounded border p-3 ${strategicSourceKinds.includes(source.value) ? "border-teal/50 bg-teal/5" : "border-line bg-ink"}`}>
+              <input
+                type="checkbox"
+                checked={strategicSourceKinds.includes(source.value)}
+                onChange={() => toggleStrategicSource(source.value)}
+                className="mt-0.5 accent-teal"
+              />
+              <span>
+                <span className="block text-sm text-paper">{source.label}</span>
+                <span className="mt-0.5 block text-2xs text-paper-3">{source.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-2xs text-paper-3">
+          These inputs are optional context. Proof, manual ideas, and the seven research techniques remain independent Ideation sources.
+        </p>
+      </fieldset>
       {error && <div role="alert" className="mt-4 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
       {busy && <p className="mt-4 text-2xs text-paper-3">The generation request continues safely if this route changes. This modal remains locked until it finishes.</p>}
     </Modal>
@@ -576,7 +718,7 @@ export function IdeationPanel({
   onOpenCalendarDate?: (date: string) => void;
   onOpenContentRef?: (operationalRef: string) => void;
 }) {
-  const [overview, setOverview] = useState<IdeationOverview>({ runs: [], technique_runs: [], research_results: [], candidates: [] });
+  const [overview, setOverview] = useState<IdeationOverview>({ runs: [], technique_runs: [], research_results: [], candidates: [], authority_inputs: [] });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [openCandidate, setOpenCandidate] = useState<IdeationCandidate | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -667,7 +809,7 @@ export function IdeationPanel({
     coordinator.synchronizeClient(clientId);
     requestController.current?.abort();
     requestSequence.current += 1;
-    setOverview({ runs: [], technique_runs: [], research_results: [], candidates: [] });
+    setOverview({ runs: [], technique_runs: [], research_results: [], candidates: [], authority_inputs: [] });
     setScoring({ scoring_runs: [], scores: [] });
     setProposals({ proposals: [], slots: [] });
     setProposalBusy(false);
@@ -706,6 +848,14 @@ export function IdeationPanel({
       .filter((run) => run.ideation_cycle_id === selectedRun.id)
       .sort((left, right) => left.technique_order - right.technique_order)
     : [];
+  const selectedAuthorityInputs = useMemo(
+    () => selectedRun ? overview.authority_inputs.filter((input) => input.ideation_cycle_id === selectedRun.id) : [],
+    [overview.authority_inputs, selectedRun],
+  );
+  const selectedStrategicSourceKinds = useMemo(
+    () => selectedSourceKinds(selectedRun),
+    [selectedRun],
+  );
 
   const selectedScoringRun = useMemo(
     () => activeScoringRun(scoring.scoring_runs, selectedRun?.id ?? null),
@@ -958,6 +1108,7 @@ export function IdeationPanel({
         end_date: selectedRun.period_type === "date_range" ? selectedRun.period_end : undefined,
         month: selectedRun.period_type === "one_month" ? selectedRun.period_start.slice(0, 7) : undefined,
         idempotency_key: selectedRun.idempotency_key,
+        strategic_input_sources: selectedSourceKinds(selectedRun),
       });
       if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
       setGenerationWarnings(result.warnings);
@@ -1079,6 +1230,7 @@ export function IdeationPanel({
                 {selectedRun.error_code ? ` (${selectedRun.error_code})` : ""}
               </p>
             )}
+            <StrategicInputsCard inputs={selectedAuthorityInputs} selectedKinds={selectedStrategicSourceKinds} />
             <div className="mt-4 rounded border border-line bg-ink p-3">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">

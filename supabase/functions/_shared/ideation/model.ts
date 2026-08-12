@@ -137,6 +137,22 @@ APPROVED CLIENT-SPECIFIC STRATEGIC PLAYBOOKS — TRUSTED GOVERNING METHOD
 ACTIVE APPROVED INTELLIGENCE — TRUSTED EVIDENCE-BACKED AUTHORITY
 {{INTELLIGENCE}}
 
+APPROVED CAMPAIGN INTELLIGENCE — OPTIONAL STRATEGIC TIMING CONTEXT
+Use this to understand what matters when and why. It may shape the content mix,
+but it does not require every candidate to promote a campaign.
+{{CAMPAIGN}}
+
+APPROVED MAIN OFFERS — OPTIONAL COMMERCIAL ENGINE CONTEXT
+Use this to understand what the business fundamentally sells. It may inform
+commercially supportive ideas, but it does not make every candidate sales-led.
+{{MAIN_OFFERS}}
+
+APPROVED SEASONAL OFFERS — OPTIONAL CONTEXTUAL PACKAGING
+Use this to understand current offer packaging opportunities. It may inform
+offer-supporting ideas, but it does not override proof, manual, or research-led
+Ideation sources.
+{{SEASONAL_OFFERS}}
+
 APPROVED BUSINESS CONTEXT — TRUSTED BUSINESS TRUTH
 {{CONTEXT}}
 
@@ -331,6 +347,9 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
     (source) => source.source_type === "approved_strategic_playbook",
   );
   const intelligence = evidenceRegistry.filter((source) => source.source_type === "approved_intelligence");
+  const campaign = evidenceRegistry.filter((source) => source.source_type === "approved_campaign_intelligence");
+  const mainOffers = evidenceRegistry.filter((source) => source.source_type === "approved_main_offer");
+  const seasonalOffers = evidenceRegistry.filter((source) => source.source_type === "approved_seasonal_offer");
   const context = evidenceRegistry.filter((source) => source.source_type === "approved_context");
   const external = evidenceRegistry.filter((source) => source.source_type === "external_research");
 
@@ -351,6 +370,15 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
     EXECUTION: serializeSourceCardSection(execution, claimCards),
     STRATEGIC: serializeSourceCardSection(strategicPlaybooks, claimCards),
     INTELLIGENCE: serializeSourceCardSection(intelligence, claimCards),
+    CAMPAIGN: campaign.length
+      ? serializeSourceCardSection(campaign, claimCards)
+      : "No approved Campaign Intelligence input is active for this run.",
+    MAIN_OFFERS: mainOffers.length
+      ? serializeSourceCardSection(mainOffers, claimCards)
+      : "No approved Main Offers input is active for this run.",
+    SEASONAL_OFFERS: seasonalOffers.length
+      ? serializeSourceCardSection(seasonalOffers, claimCards)
+      : "No approved Seasonal Offers input is active for this run.",
     CONTEXT: serializeSourceCardSection(context, claimCards),
     EXTERNAL: external.length
       ? serializeSourceCardSection(external, claimCards)

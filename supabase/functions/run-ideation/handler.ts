@@ -18,6 +18,7 @@ import { logIdeationLease } from "../_shared/ideation/telemetry.ts";
 import { parseIdeationRequestBody, type IdeationRequestBody } from "../_shared/ideation/request.ts";
 import type { IdeationAssetType, IdeationPeriod } from "../_shared/ideation/period.ts";
 import type { IdeationEvidenceSource } from "../_shared/ideation/evidence.ts";
+import type { SourceKind as IdeationStrategicSourceKind } from "../_shared/ideation/strategic-inputs.ts";
 import type {
   TechniqueModuleResult,
   TechniqueResearch,
@@ -59,6 +60,7 @@ export interface IdeationPersistence {
   completeRun(args: Record<string, unknown>): Promise<RpcResult>;
   failRun(args: Record<string, unknown>): Promise<RpcResult>;
   recordIntelligenceConsumption?(args: Record<string, unknown>): Promise<RpcResult>;
+  recordAuthorityInputs?(args: Record<string, unknown>): Promise<RpcResult>;
   fetchRunBundle(cycleId: string): Promise<RunBundle>;
 }
 
@@ -132,6 +134,15 @@ export interface RunIdeationDependencies {
     failures: Array<{ techniqueNumber: number; techniqueSlug: string; error: string }>;
   }>;
   buildExecutionEvidenceSources(authority: AuthorityResult & { ok: true }): Promise<IdeationEvidenceSource[]>;
+  buildStrategicInputEvidenceSources?(
+    persistence: IdeationPersistence,
+    clientId: string,
+    sourceKinds: IdeationStrategicSourceKind[],
+  ): Promise<{
+    inputs: Array<Record<string, unknown>>;
+    evidenceSources: IdeationEvidenceSource[];
+    snapshot: Record<string, unknown>;
+  }>;
   generateTechniqueCandidates(input: {
     clientName: string;
     techniqueSlug: string;
@@ -450,13 +461,23 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
     const providerRuntime = resolveIdeationProviderRuntime();
     const slotAllocation = buildSlotAllocation(quantityPlan.slots);
     const authoritySnapshot = await deps.buildAuthoritySnapshot(authority);
+    const strategicInputs = deps.buildStrategicInputEvidenceSources
+      ? await deps.buildStrategicInputEvidenceSources(
+        persistence,
+        clientId,
+        parsedBody.body.strategic_input_sources ?? ["campaign_intelligence", "main_offer", "seasonal_offer"],
+      )
+      : { inputs: [], evidenceSources: [], snapshot: { policy: "not_configured", selected_source_kinds: [], counts: {} } };
     const configurationSnapshot = await deps.buildConfigurationSnapshot({
       clientId,
       clientName: authority.authority.client.name,
       period: period as unknown as Record<string, unknown>,
       quantityPlan: quantityPlan as Record<string, unknown>,
       slotAllocation,
-      authority: authoritySnapshot,
+      authority: {
+        ...authoritySnapshot,
+        ideation_hub_inputs: strategicInputs.snapshot,
+      },
       selectedModel,
     });
     const inputHash = await deps.hashConfiguration(configurationSnapshot);
@@ -535,6 +556,16 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
     const cycleId = beginData.cycle.id;
 
     try {
+      if (persistence.recordAuthorityInputs && strategicInputs.inputs.length > 0) {
+        const authorityInputResult = await persistence.recordAuthorityInputs({
+          p_cycle_id: cycleId,
+          p_client_id: clientId,
+          p_inputs: strategicInputs.inputs,
+        });
+        if (authorityInputResult.error) {
+          throw new Error(`Ideation authority input transaction failed: ${authorityInputResult.error.message}`);
+        }
+      }
       if (persistence.recordIntelligenceConsumption) {
         const consumption = await persistence.recordIntelligenceConsumption({
           p_client_id: clientId,
@@ -557,7 +588,10 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
       const persona = bySlug.get("persona")?.research;
       const format = bySlug.get("format-swipe")?.research;
       if (!persona || !format) throw new Error("Standing Persona and Format Swipe references are required.");
-      const executionSources = await deps.buildExecutionEvidenceSources(authority);
+      const executionSources = [
+        ...await deps.buildExecutionEvidenceSources(authority),
+        ...strategicInputs.evidenceSources,
+      ];
       await renewLease(persistence, cycleId, leaseOwner, providerRuntime.lease_seconds);
 
       const existingBySlug = new Map<IdeationTechniqueSlug, Array<Record<string, unknown>>>();
