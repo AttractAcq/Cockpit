@@ -62,6 +62,22 @@ async function rows<T>(
   return (data as T[] | null) ?? [];
 }
 
+const POSTGREST_IN_FILTER_CHUNK_SIZE = 75;
+
+async function rowsByIdChunks<T>(
+  ids: string[],
+  queryForIds: (chunk: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T[]> {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (uniqueIds.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let index = 0; index < uniqueIds.length; index += POSTGREST_IN_FILTER_CHUNK_SIZE) {
+    chunks.push(uniqueIds.slice(index, index + POSTGREST_IN_FILTER_CHUNK_SIZE));
+  }
+  const chunkRows = await Promise.all(chunks.map((chunk) => rows<T>(queryForIds(chunk))));
+  return chunkRows.flat();
+}
+
 export async function fetchIntelligenceWorkspace(
   clientId: string,
   domain: IntelligenceDomain,
@@ -116,18 +132,20 @@ export async function fetchIntelligenceWorkspace(
 
   const findingIds = releaseFindingLinks.map((link) => link.finding_id);
   const findings = findingIds.length > 0
-    ? await rows<IntelligenceFinding>(supabase.from("client_intelligence_findings")
-      .select("*").eq("client_id", clientId).in("id", findingIds).order("created_at"))
+    ? (await rowsByIdChunks<IntelligenceFinding>(findingIds, (chunk) => supabase.from("client_intelligence_findings")
+      .select("*").eq("client_id", clientId).in("id", chunk).order("created_at")))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
     : [];
 
   const findingEvidenceLinks = findingIds.length > 0
-    ? await rows<{ evidence_id: string }>(supabase.from("client_intelligence_finding_evidence")
-      .select("evidence_id").eq("client_id", clientId).in("finding_id", findingIds))
+    ? await rowsByIdChunks<{ evidence_id: string }>(findingIds, (chunk) => supabase.from("client_intelligence_finding_evidence")
+      .select("evidence_id").eq("client_id", clientId).in("finding_id", chunk))
     : [];
   const evidenceIds = [...new Set(findingEvidenceLinks.map((link) => link.evidence_id))];
   const evidence = evidenceIds.length > 0
-    ? await rows<IntelligenceEvidence>(supabase.from("client_evidence_records")
-      .select("*").eq("client_id", clientId).in("id", evidenceIds).order("created_at"))
+    ? (await rowsByIdChunks<IntelligenceEvidence>(evidenceIds, (chunk) => supabase.from("client_evidence_records")
+      .select("*").eq("client_id", clientId).in("id", chunk).order("created_at")))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
     : [];
 
   const freshness = freshnessFor(activeRelease, policy);
