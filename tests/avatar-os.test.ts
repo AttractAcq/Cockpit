@@ -81,12 +81,16 @@ test("Avatar source extraction keeps only inspectable, deduplicated HTTP sources
 
 test("Avatar orchestration requires approved Market authority and selects conditional steps", async () => {
   const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /type Action = "prepare" \| "step" \| "finalize" \| "retry_step"/);
   assert.match(edge, /APPROVED_MARKET_OS_REQUIRED/);
   assert.match(edge, /eq\("intelligence_domain", "market_os"\)/);
   assert.match(edge, /eq\("status", "approved"\)/);
   assert.match(edge, /market_os: \{/);
   assert.match(edge, /ensureAvatarFollowupSteps/);
   assert.match(edge, /AVATAR_CORE_MODULES\.slice\(0, 1\)/);
+  assert.match(edge, /action === "retry_step"/);
+  assert.match(edge, /failed_module_requeued/);
+  assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
 });

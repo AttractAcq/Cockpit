@@ -302,13 +302,21 @@ export async function prepareAssociationOS(clientId: string): Promise<PrepareAss
   return invokeFn<PrepareAssociationOSResponse>("run-association-os", { action: "prepare", client_id: clientId });
 }
 
+const INTELLIGENCE_RETRY_FUNCTIONS: Record<IntelligenceDomain, string> = {
+  market_os: "run-market-os",
+  avatar_os: "run-avatar-os",
+  competitor_os: "run-competitor-os",
+  association_os: "run-association-os",
+  brand_strategist: "run-brand-strategist",
+};
+
 export async function retryIntelligenceResearchStep(
   clientId: string,
-  domain: "competitor_os" | "association_os",
+  domain: IntelligenceDomain,
   researchRunId: string,
   stepId: string,
 ): Promise<PrepareMarketOSResponse> {
-  const functionName = domain === "competitor_os" ? "run-competitor-os" : "run-association-os";
+  const functionName = INTELLIGENCE_RETRY_FUNCTIONS[domain];
   return invokeFn<PrepareMarketOSResponse>(functionName, {
     action: "retry_step",
     client_id: clientId,

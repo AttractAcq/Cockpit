@@ -88,6 +88,7 @@ test("Brand Strategist provider is synthesis-only and treats recommendations as 
 
 test("Brand Strategist requires complete, current authority and snapshots readiness", async () => {
   const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /type Action = "prepare" \| "step" \| "finalize" \| "retry_step"/);
   for (const code of [
     "APPROVED_MARKET_OS_REQUIRED",
     "APPROVED_AVATAR_OS_REQUIRED",
@@ -104,6 +105,9 @@ test("Brand Strategist requires complete, current authority and snapshots readin
   assert.match(edge, /expectedAssociationAuthority\.release_id/);
   assert.match(edge, /previous_brand_strategist:/);
   assert.match(edge, /refresh_interval_days: 90/);
+  assert.match(edge, /action === "retry_step"/);
+  assert.match(edge, /failed_module_requeued/);
+  assert.match(edge, /status: "queued",\s+attempt_count: 0/);
 });
 
 test("Brand Strategist enforces evidence-bound recommendations and human review", async () => {

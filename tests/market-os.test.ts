@@ -111,10 +111,13 @@ test("client UX exposes Context and the five-tab Intelligence page", async () =>
 
 test("Market OS orchestration is resumable, web-backed, and stops before approval", async () => {
   const edge = await readFile(edgePath, "utf8");
-  assert.match(edge, /type Action = "prepare" \| "step" \| "finalize"/);
+  assert.match(edge, /type Action = "prepare" \| "step" \| "finalize" \| "retry_step"/);
   assert.match(edge, /action === "prepare"/);
   assert.match(edge, /action === "step"/);
+  assert.match(edge, /action === "retry_step"/);
   assert.match(edge, /runOpenAiMarketResearch/);
+  assert.match(edge, /failed_module_requeued/);
+  assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
 });
