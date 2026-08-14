@@ -48,9 +48,10 @@ function aiReelBrief(overrides: Record<string, unknown> = {}) {
 
 // ── Production-mode contract ────────────────────────────────────────────────
 
-test("production modes are human, ai and hybrid", () => {
-  assert.deepEqual([...PRODUCTION_MODES], ["human", "ai", "hybrid"]);
+test("production modes include legacy modes plus Stage 5 production classifications", () => {
+  assert.deepEqual([...PRODUCTION_MODES], ["human", "ai", "hybrid", "avatar_led", "faceless", "proof_led", "static", "human_led"]);
   assert.equal(isProductionMode("hybrid"), true);
+  assert.equal(isProductionMode("avatar_led"), true);
   assert.equal(isProductionMode("robot"), false);
 });
 
@@ -73,7 +74,7 @@ test("reel_video is no longer declared human-only and routes AI to Reel Studio",
   const contract = PRODUCTION_BRIEF_CONTRACTS.reel_video;
   assert.equal(contract.humanOnly, false);
   assert.equal(contract.aiPath, "reel_studio");
-  assert.deepEqual([...contract.supportedModes], ["human", "ai", "hybrid"]);
+  assert.deepEqual([...contract.supportedModes], ["human", "ai", "hybrid", "avatar_led", "faceless", "proof_led", "human_led"]);
   // Image formats keep the old AI pipeline — Phase 2 does not relax that gate.
   assert.equal(PRODUCTION_BRIEF_CONTRACTS.carousel.aiPath, "ai_image_pipeline");
 });
@@ -105,7 +106,9 @@ test("a clean AI brief resolves without confirmation and permits Reel Studio", (
   assert.equal(resolution.requiresConfirmation, false);
   assert.equal(allowsReelStudio(resolution.mode), true);
   assert.equal(allowsReelStudio("hybrid"), true);
+  assert.equal(allowsReelStudio("avatar_led"), true);
   assert.equal(allowsReelStudio("human"), false);
+  assert.equal(allowsReelStudio("faceless"), false);
   assert.equal(allowsReelStudio(null), false);
 });
 

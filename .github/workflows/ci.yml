@@ -30,6 +30,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Edge Function registry
+        run: npm run check:edge-functions
+
       - name: Test
         run: node --test tests/*.test.ts
 

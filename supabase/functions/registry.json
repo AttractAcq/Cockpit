@@ -1,0 +1,3366 @@
+{
+  "schemaVersion": 1,
+  "authority": {
+    "description": "Build-time operational contract registry. It is not imported by Edge Function runtime code.",
+    "evidenceDate": "2026-08-13",
+    "sourceAudits": [
+      "docs/edge-function-audits/phase-10-cross-function-reconciliation.md"
+    ],
+    "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
+  },
+  "expectedCounts": {
+    "localFunctions": 109,
+    "uiCalled": 90,
+    "nonUiCalled": 19,
+    "retired": 10
+  },
+  "profiles": {
+    "ui_authority": {
+      "lifecycle": "active",
+      "caller": "ui",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager"
+      ],
+      "clientScope": "required",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
+    },
+    "ui_operational": {
+      "lifecycle": "active",
+      "caller": "ui",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager",
+        "editor"
+      ],
+      "clientScope": "required",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
+    },
+    "ui_held": {
+      "lifecycle": "held",
+      "caller": "ui",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager",
+        "editor"
+      ],
+      "clientScope": "required",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": false,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
+    },
+    "operator_internal": {
+      "lifecycle": "internal",
+      "caller": "operator",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager"
+      ],
+      "clientScope": "required",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
+    },
+    "function_internal": {
+      "lifecycle": "internal",
+      "caller": "internal_function",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "forwarded_staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager",
+        "editor"
+      ],
+      "clientScope": "required",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
+    },
+    "cron_jwt_disabled": {
+      "lifecycle": "background",
+      "caller": "cron",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "cron_secret",
+      "allowedStaffRoles": [],
+      "clientScope": "derived",
+      "jwtVerification": "disabled_with_alternate_auth",
+      "alternateSecret": "CRON_SECRET",
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "CRON_SECRET"
+      ]
+    },
+    "cron_jwt_verified": {
+      "lifecycle": "background",
+      "caller": "cron",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "cron_secret_plus_jwt",
+      "allowedStaffRoles": [],
+      "clientScope": "derived",
+      "jwtVerification": "verified",
+      "alternateSecret": "CRON_SECRET",
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "CRON_SECRET"
+      ]
+    },
+    "retired": {
+      "lifecycle": "retired",
+      "caller": "none",
+      "allowedMethods": [],
+      "authMode": "not_applicable",
+      "allowedStaffRoles": [],
+      "clientScope": "not_applicable",
+      "jwtVerification": "not_deployable",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": false,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": []
+    }
+  },
+  "exceptions": [
+    {
+      "id": "EF-WORKER-003-JWT-CONFIG",
+      "function": "process-asset-generation-jobs",
+      "check": "jwt_config_mismatch",
+      "owner": "Cockpit engineering",
+      "reason": "Audit evidence records JWT-disabled remote worker posture, while local supabase/config.toml does not yet version it. Step 7 owns reconciliation; Step 2 must not change deployment configuration.",
+      "reviewBy": "2026-09-30",
+      "remediationIds": [
+        "EF-WORKER-003"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "apify-scrape",
+      "purpose": "Preserve the retired legacy apify scrape endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "apify"
+      ],
+      "requiredEnvironment": [
+        "AA_APIFY_ACTOR"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "approve-calendar-proposal",
+      "purpose": "Perform the existing approve calendar proposal operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "approve-execution-config",
+      "purpose": "Perform the existing approve execution config operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "brief-generator",
+      "purpose": "Preserve the retired legacy brief generator endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "check-ai-background-image",
+      "purpose": "Perform the existing check ai background image operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "check-shot-generation",
+      "purpose": "Perform the existing check shot generation operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [
+        "higgsfield"
+      ],
+      "requiredEnvironment": [
+        "HIGGSFIELD_API_KEY",
+        "HIGGSFIELD_API_SECRET"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "check-shot-still-image",
+      "purpose": "Perform the existing check shot still image operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [
+        "higgsfield"
+      ],
+      "requiredEnvironment": [
+        "HIGGSFIELD_API_KEY",
+        "HIGGSFIELD_API_SECRET"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "collect-instagram-insights",
+      "purpose": "Perform the existing collect instagram insights operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Background / Instagram insights",
+      "profile": "cron_jwt_disabled",
+      "databaseDomains": [
+        "distribution",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [
+        "EF-WORKER-001",
+        "EF-WORKER-002",
+        "EF-WORKER-003",
+        "EF-WORKER-004"
+      ],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "commit-ideation-content",
+      "purpose": "Perform the existing commit ideation content operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "complete-final-reel-upload",
+      "purpose": "Perform the existing complete final reel upload operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "confirm-shot-source-asset-upload",
+      "purpose": "Perform the existing confirm shot source asset upload operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-ad-campaign",
+      "purpose": "Perform the existing create ad campaign operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-ad-opportunity",
+      "purpose": "Perform the existing create ad opportunity operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-calendar-proposal",
+      "purpose": "Perform the existing create calendar proposal operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-CALENDAR-001"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-composition-contract",
+      "purpose": "Perform the existing create composition contract operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-content-opportunity",
+      "purpose": "Perform the existing create content opportunity operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-ERROR-001"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-distribution-record-from-content-item",
+      "purpose": "Perform the existing create distribution record from content item operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [
+        "client-assets",
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-final-reel-upload",
+      "purpose": "Perform the existing create final reel upload operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-ideation-calendar-proposal",
+      "purpose": "Perform the existing create ideation calendar proposal operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-reel-distribution-draft",
+      "purpose": "Perform the existing create reel distribution draft operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-003"
+      ],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-shot-source-asset-upload",
+      "purpose": "Perform the existing create shot source asset upload operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-video-project",
+      "purpose": "Perform the existing create video project operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "create-video-shot",
+      "purpose": "Perform the existing create video shot operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "delete-video-shot",
+      "purpose": "Perform the existing delete video shot operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "detect-input-conflicts",
+      "purpose": "Perform the existing detect input conflicts operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-ERROR-002"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "dialog360-send",
+      "purpose": "Preserve the retired legacy dialog360 send endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "dialog360"
+      ],
+      "requiredEnvironment": [
+        "DIALOG360_API_KEY"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "execute-destructive",
+      "purpose": "Perform the existing execute destructive operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_held",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [
+        "EF-DESTRUCT-001",
+        "EF-DESTRUCT-002"
+      ],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "finalize-phase-1",
+      "purpose": "Perform the existing finalize phase 1 operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [
+        "EF-READY-001"
+      ],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-ad-creative-variants",
+      "purpose": "Perform the existing generate ad creative variants operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-ad-static-asset",
+      "purpose": "Perform the existing generate ad static asset operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-ai-background-image",
+      "purpose": "Perform the existing generate ai background image operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-avatar-asset",
+      "purpose": "Perform the existing generate avatar asset operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-OWNERSHIP-001",
+        "EF-CONC-002",
+        "EF-AVATAR-UI-001"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-carousel-assets",
+      "purpose": "Perform the existing generate carousel assets operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-carousel-slide",
+      "purpose": "Perform the existing generate carousel slide operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-content-brief",
+      "purpose": "Perform the existing generate content brief operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-004",
+        "EF-ERROR-005"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-content-opportunities",
+      "purpose": "Perform the existing generate content opportunities operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-ERROR-003"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-execution-config",
+      "purpose": "Perform the existing generate execution config operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-feed-post-asset",
+      "purpose": "Perform the existing generate feed post asset operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-phase-1",
+      "purpose": "Perform the existing generate phase 1 operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-phase-1-file",
+      "purpose": "Perform the existing generate phase 1 file operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [
+        "EF-PROV-001"
+      ],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-phase-2",
+      "purpose": "Perform the existing generate phase 2 operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "context",
+        "execution"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [
+        "EF-READY-002",
+        "EF-AUTH-004"
+      ],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-phase-3",
+      "purpose": "Perform the existing generate phase 3 operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-DESTRUCT-003"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-phase-3-slot",
+      "purpose": "Perform the existing generate phase 3 slot operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-PHASE3-001",
+        "EF-CONC-007"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-production-brief",
+      "purpose": "Perform the existing generate production brief operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-AUTHORITY-005"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-story-assets",
+      "purpose": "Perform the existing generate story assets operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "generate-video-storyboard",
+      "purpose": "Perform the existing generate video storyboard operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "handoff-video-project",
+      "purpose": "Perform the existing handoff video project operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "ingest-content-source",
+      "purpose": "Perform the existing ingest content source operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-OWNERSHIP-002",
+        "EF-TXN-001"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "launch-ad-campaign",
+      "purpose": "Perform the existing launch ad campaign operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "list-higgsfield-motions",
+      "purpose": "Perform the existing list higgsfield motions operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "higgsfield"
+      ],
+      "requiredEnvironment": [
+        "HIGGSFIELD_API_KEY",
+        "HIGGSFIELD_API_SECRET"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "manage-ad-brief",
+      "purpose": "Perform the existing manage ad brief operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "meta-ad-ops",
+      "purpose": "Preserve the retired legacy meta ad ops endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "AA_META_AD_ACCOUNT"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "meta-webhook",
+      "purpose": "Preserve the retired legacy meta webhook endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "AA_META_VERIFY_TOKEN"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "mjr-generate",
+      "purpose": "Preserve the retired legacy mjr generate endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "mrr-calc",
+      "purpose": "Preserve the retired legacy mrr calc endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "onboarding",
+      "purpose": "Preserve the retired legacy onboarding endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "n8n"
+      ],
+      "requiredEnvironment": [
+        "AA_N8N_ONBOARDING_WEBHOOK"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": [
+        "payfast-webhook"
+      ]
+    },
+    {
+      "name": "payfast-create-link",
+      "purpose": "Preserve the retired legacy payfast create link endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "payfast"
+      ],
+      "requiredEnvironment": [
+        "AA_PAYFAST_NOTIFY_URL",
+        "AA_PAYFAST_SANDBOX",
+        "AA_PUBLIC_BASE_URL"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "payfast-webhook",
+      "purpose": "Preserve the retired legacy payfast webhook endpoint for historical reference only; it has no current product role.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "payfast"
+      ],
+      "requiredEnvironment": [
+        "AA_PAYFAST_SANDBOX"
+      ],
+      "auditPhases": [
+        8,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETIRE-001",
+        "EF-RETIRE-002"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "plan-destructive",
+      "purpose": "Perform the existing plan destructive operation for the Context and Execution system without expanding its product responsibility.",
+      "system": "Context and Execution",
+      "page": "Context / Execution Setup",
+      "profile": "ui_held",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        1,
+        10
+      ],
+      "remediationIds": [
+        "EF-DESTRUCT-001"
+      ],
+      "testCoverage": [
+        "tests/phase1-intelligence.test.ts",
+        "tests/execution-config.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "preview-phase-3-scope",
+      "purpose": "Perform the existing preview phase 3 scope operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "process-asset-generation-jobs",
+      "purpose": "Perform the existing process asset generation jobs operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Background / Asset generation",
+      "profile": "cron_jwt_disabled",
+      "databaseDomains": [
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [
+        "EF-WORKER-003",
+        "EF-WORKER-004",
+        "EF-WORK-AUTHORITY-001",
+        "EF-DOC-001"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "process-scheduled-publishing",
+      "purpose": "Perform the existing process scheduled publishing operation for the Distribution system without expanding its product responsibility.",
+      "system": "Distribution",
+      "page": "Background / Scheduled publishing",
+      "profile": "cron_jwt_verified",
+      "databaseDomains": [
+        "distribution"
+      ],
+      "storageBuckets": [
+        "client-assets",
+        "video-assets"
+      ],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "process-source-document",
+      "purpose": "Perform the existing process source document operation for the Internal Operations system without expanding its product responsibility.",
+      "system": "Internal Operations",
+      "page": "Internal / Operator",
+      "profile": "operator_internal",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "provenance"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [
+        "EF-SOURCE-001"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "publish-instagram-asset",
+      "purpose": "Perform the existing publish instagram asset operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [
+        "client-assets",
+        "video-assets"
+      ],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-003"
+      ],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "publish-playbook-version",
+      "purpose": "Perform the existing publish playbook version operation for the Playbooks system without expanding its product responsibility.",
+      "system": "Playbooks",
+      "page": "Internal / Playbooks",
+      "profile": "operator_internal",
+      "databaseDomains": [
+        "playbooks"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-007"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "record-context-file-provenance",
+      "purpose": "Perform the existing record context file provenance operation for the Internal Operations system without expanding its product responsibility.",
+      "system": "Internal Operations",
+      "page": "Internal / Operator",
+      "profile": "operator_internal",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "provenance"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "record-research-run",
+      "purpose": "Perform the existing record research run operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Internal / Intelligence provenance",
+      "profile": "operator_internal",
+      "databaseDomains": [
+        "intelligence",
+        "provenance"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [
+        "EF-RESEARCH-001"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "regenerate-asset-frame",
+      "purpose": "Perform the existing regenerate asset frame operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "regenerate-video-shot",
+      "purpose": "Perform the existing regenerate video shot operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "register-source-document",
+      "purpose": "Perform the existing register source document operation for the Internal Operations system without expanding its product responsibility.",
+      "system": "Internal Operations",
+      "page": "Internal / Operator",
+      "profile": "operator_internal",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "provenance"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "resolve-input-conflict",
+      "purpose": "Perform the existing resolve input conflict operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-CONC-003"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "retry-shot-still-image",
+      "purpose": "Perform the existing retry shot still image operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "retry-shot-video",
+      "purpose": "Perform the existing retry shot video operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "review-content-brief",
+      "purpose": "Perform the existing review content brief operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-CONC-006"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "review-final-reel",
+      "purpose": "Perform the existing review final reel operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "route-content-brief-to-studio",
+      "purpose": "Perform the existing route content brief to studio operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-CONC-008"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-association-os",
+      "purpose": "Perform the existing run association os operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETRY-001"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-appearance",
+      "purpose": "Perform the existing run avatar appearance operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-003",
+        "EF-RECOVERY-004"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-asset-library",
+      "purpose": "Perform the existing run avatar asset library operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-003",
+        "EF-RECOVERY-004"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-operating-context",
+      "purpose": "Perform the existing run avatar operating context operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-003",
+        "EF-RECOVERY-004"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-os",
+      "purpose": "Perform the existing run avatar os operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETRY-001",
+        "EF-RECOVERY-002"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-strategy",
+      "purpose": "Perform the existing run avatar strategy operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-003",
+        "EF-RECOVERY-004"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-avatar-world",
+      "purpose": "Perform the existing run avatar world operation for the Avatar OS system without expanding its product responsibility.",
+      "system": "Avatar OS",
+      "page": "Avatars",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "avatars",
+        "intelligence",
+        "offers"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-003",
+        "EF-RECOVERY-004"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-brand-strategist",
+      "purpose": "Perform the existing run brand strategist operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETRY-001",
+        "EF-RECOVERY-002"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-campaign-intelligence",
+      "purpose": "Perform the existing run campaign intelligence operation for the Campaign Intelligence system without expanding its product responsibility.",
+      "system": "Campaign Intelligence",
+      "page": "Intelligence / Campaign Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence",
+        "campaign_intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTHORITY-001",
+        "EF-RECOVERY-001"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-competitor-os",
+      "purpose": "Perform the existing run competitor os operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETRY-001"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-ideation",
+      "purpose": "Perform the existing run ideation operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-market-os",
+      "purpose": "Perform the existing run market os operation for the Intelligence system without expanding its product responsibility.",
+      "system": "Intelligence",
+      "page": "Intelligence",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        2,
+        10
+      ],
+      "remediationIds": [
+        "EF-RETRY-001",
+        "EF-RECOVERY-002"
+      ],
+      "testCoverage": [
+        "tests/market-os.test.ts",
+        "tests/intelligence-recovery.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "run-offers",
+      "purpose": "Perform the existing run offers operation for the Offers system without expanding its product responsibility.",
+      "system": "Offers",
+      "page": "Offers",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "offers",
+        "campaign_intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        3,
+        10
+      ],
+      "remediationIds": [
+        "EF-OFFER-001",
+        "EF-AUTHORITY-002",
+        "EF-RECOVERY-003",
+        "EF-CONC-001"
+      ],
+      "testCoverage": [
+        "tests/offers-stage4b.test.ts",
+        "tests/avatar-os-stage5.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "score-content-opportunity",
+      "purpose": "Perform the existing score content opportunity operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-ERROR-004",
+        "EF-TXN-002"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "score-ideation-candidates",
+      "purpose": "Perform the existing score ideation candidates operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "select-reel-production-strategy",
+      "purpose": "Perform the existing select reel production strategy operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "send-production-brief-to-contractor",
+      "purpose": "Perform the existing send production brief to contractor operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "resend"
+      ],
+      "requiredEnvironment": [
+        "RESEND_API_KEY",
+        "RESEND_FROM_EMAIL"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-PRODUCTION-001",
+        "EF-PROVIDER-001"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "set-ad-budget-policy",
+      "purpose": "Perform the existing set ad budget policy operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "set-client-distribution-policy",
+      "purpose": "Perform the existing set client distribution policy operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "set-production-brief-mode",
+      "purpose": "Perform the existing set production brief mode operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "start-carousel-generation",
+      "purpose": "Perform the existing start carousel generation operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "client-assets"
+      ],
+      "externalProviders": [
+        "openai"
+      ],
+      "requiredEnvironment": [
+        "OPENAI_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "start-phase-3-scope",
+      "purpose": "Perform the existing start phase 3 scope operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY"
+      ],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "submit-production-review",
+      "purpose": "Perform the existing submit production review operation for the Creation system without expanding its product responsibility.",
+      "system": "Creation",
+      "page": "Creation / Production",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "execution",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        5,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-001",
+        "EF-PRODUCTION-003"
+      ],
+      "testCoverage": [
+        "tests/production-studio.test.ts",
+        "tests/production-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "submit-shot-generation",
+      "purpose": "Perform the existing submit shot generation operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [
+        "higgsfield"
+      ],
+      "requiredEnvironment": [
+        "HIGGSFIELD_API_KEY",
+        "HIGGSFIELD_API_SECRET",
+        "HIGGSFIELD_MODEL_DRAFT",
+        "HIGGSFIELD_MODEL_FINAL"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "submit-shot-still-image",
+      "purpose": "Perform the existing submit shot still image operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [
+        "video-assets"
+      ],
+      "externalProviders": [
+        "higgsfield"
+      ],
+      "requiredEnvironment": [
+        "HIGGSFIELD_API_KEY",
+        "HIGGSFIELD_API_SECRET",
+        "HIGGSFIELD_MODEL_STILL"
+      ],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-ad-campaign-budget",
+      "purpose": "Perform the existing update ad campaign budget operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-ad-campaign-status",
+      "purpose": "Perform the existing update ad campaign status operation for the Distribution and Paid system without expanding its product responsibility.",
+      "system": "Distribution and Paid",
+      "page": "Distribution / Paid",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "distribution",
+        "paid",
+        "analytics"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "META_SYSTEM_USER_TOKEN"
+      ],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/distribution-policy.test.ts",
+        "tests/ad-studio.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-calendar-proposal-slot",
+      "purpose": "Perform the existing update calendar proposal slot operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-CONC-005"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-composition-contract",
+      "purpose": "Perform the existing update composition contract operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-content-opportunity-status",
+      "purpose": "Perform the existing update content opportunity status operation for the Ideation system without expanding its product responsibility.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [
+        "EF-CONC-004"
+      ],
+      "testCoverage": [
+        "tests/ideation-stage4.test.ts",
+        "tests/calendar-planning.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-video-project-status",
+      "purpose": "Perform the existing update video project status operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "update-video-shot",
+      "purpose": "Perform the existing update video shot operation for the Reel Studio system without expanding its product responsibility.",
+      "system": "Reel Studio",
+      "page": "Creation / Reel Studio",
+      "profile": "ui_operational",
+      "databaseDomains": [
+        "reel_studio",
+        "production",
+        "assets"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        6,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-002"
+      ],
+      "testCoverage": [
+        "tests/reel-studio-phase1.test.ts",
+        "tests/reel-studio-phase2.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "validate-execution-pack",
+      "purpose": "Perform the existing validate execution pack operation for the Internal Operations system without expanding its product responsibility.",
+      "system": "Internal Operations",
+      "page": "Internal / Operator",
+      "profile": "function_internal",
+      "databaseDomains": [
+        "context",
+        "execution",
+        "provenance"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        9,
+        10
+      ],
+      "remediationIds": [
+        "EF-AUTH-004"
+      ],
+      "testCoverage": [
+        "tests/stage-a-readiness.test.ts"
+      ],
+      "internalCallers": [
+        "generate-phase-2",
+        "generate-phase-3"
+      ]
+    }
+  ]
+}

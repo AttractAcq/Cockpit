@@ -14,7 +14,7 @@
 //      way the outcome is recorded in the pack's provenance so a later quality
 //      problem is diagnosable.
 
-export const CONTEXT_PACK_VERSION = "reel-storyboard-context-pack@1";
+export const CONTEXT_PACK_VERSION = "reel-storyboard-context-pack@2";
 
 /** Approved Client Context OS files that bear on a Reel. Others are excluded. */
 export const REEL_RELEVANT_CONTEXT_FILE_NUMBERS = [2, 3, 4, 6, 7, 9, 10] as const;
@@ -75,6 +75,7 @@ export type ContextCategory =
   | "script_and_message"
   | "brand_voice"
   | "visual_brand"
+  | "avatar_os"
   | "production_constraints"
   | "storytelling_rules";
 
@@ -86,6 +87,7 @@ export const CONTEXT_CATEGORIES: ContextCategory[] = [
   "script_and_message",
   "brand_voice",
   "visual_brand",
+  "avatar_os",
   "production_constraints",
   "storytelling_rules",
 ];
@@ -113,6 +115,7 @@ export const CATEGORY_BUDGETS: Record<ContextCategory, number> = {
   script_and_message: 9000,
   brand_voice: 2000,
   visual_brand: 2500,
+  avatar_os: 4500,
   production_constraints: 1500,
   storytelling_rules: 2500,
 };
@@ -144,6 +147,8 @@ export interface ContextPackProvenance {
   execution_file_names: string[];
   brand_prompt_block_id: string;
   brand_prompt_block_version: number;
+  avatar_release_id?: string | null;
+  avatar_asset_ids?: string[];
   excluded_unapproved_context_files: number;
   excluded_unapproved_execution_files: number;
   trimmed_sections: string[];
@@ -289,6 +294,7 @@ export interface BuildContextPackInput {
   contextFiles: ContextFileRow[];
   executionFiles: ExecutionFileRow[];
   clientId: string;
+  avatarReferencePayload?: Record<string, unknown> | null;
 }
 
 /**
@@ -402,7 +408,9 @@ export function buildContextPack(input: BuildContextPackInput): ContextPack {
         `Archetype: ${input.project.archetype}`,
         `Audience awareness: ${input.project.awareness_stage.replaceAll("_", " ")}`,
         `Target duration: ${input.project.target_duration_sec}s`,
-        "Format: vertical 9:16 faceless Instagram Reel.",
+        input.avatarReferencePayload && Object.keys(input.avatarReferencePayload).length > 0
+          ? "Format: vertical 9:16 avatar-led Instagram Reel using approved Avatar OS references only."
+          : "Format: vertical 9:16 faceless Instagram Reel.",
       ].join("\n"),
     },
   ]);
@@ -451,6 +459,25 @@ export function buildContextPack(input: BuildContextPackInput): ContextPack {
     },
   ]);
 
+  if (input.avatarReferencePayload && Object.keys(input.avatarReferencePayload).length > 0) {
+    const release = input.avatarReferencePayload.avatar_release;
+    const components = input.avatarReferencePayload.components;
+    const assets = input.avatarReferencePayload.approved_assets;
+    const guardrails = input.avatarReferencePayload.guardrails;
+    const text = [
+      "Approved Avatar OS reference pack. Use only this approved avatar authority when the production mode is avatar_led.",
+      `Release: ${JSON.stringify(release ?? {})}`,
+      `Components: ${JSON.stringify(components ?? {})}`,
+      `Approved assets and prompt packs: ${JSON.stringify(assets ?? [])}`,
+      `Guardrails: ${JSON.stringify(guardrails ?? [])}`,
+    ].join("\n");
+    admit("avatar_os", [{
+      origin: "avatar_os:active_approved_release",
+      heading: "Avatar OS production references",
+      text,
+    }]);
+  }
+
   const missing = CONTEXT_CATEGORIES.filter((c) => categories[c].length === 0);
   const missingMandatory = MANDATORY_CATEGORIES.filter((c) => categories[c].length === 0);
 
@@ -474,6 +501,14 @@ export function buildContextPack(input: BuildContextPackInput): ContextPack {
       execution_file_names: approvedExecution.map((f) => f.file_name),
       brand_prompt_block_id: input.brand.id,
       brand_prompt_block_version: input.brand.version,
+      avatar_release_id: typeof input.avatarReferencePayload?.avatar_release === "object" && input.avatarReferencePayload.avatar_release !== null
+        ? String((input.avatarReferencePayload.avatar_release as Record<string, unknown>).id ?? "")
+        : null,
+      avatar_asset_ids: Array.isArray(input.avatarReferencePayload?.approved_assets)
+        ? input.avatarReferencePayload.approved_assets
+          .map((asset) => typeof asset === "object" && asset !== null ? String((asset as Record<string, unknown>).id ?? "") : "")
+          .filter(Boolean)
+        : [],
       excluded_unapproved_context_files: excludedContext,
       excluded_unapproved_execution_files: excludedExecution,
       trimmed_sections: trimmedSections,

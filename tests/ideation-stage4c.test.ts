@@ -73,7 +73,7 @@ test("Stage 3 source policy travels from request to production strategic inputs"
   ]);
   assert.match(request, /strategic_input_sources\?: Array/);
   assert.match(request, /cannot contain duplicates/);
-  assert.match(request, /may only contain campaign_intelligence, main_offer, or seasonal_offer/);
+  assert.match(request, /may only contain campaign_intelligence, main_offer, seasonal_offer, or avatar/);
   assert.match(handler, /parsedBody\.body\.strategic_input_sources/);
   assert.match(index, /loadIdeationStrategicInputs\(.*sourceKinds/s);
   assert.match(types, /IdeationStrategicSourceKind/);
@@ -96,6 +96,6 @@ test("Ideation frontend exposes strategic inputs as a hub source, not a required
   assert.match(panel, /Source policy/);
   assert.match(panel, /STRATEGIC_SOURCE_OPTIONS/);
   assert.match(panel, /strategic_input_sources: strategicSourceKinds/);
-  assert.match(panel, /Optional Campaign and Offer authority available to this Ideation cycle/);
-  assert.match(panel, /No approved Campaign Intelligence or Offer inputs were active/);
+  assert.match(panel, /Optional Campaign, Offer, and Avatar authority available to this Ideation cycle/);
+  assert.match(panel, /No approved Campaign Intelligence, Offer, or Avatar inputs were active/);
 });

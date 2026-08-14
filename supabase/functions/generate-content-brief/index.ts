@@ -43,7 +43,7 @@ organic_or_paid ("organic" or "paid"), core_idea, core_claim (string or null), h
 belief_before, belief_after, proof (string or null), proof_required (boolean),
 narrative_structure, copy_or_script_requirements, visual_direction,
 asset_inputs (string array), brand_constraints (string array), cta, approval_rules,
-production_mode ("ai", "human", or "hybrid"), required_outputs (string array),
+production_mode ("ai", "human", "hybrid", "avatar_led", "faceless", "proof_led", "static", or "human_led"), required_outputs (string array),
 quality_checklist (string array).`;
 
   return { system, user };

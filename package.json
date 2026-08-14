@@ -6,8 +6,9 @@
   "description": "Attract Acquisition — operator cockpit for brand infrastructure and client acquisition.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "preview": "vite preview",
+    "check:edge-functions": "node scripts/check-edge-function-registry.mjs",
     "lint": "eslint src supabase/functions tests scripts *.config.js *.config.ts --report-unused-disable-directives",
     "typecheck": "tsc --noEmit"
   },

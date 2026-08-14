@@ -232,7 +232,15 @@ export type AssetFormat = "ad_static" | "reel_video" | "story_sequence" | "carou
 // Phase 2: 'hybrid' joins the contract (see
 // supabase/functions/_shared/production-mode-contract.ts, which is the authority
 // for what each mode means and which transitions are legal).
-export type ProductionMode = "human" | "ai" | "hybrid";
+export type ProductionMode =
+  | "human"
+  | "ai"
+  | "hybrid"
+  | "avatar_led"
+  | "faceless"
+  | "proof_led"
+  | "static"
+  | "human_led";
 export type ProductionStatus = "brief" | "assigned_human" | "ai_ready" | "producing" | "produced" | "failed";
 
 // ── AI visual direction (Produce with AI) ────────────────────────────────────
@@ -287,6 +295,10 @@ export interface ProductionBriefRow {
   status: ReviewState;
   production_mode: ProductionMode | null;
   production_status: ProductionStatus;
+  avatar_release_id?: string | null;
+  avatar_component_ids?: string[];
+  avatar_asset_ids?: string[];
+  avatar_reference_payload?: Record<string, unknown>;
   version: number;
   generated_by_function: string | null;
   metadata: Record<string, unknown>;

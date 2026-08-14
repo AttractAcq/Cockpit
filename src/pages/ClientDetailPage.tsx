@@ -40,6 +40,7 @@ import { AssociationOSPanel } from "@/components/client/AssociationOSPanel";
 import { BrandStrategistPanel } from "@/components/client/BrandStrategistPanel";
 import { CampaignIntelligencePanel } from "@/components/client/CampaignIntelligencePanel";
 import { OffersPanel } from "@/components/client/OffersPanel";
+import { AvatarsPanel } from "@/components/client/AvatarsPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
@@ -52,6 +53,7 @@ type Section =
   | "offer"
   | "main_offers"
   | "seasonal_offers"
+  | "avatars"
   | "market_os"
   | "lead_magnets"
   | "landing_pages"
@@ -141,6 +143,13 @@ const DELIVERY_PAGES: DeliveryPage[] = [
       { label: "Main Offers", section: "main_offers" },
       { label: "Seasonal Offers", section: "seasonal_offers" },
       { label: "Offer", section: "offer", hidden: true },
+    ],
+  },
+  {
+    label: "Avatars",
+    defaultSection: "avatars",
+    tabs: [
+      { label: "Avatars", section: "avatars" },
     ],
   },
   {
@@ -738,6 +747,8 @@ export function ClientDetailPage() {
         return <OffersPanel clientId={id} offerType="main" />;
       case "seasonal_offers":
         return <OffersPanel clientId={id} offerType="seasonal" />;
+      case "avatars":
+        return <AvatarsPanel clientId={id} />;
       case "lead_magnets":
       case "landing_pages":
         return <div className="flex-1" />;

@@ -1,16 +1,24 @@
 // Reel Studio Phase 2, Workstream A: the authoritative production-mode contract.
 //
-// `client_production_briefs.production_mode` is a nullable text column whose CHECK
-// constraint accepts 'human' | 'ai' | 'hybrid' (the 'hybrid' value is added by the
-// Phase 2 migration; the column itself is unchanged). This module is the single
-// place that decides what a mode means, which modes a format supports, whether a
-// transition is legal, and whether a stored brief is internally contradictory.
+// `client_production_briefs.production_mode` is a nullable text column. This
+// module is the single place that decides what a mode means, which modes a format
+// supports, whether a transition is legal, and whether a stored brief is
+// internally contradictory.
 //
 // Imported by Edge Functions AND by the frontend (same relative-import pattern the
 // UI already uses for production-brief-contract.ts) so one decision is rendered in
 // both places and the backend stays authoritative.
 
-export const PRODUCTION_MODES = ["human", "ai", "hybrid"] as const;
+export const PRODUCTION_MODES = [
+  "human",
+  "ai",
+  "hybrid",
+  "avatar_led",
+  "faceless",
+  "proof_led",
+  "static",
+  "human_led",
+] as const;
 export type ProductionMode = typeof PRODUCTION_MODES[number];
 
 const PRODUCTION_MODE_SET = new Set<string>(PRODUCTION_MODES);
@@ -23,7 +31,14 @@ export const PRODUCTION_MODE_LABEL: Record<ProductionMode, string> = {
   human: "Human production",
   ai: "AI production",
   hybrid: "Hybrid production (AI visuals, human finishing)",
+  avatar_led: "Avatar-led production",
+  faceless: "Faceless production",
+  proof_led: "Proof-led production",
+  static: "Static production",
+  human_led: "Human-led production",
 };
+
+export const PRODUCTION_MODE_ERROR = "production_mode must be human, ai, hybrid, avatar_led, faceless, proof_led, static, or human_led.";
 
 /**
  * Where the AI half of a mode actually executes. `reel_studio` briefs never run
@@ -63,7 +78,7 @@ export interface ProductionModeResolution {
 }
 
 /** Modes under which Reel Studio is a legitimate production path. */
-export const REEL_STUDIO_MODES: readonly ProductionMode[] = ["ai", "hybrid"];
+export const REEL_STUDIO_MODES: readonly ProductionMode[] = ["ai", "hybrid", "avatar_led"];
 
 export function allowsReelStudio(mode: ProductionMode | null): boolean {
   return mode !== null && (REEL_STUDIO_MODES as readonly string[]).includes(mode);
@@ -90,7 +105,7 @@ export function resolveBriefProductionMode(brief: BriefModeIdentity): Production
       unrecognised: false,
       contradictory: false,
       requiresConfirmation: true,
-      reason: "This brief has no production mode assigned yet. Choose Human, AI, or Hybrid before producing it.",
+      reason: "This brief has no production mode assigned yet. Choose a supported production mode before producing it.",
     };
   }
   if (!isProductionMode(raw)) {
@@ -103,14 +118,14 @@ export function resolveBriefProductionMode(brief: BriefModeIdentity): Production
     };
   }
   const humanText = briefTextIsHumanOnly(brief);
-  const contradictory = humanText && raw !== "human";
+  const contradictory = humanText && raw !== "human" && raw !== "human_led";
   return {
     mode: raw,
     unrecognised: false,
     contradictory,
     requiresConfirmation: contradictory,
     reason: contradictory
-      ? "This brief is marked for AI production but its instructions still say human production only. Regenerate it in the selected mode, or confirm the mode change explicitly."
+      ? "This brief is marked for non-human-only production but its instructions still say human production only. Regenerate it in the selected mode, or confirm the mode change explicitly."
       : null,
   };
 }
@@ -138,7 +153,7 @@ export type ModeTransitionResult =
 export function validateProductionModeTransition(input: ModeTransitionInput): ModeTransitionResult {
   const { brief, targetMode } = input;
   if (!isProductionMode(targetMode)) {
-    return { ok: false, code: "MODE_INVALID", error: "production_mode must be human, ai, or hybrid." };
+    return { ok: false, code: "MODE_INVALID", error: PRODUCTION_MODE_ERROR };
   }
   if (!input.supportedModes.includes(targetMode)) {
     return {
@@ -166,7 +181,7 @@ export function validateProductionModeTransition(input: ModeTransitionInput): Mo
     };
   }
 
-  const textConflict = briefTextIsHumanOnly(brief) && targetMode !== "human";
+  const textConflict = briefTextIsHumanOnly(brief) && targetMode !== "human" && targetMode !== "human_led";
   if (textConflict && !input.acknowledgedTextConflict) {
     return {
       ok: false,

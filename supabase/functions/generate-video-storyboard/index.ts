@@ -116,8 +116,8 @@ function rpcStatus(message: string): number {
 // Stage A — story strategy and continuity plan
 // ---------------------------------------------------------------------------
 
-const STRATEGY_SYSTEM =
-  `You are the story strategist for a faceless-format vertical Instagram Reel. You do not write shots. You decide what the Reel is trying to communicate, to whom, and how meaning develops from the first frame to the last.
+function strategySystem(avatarLed: boolean): string {
+  return `You are the story strategist for a ${avatarLed ? "avatar-led" : "faceless-format"} vertical Instagram Reel. You do not write shots. You decide what the Reel is trying to communicate, to whom, and how meaning develops from the first frame to the last.
 
 Return JSON only, no markdown or commentary, matching exactly:
 {"strategy":{"core_message":"string","viewer":"string","viewer_starting_state":"string","viewer_ending_state":"string","objective":"string","hook_strategy":"string","central_tension":"string","proof_or_payoff":"string","emotional_progression":["string"],"visual_progression":["string"],"recurring_visual_motif":"string","continuity_rules":["string"],"opening_image_purpose":"string","ending_image_purpose":"string","cta_or_final_takeaway":"string","target_duration_seconds":0,"planned_shot_count":0},"continuity":{"visual_world":"string","location_bible":"string","subject_bible":"string","palette_bible":"string","lighting_bible":"string","lens_bible":"string","recurring_objects":["string"],"screen_direction":"string","continuity_constraints":["string"],"global_negative_prompt":"string"}}
@@ -134,14 +134,15 @@ Rules:
 - The continuity plan is a production bible: it is repeated verbatim into every image prompt, so write it as concrete visual specification (materials, colour values, optics, light behaviour), not as adjectives.
 - palette_bible, lighting_bible and lens_bible must be consistent with the supplied brand grade, lens and mood.
 - global_negative_prompt lists what must never appear in any frame.
-- The format is faceless: no faces, no full figures. Hands only where essential.`;
+- ${avatarLed ? "The format is avatar-led: use only the approved Avatar OS reference pack. Do not invent appearance, voice, knowledge, proof, wardrobe, rights clearance or new character traits. The avatar may be the recurring communication identity when useful, but the storyboard must still serve the approved brief." : "The format is faceless: no faces, no full figures. Hands only where essential."}`;
+}
 
 // ---------------------------------------------------------------------------
 // Stage B — shot sequence
 // ---------------------------------------------------------------------------
 
-function shotsSystem(strategy: ReelStoryStrategy): string {
-  return `You are the storyboard director for a faceless-format vertical Instagram Reel. The story spine and the visual continuity plan are already approved and are given to you. Your job is to break that spine into an ordered shot sequence in which every shot depends on the one before it.
+function shotsSystem(strategy: ReelStoryStrategy, avatarLed: boolean): string {
+  return `You are the storyboard director for a ${avatarLed ? "avatar-led" : "faceless-format"} vertical Instagram Reel. The story spine and the visual continuity plan are already approved and are given to you. Your job is to break that spine into an ordered shot sequence in which every shot depends on the one before it.
 
 Return JSON only, no markdown or commentary, matching exactly:
 {"shots":[{"shot_number":1,"story_role":"hook","narrative_beat":"string","beat_description":"string","message_supported":"string","transition_from_previous":"string","transition_to_next":"string","visual_continuity":["string"],"emotional_intent":"string","shot_class":"metaphor|atmosphere|abstract","human_presence":"none|hands_only","shot_direction":{"subject":"string","action":"string","composition":"string","camera_angle":"string","depth_and_focus":"string","lighting":"string","visual_metaphor":"string"}}]}
@@ -164,7 +165,19 @@ shot_direction rules:
 - lighting describes how light behaves in this frame and how it differs from the previous frame.
 - Do not restate palette, lens bible, world, negatives or aspect ratio: those are appended automatically to every prompt. Writing them again wastes prompt weight.
 - Do not rely on text, logos or typography — the image model cannot render them reliably.
-- human_presence is "none" unless only hands are essential; never a face or a full person.`;
+- ${avatarLed ? "When the approved Avatar OS reference pack is relevant, make the approved avatar the subject or communication identity without inventing unapproved details. human_presence may stay \"none\" because the compiler adds the approved avatar reference separately." : "human_presence is \"none\" unless only hands are essential; never a face or a full person."}`;
+}
+
+function avatarPromptContext(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  const parts = [
+    payload.avatar_release ? `Release: ${JSON.stringify(payload.avatar_release)}` : "",
+    payload.components ? `Components: ${JSON.stringify(payload.components)}` : "",
+    payload.approved_assets ? `Assets: ${JSON.stringify(payload.approved_assets)}` : "",
+    payload.guardrails ? `Guardrails: ${JSON.stringify(payload.guardrails)}` : "",
+  ].filter((part) => part.trim().length > 0);
+  return parts.length ? parts.join("\n").slice(0, 3000) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +213,7 @@ function buildShot(
   total: number,
   continuity: ReelContinuityPlan,
   brandNegative: string | null,
+  avatarContext: string | null,
 ): { ok: true; value: NarrativeReelShot } | { ok: false; error: string } {
   const input = raw !== null && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown>
@@ -220,6 +234,7 @@ function buildShot(
     shotContinuity,
     humanPresence,
     brandNegative,
+    avatarPromptContext: avatarContext,
   });
 
   if (!compiledPromptCarriesGlobalContext(compiled, continuity)) {
@@ -261,6 +276,7 @@ function buildSequence(
   continuity: ReelContinuityPlan,
   strategy: ReelStoryStrategy,
   brandNegative: string | null,
+  avatarContext: string | null,
 ): { ok: true; value: NarrativeReelShot[] } | { ok: false; error: string } {
   const output = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
@@ -279,7 +295,7 @@ function buildSequence(
 
   const shots: NarrativeReelShot[] = [];
   for (const [index, raw] of rawShots.entries()) {
-    const built = buildShot(raw, index, rawShots.length, continuity, brandNegative);
+    const built = buildShot(raw, index, rawShots.length, continuity, brandNegative, avatarContext);
     if (!built.ok) return built;
     shots.push(built.value);
   }
@@ -341,6 +357,8 @@ Deno.serve(async (req: Request) => {
     const resolved = await resolveApprovedReelBrief(sb, projectResult.data as ReelProjectRecord);
     const project = resolved.project;
     const brief = resolved.brief;
+    const avatarLed = brief.production_mode === "avatar_led";
+    const approvedAvatarContext = avatarLed ? avatarPromptContext(project.avatar_reference_payload) : null;
 
     const brandResult = await sb.from("brand_prompt_blocks").select("*")
       .eq("id", project.brand_prompt_block_id)
@@ -380,6 +398,7 @@ Deno.serve(async (req: Request) => {
       contextFiles: (contextResult.data ?? []) as ContextFileRow[],
       executionFiles: (executionResult.data ?? []) as ExecutionFileRow[],
       clientId,
+      avatarReferencePayload: avatarLed ? project.avatar_reference_payload ?? null : null,
     });
 
     if (pack.missingMandatory.length) {
@@ -402,7 +421,8 @@ Deno.serve(async (req: Request) => {
 Produce the story strategy and the visual continuity plan for this Reel.
 Target duration is ${project.target_duration_sec} seconds.`;
 
-    let strategyText = await callModel(STRATEGY_SYSTEM, strategyUser, STRATEGY_TIMEOUT_MS, 4000);
+    const strategySystemPrompt = strategySystem(avatarLed);
+    let strategyText = await callModel(strategySystemPrompt, strategyUser, STRATEGY_TIMEOUT_MS, 4000);
     let strategyParsed = extractReelJson(strategyText) as Record<string, unknown> | null;
     let strategy = validateReelStoryStrategy(strategyParsed?.strategy);
     let continuity = validateReelContinuityPlan(strategyParsed?.continuity);
@@ -410,7 +430,7 @@ Target duration is ${project.target_duration_sec} seconds.`;
     if ((!strategy.ok || !continuity.ok) && remaining() > MIN_REPAIR_BUDGET_MS) {
       const problem = !strategy.ok ? strategy.error : (continuity as { error: string }).error;
       strategyText = await callModel(
-        `${STRATEGY_SYSTEM}\nREPAIR REQUIRED: the previous response was invalid (${problem}). Return one complete corrected replacement.`,
+        `${strategySystemPrompt}\nREPAIR REQUIRED: the previous response was invalid (${problem}). Return one complete corrected replacement.`,
         strategyUser,
         Math.min(remaining() - 12_000, STRATEGY_TIMEOUT_MS),
         4000,
@@ -438,8 +458,9 @@ Break this strategy into exactly ${strategy.value.planned_shot_count} shots in f
       return fail(504, "shots", "Not enough time remained to generate the shot sequence.");
     }
 
+    const shotsSystemPrompt = shotsSystem(strategy.value, avatarLed);
     let shotsText = await callModel(
-      shotsSystem(strategy.value),
+      shotsSystemPrompt,
       shotsUser,
       Math.min(remaining() - 26_000, SHOTS_TIMEOUT_MS),
       8000,
@@ -449,16 +470,17 @@ Break this strategy into exactly ${strategy.value.planned_shot_count} shots in f
       continuity.value,
       strategy.value,
       brandNegative,
+      approvedAvatarContext,
     );
 
     if (!sequence.ok && remaining() > MIN_REPAIR_BUDGET_MS) {
       shotsText = await callModel(
-        `${shotsSystem(strategy.value)}\nREPAIR REQUIRED: the previous response was invalid (${sequence.error}). Return one complete corrected replacement.`,
+        `${shotsSystemPrompt}\nREPAIR REQUIRED: the previous response was invalid (${sequence.error}). Return one complete corrected replacement.`,
         shotsUser,
         Math.min(remaining() - 14_000, SHOTS_TIMEOUT_MS),
         8000,
       );
-      sequence = buildSequence(extractReelJson(shotsText), continuity.value, strategy.value, brandNegative);
+      sequence = buildSequence(extractReelJson(shotsText), continuity.value, strategy.value, brandNegative, approvedAvatarContext);
     }
     if (!sequence.ok) return fail(502, "shots", `Shot sequence was invalid: ${sequence.error}`);
 
@@ -506,7 +528,7 @@ ${contextText}`;
           );
         }
         const repairText = await callModel(
-          `${shotsSystem(strategy.value)}
+          `${shotsSystemPrompt}
 REPAIR REQUIRED: a reviewer rejected the previous sequence for these reasons:
 ${failures.map((f) => `- ${f}`).join("\n")}
 Return one complete corrected replacement sequence that fixes every point. Keep what worked; do not restate the same problems.`,
@@ -522,6 +544,7 @@ ${sequenceSummary(shots)}`,
           continuity.value,
           strategy.value,
           brandNegative,
+          approvedAvatarContext,
         );
         if (!repairedSequence.ok) {
           return fail(

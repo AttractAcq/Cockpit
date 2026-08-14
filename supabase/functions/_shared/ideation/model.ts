@@ -153,6 +153,13 @@ offer-supporting ideas, but it does not override proof, manual, or research-led
 Ideation sources.
 {{SEASONAL_OFFERS}}
 
+APPROVED AVATAR OS — OPTIONAL COMMUNICATION IDENTITY CONTEXT
+Use this to understand available avatar voice, knowledge boundaries, content
+formats, creative direction, and personality. Avatar-led ideas are optional;
+do not make every candidate avatar-led, and never invent expertise outside the
+approved Avatar OS knowledge boundaries.
+{{AVATAR_OS}}
+
 APPROVED BUSINESS CONTEXT — TRUSTED BUSINESS TRUTH
 {{CONTEXT}}
 
@@ -350,6 +357,7 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
   const campaign = evidenceRegistry.filter((source) => source.source_type === "approved_campaign_intelligence");
   const mainOffers = evidenceRegistry.filter((source) => source.source_type === "approved_main_offer");
   const seasonalOffers = evidenceRegistry.filter((source) => source.source_type === "approved_seasonal_offer");
+  const avatarOs = evidenceRegistry.filter((source) => source.source_type === "approved_avatar_os");
   const context = evidenceRegistry.filter((source) => source.source_type === "approved_context");
   const external = evidenceRegistry.filter((source) => source.source_type === "external_research");
 
@@ -379,6 +387,9 @@ export async function buildIdeationPrompts(input: IdeationPromptInput): Promise<
     SEASONAL_OFFERS: seasonalOffers.length
       ? serializeSourceCardSection(seasonalOffers, claimCards)
       : "No approved Seasonal Offers input is active for this run.",
+    AVATAR_OS: avatarOs.length
+      ? serializeSourceCardSection(avatarOs, claimCards)
+      : "No approved Avatar OS input is active for this run.",
     CONTEXT: serializeSourceCardSection(context, claimCards),
     EXTERNAL: external.length
       ? serializeSourceCardSection(external, claimCards)

@@ -15,6 +15,7 @@ export interface TechniqueResearch {
     | "approved_campaign_intelligence"
     | "approved_main_offer"
     | "approved_seasonal_offer"
+    | "approved_avatar_os"
     | "external_research";
   sourceUrl: string;
   sourceTitle: string;

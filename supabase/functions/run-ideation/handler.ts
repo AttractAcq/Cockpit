@@ -465,7 +465,7 @@ export function createRunIdeationHandler(deps: RunIdeationDependencies) {
       ? await deps.buildStrategicInputEvidenceSources(
         persistence,
         clientId,
-        parsedBody.body.strategic_input_sources ?? ["campaign_intelligence", "main_offer", "seasonal_offer"],
+        parsedBody.body.strategic_input_sources ?? ["campaign_intelligence", "main_offer", "seasonal_offer", "avatar"],
       )
       : { inputs: [], evidenceSources: [], snapshot: { policy: "not_configured", selected_source_kinds: [], counts: {} } };
     const configurationSnapshot = await deps.buildConfigurationSnapshot({

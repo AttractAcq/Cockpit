@@ -13,6 +13,7 @@ import {
 import {
   isProductionMode,
   PRODUCTION_MODE_LABEL,
+  PRODUCTION_MODE_ERROR,
   type ProductionMode,
 } from "../_shared/production-mode-contract.ts";
 
@@ -119,7 +120,7 @@ Deno.serve(async (req: Request) => {
     // Omitting the field keeps the format's historical default.
     const requestedMode = body.production_mode?.trim() ?? "";
     if (requestedMode && !isProductionMode(requestedMode)) {
-      return failure(400, "request", "production_mode must be human, ai, or hybrid.");
+      return failure(400, "request", PRODUCTION_MODE_ERROR);
     }
     if (requestedMode && !contract.supportedModes.includes(requestedMode as ProductionMode)) {
       return failure(422, "request", `${requestedMode} production is not supported for ${assetFormat} briefs.`);
@@ -128,7 +129,7 @@ Deno.serve(async (req: Request) => {
       ? requestedMode as ProductionMode
       : contract.defaultMode;
     const modeSource = requestedMode ? "explicit_operator_selection" : (contract.defaultMode ? "format_default" : "unassigned");
-    const isAiMode = productionMode === "ai" || productionMode === "hybrid";
+    const isAiMode = productionMode === "ai" || productionMode === "hybrid" || productionMode === "avatar_led" || productionMode === "faceless" || productionMode === "proof_led";
     const contextAuthority = contexts.map((file) => `\n### ${file.file_name}\n${compact(file.content_md, 900)}`).join("\n");
     const executionAuthority = executions.map((file) => {
       const limit = file.file_number === 10 || file.file_number === 11 ? 2200 : 700;
@@ -141,11 +142,19 @@ Deno.serve(async (req: Request) => {
     // generation" for every reel. It now follows the declared mode instead.
     const modeInstruction = productionMode === null
       ? "PRODUCTION MODE: Not selected yet — describe the work without assuming who or what produces it."
-      : productionMode === "human"
-        ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.human} — a human contractor produces this asset end to end. Do not suggest AI generation.`
+      : productionMode === "human" || productionMode === "human_led"
+        ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL[productionMode]} — a human produces this asset end to end. Do not suggest AI generation.`
         : productionMode === "ai"
           ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.ai}${contract.aiPath === "reel_studio" ? " via Reel Studio (AI-generated cinematic B-roll shots, assembled later)" : ""} — do NOT include any human-production-only instruction. State the AI visual constraints and the human-presence limits explicitly.`
-          : `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.hybrid}${contract.aiPath === "reel_studio" ? " via Reel Studio" : ""} — state exactly which parts are AI-generated and which parts a human finishes.`;
+          : productionMode === "hybrid"
+            ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.hybrid}${contract.aiPath === "reel_studio" ? " via Reel Studio" : ""} — state exactly which parts are AI-generated and which parts a human finishes.`
+            : productionMode === "avatar_led"
+              ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.avatar_led}${contract.aiPath === "reel_studio" ? " via Reel Studio" : ""} — use approved Avatar OS references only where available. Include Avatar OS References and Avatar Knowledge Boundaries. Do not invent character expertise, appearance, voice, or proof.`
+              : productionMode === "faceless"
+                ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.faceless} — keep the production character-free and face-free. Do not require Avatar OS assets.`
+                : productionMode === "proof_led"
+                  ? `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.proof_led} — make verified proof the production anchor. Never invent proof, metrics, testimonials, or case studies.`
+                  : `PRODUCTION MODE: ${PRODUCTION_MODE_LABEL.static} — produce a static asset; avoid video-specific instructions.`;
     const reelAiGuidance = isAiMode && assetFormat === "reel_video"
       ? `\n\nAI REEL CONSTRAINTS — this brief will drive AI shot generation:
 - The Shot List must be produceable as separate short AI-generated B-roll clips (roughly 3-5 seconds each), not as one continuous filmed take.

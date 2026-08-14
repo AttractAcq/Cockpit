@@ -115,6 +115,8 @@ Deno.serve(async (req: Request) => {
           // Phase 2, Workstream D: lets the Assets group show clip order and
           // whether every expected clip is present without a generation job.
           video_project_title: project.data.title, sequence_count: shots.data.length,
+          avatar_release_id: project.data.avatar_release_id ?? null,
+          avatar_asset_ids: project.data.avatar_asset_ids ?? [],
         },
       }).select("id").single();
       if (assetError || !asset) throw new Error(`Asset row insert failed for shot ${shot.shot_number}: ${assetError?.message ?? "no row returned"}`);
@@ -124,7 +126,7 @@ Deno.serve(async (req: Request) => {
 
     const completedAt = new Date().toISOString();
     const { data: updatedBrief, error: briefUpdateError } = await sb.from("client_production_briefs")
-      .update({ production_mode: "ai", production_status: "produced", updated_at: completedAt }).eq("id", brief.data.id).select("*").single();
+      .update({ production_mode: brief.data.production_mode ?? "ai", production_status: "produced", updated_at: completedAt }).eq("id", brief.data.id).select("*").single();
     if (briefUpdateError || !updatedBrief) throw new Error(`Could not finalize the production brief: ${briefUpdateError?.message ?? "no row returned"}`);
 
     const previousArchive = await sb.from("client_assets").update({ status: "archived", updated_at: completedAt })

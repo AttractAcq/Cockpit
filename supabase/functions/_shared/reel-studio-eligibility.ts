@@ -146,7 +146,7 @@ export function resolveReelSourceEligibility(input: ReelSourceInput): ReelSource
     return ineligible(
       "brief_mode_unset",
       false,
-      resolution.reason ?? "This brief has no production mode assigned. Set it to AI or Hybrid to use Reel Studio.",
+      resolution.reason ?? "This brief has no production mode assigned. Set it to AI, Hybrid, or Avatar-led to use Reel Studio.",
     );
   }
   if (resolution.contradictory) {
@@ -161,7 +161,7 @@ export function resolveReelSourceEligibility(input: ReelSourceInput): ReelSource
     return ineligible(
       "brief_mode_human",
       false,
-      "This brief is marked for human production. Change its production mode to AI or Hybrid before producing it in Reel Studio.",
+      "This brief is not marked for a Reel Studio-capable mode. Change its production mode to AI, Hybrid, or Avatar-led before producing it in Reel Studio.",
       resolution.mode,
     );
   }

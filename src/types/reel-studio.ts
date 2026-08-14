@@ -59,6 +59,9 @@ export interface VideoProjectRow {
   // ── Stage J: production strategy + style ────────────────────────────────
   production_strategy?: import("./reel-production").ProductionStrategy | null;
   reel_style_id?: string | null;
+  avatar_release_id?: string | null;
+  avatar_asset_ids?: string[];
+  avatar_reference_payload?: Record<string, unknown>;
 }
 
 /** The narrative job a shot performs in the sequence. */

@@ -2,8 +2,8 @@ import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { createEvidenceSource, type IdeationEvidenceSource } from "./evidence.ts";
 import { sha256, stableJson } from "./hash.ts";
 
-export type SourceKind = "campaign_intelligence" | "main_offer" | "seasonal_offer";
-const ALL_SOURCE_KINDS: SourceKind[] = ["campaign_intelligence", "main_offer", "seasonal_offer"];
+export type SourceKind = "campaign_intelligence" | "main_offer" | "seasonal_offer" | "avatar";
+const ALL_SOURCE_KINDS: SourceKind[] = ["campaign_intelligence", "main_offer", "seasonal_offer", "avatar"];
 
 interface CampaignPeriodRow {
   id: string;
@@ -77,12 +77,36 @@ interface ReleaseRow {
   approved_at: string;
 }
 
+type AvatarComponentType =
+  | "avatar_strategy"
+  | "appearance"
+  | "environment"
+  | "voice_personality"
+  | "creative_direction"
+  | "knowledge_expertise"
+  | "content_format"
+  | "asset_library";
+
+interface AvatarComponentRow {
+  id: string;
+  release_id: string;
+  component_type: AvatarComponentType;
+  component_key: string;
+  title: string;
+  summary: string;
+  strategic_rationale: string;
+  evidence_summary: string;
+  structured_payload: Record<string, unknown>;
+  display_order: number;
+}
+
 export interface IdeationStrategicInput {
   source_kind: SourceKind;
   source_release_id: string;
   campaign_period_id: string | null;
   main_offer_id: string | null;
   seasonal_offer_id: string | null;
+  avatar_component_id: string | null;
   title: string;
   summary: string;
   source_url: string;
@@ -112,6 +136,83 @@ function textLines(lines: Array<string | null | undefined>): string {
 
 function shortList(values: string[] | null | undefined): string {
   return Array.isArray(values) && values.length ? values.join(", ") : "";
+}
+
+function payloadText(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function payloadList(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).join(", ")
+    : "";
+}
+
+function avatarComponentExcerpt(component: AvatarComponentRow, release: ReleaseRow): string {
+  const payload = component.structured_payload;
+  const base = [
+    `Avatar OS v${release.version}: ${release.title}`,
+    `Component: ${component.title}`,
+    `Component type: ${component.component_type}`,
+    `Summary: ${component.summary}`,
+    `Strategic rationale: ${component.strategic_rationale}`,
+    `Evidence summary: ${component.evidence_summary}`,
+  ];
+  const componentLines: Record<AvatarComponentType, string[]> = {
+    avatar_strategy: [
+      `Avatar recommendation: ${payloadText(payload, "avatar_recommendation")}`,
+      `Avatar concept: ${payloadText(payload, "avatar_concept")}`,
+      `Audience relationship: ${payloadText(payload, "audience_relationship")}`,
+      `Proof relationship: ${payloadText(payload, "proof_relationship")}`,
+      `Education role: ${payloadText(payload, "education_role")}`,
+      `Downstream guidance: ${payloadText(payload, "downstream_usage_guidance")}`,
+    ],
+    appearance: [
+      `Visual concept alignment: ${payloadText(payload, "visual_concept_alignment")}`,
+      `Face direction: ${payloadText(payload, "face_direction")}`,
+      `Clothing direction: ${payloadText(payload, "clothing_direction")}`,
+      `Distinguishing characteristics: ${payloadList(payload, "distinguishing_characteristics")}`,
+      `Consistency notes: ${payloadList(payload, "visual_consistency_rules")}`,
+    ],
+    environment: [
+      `Primary environment: ${payloadText(payload, "primary_environment")}`,
+      `Environment rationale: ${payloadText(payload, "environment_rationale")}`,
+      `Recurring sets: ${payloadList(payload, "recurring_sets")}`,
+      `Props and tools: ${payloadList(payload, "props_and_tools")}`,
+    ],
+    voice_personality: [
+      `Voice direction: ${payloadText(payload, "voice_direction")}`,
+      `Personality traits: ${payloadList(payload, "personality_traits")}`,
+      `Vocabulary: ${payloadList(payload, "vocabulary")}`,
+      `Teaching style: ${payloadText(payload, "teaching_style")}`,
+      `Recurring phrases: ${payloadList(payload, "recurring_phrases")}`,
+    ],
+    creative_direction: [
+      `Camera style: ${payloadText(payload, "camera_style")}`,
+      `Editing pace: ${payloadText(payload, "editing_pace")}`,
+      `Visual treatment: ${payloadText(payload, "visual_treatment")}`,
+      `Graphic treatment: ${payloadText(payload, "graphic_treatment")}`,
+      `Sound direction: ${payloadText(payload, "sound_direction")}`,
+    ],
+    knowledge_expertise: [
+      `Knowledge boundaries: ${payloadText(payload, "knowledge_boundaries")}`,
+      `Allowed topics: ${payloadList(payload, "allowed_topics")}`,
+      `Proof usage rules: ${payloadList(payload, "proof_usage_rules")}`,
+      `Do not claim: ${payloadList(payload, "disallowed_claims")}`,
+    ],
+    content_format: [
+      `Format selection rules: ${payloadList(payload, "format_selection_rules")}`,
+      `Production handoff fields: ${payloadList(payload, "production_handoff_fields")}`,
+      `Excluded until reviewed: ${payloadList(payload, "excluded_formats_until_reviewed")}`,
+    ],
+    asset_library: [
+      `Generation requirements: ${payloadList(payload, "downstream_generation_requirements")}`,
+      `Asset guardrails: ${payloadList(payload, "asset_generation_guardrails")}`,
+    ],
+  };
+  return textLines([...base, ...componentLines[component.component_type]]).slice(0, 4000);
 }
 
 async function withHash(input: Omit<IdeationStrategicInputPack["snapshot"]["inputs"][number], "content_hash"> & {
@@ -186,6 +287,7 @@ export async function loadIdeationStrategicInputs(
           campaign_period_id: period.id,
           main_offer_id: null,
           seasonal_offer_id: null,
+          avatar_component_id: null,
           title: period.title,
           summary: period.strategic_theme,
           source_url: sourceUrl,
@@ -268,6 +370,7 @@ export async function loadIdeationStrategicInputs(
           campaign_period_id: null,
           main_offer_id: offer.id,
           seasonal_offer_id: null,
+          avatar_component_id: null,
           title: offer.offer_name,
           summary: offer.promised_outcome || offer.problem_addressed,
           source_url: sourceUrl,
@@ -340,6 +443,7 @@ export async function loadIdeationStrategicInputs(
           campaign_period_id: null,
           main_offer_id: null,
           seasonal_offer_id: offer.id,
+          avatar_component_id: null,
           title: offer.title,
           summary: offer.offer_angle || offer.packaging_direction,
           source_url: sourceUrl,
@@ -368,16 +472,83 @@ export async function loadIdeationStrategicInputs(
     }
   }
 
+  const avatarPointer = include.has("avatar")
+    ? await sb.from("client_avatar_active_releases")
+    .select("release_id")
+    .eq("client_id", clientId)
+    .maybeSingle()
+    : { data: null, error: null };
+  if (avatarPointer.error) throw new Error(avatarPointer.error.message);
+  if (avatarPointer.data?.release_id) {
+    const [releaseResult, componentsResult] = await Promise.all([
+      sb.from("client_avatar_releases")
+        .select("id,version,title,summary,approved_at")
+        .eq("client_id", clientId)
+        .eq("id", avatarPointer.data.release_id)
+        .eq("status", "approved")
+        .maybeSingle(),
+      sb.from("client_avatar_components")
+        .select("id,release_id,component_type,component_key,title,summary,strategic_rationale,evidence_summary,structured_payload,display_order")
+        .eq("client_id", clientId)
+        .eq("release_id", avatarPointer.data.release_id)
+        .in("component_type", ["avatar_strategy", "voice_personality", "creative_direction", "knowledge_expertise", "content_format"])
+        .order("display_order"),
+    ]);
+    if (releaseResult.error || componentsResult.error) {
+      throw new Error(releaseResult.error?.message ?? componentsResult.error?.message ?? "Avatar OS inputs could not be loaded.");
+    }
+    const release = releaseResult.data as ReleaseRow | null;
+    if (release) {
+      for (const component of (componentsResult.data ?? []) as AvatarComponentRow[]) {
+        const excerpt = avatarComponentExcerpt(component, release);
+        const sourceUrl = `aa-authority://client/${clientId}/avatars/component/${component.id}`;
+        inputs.push({
+          source_kind: "avatar",
+          source_release_id: release.id,
+          campaign_period_id: null,
+          main_offer_id: null,
+          seasonal_offer_id: null,
+          avatar_component_id: component.id,
+          title: component.title,
+          summary: component.summary,
+          source_url: sourceUrl,
+          payload: {
+            release_version: release.version,
+            component_type: component.component_type,
+            component_key: component.component_key,
+            avatar_led_optional: true,
+          },
+          display_order: displayOrder++,
+        });
+        evidenceSources.push(await createEvidenceSource({
+          sourceId: `avatar:${component.id}:v${release.version}`,
+          sourceRef: `Avatar OS:${component.title}`,
+          sourceType: "approved_avatar_os",
+          sourceUrl,
+          excerpt,
+        }));
+        snapshotInputs.push(await withHash({
+          source_kind: "avatar",
+          source_release_id: release.id,
+          source_entity_id: component.id,
+          title: component.title,
+          excerpt,
+        }));
+      }
+    }
+  }
+
   const counts: Record<SourceKind, number> = {
     campaign_intelligence: inputs.filter((input) => input.source_kind === "campaign_intelligence").length,
     main_offer: inputs.filter((input) => input.source_kind === "main_offer").length,
     seasonal_offer: inputs.filter((input) => input.source_kind === "seasonal_offer").length,
+    avatar: inputs.filter((input) => input.source_kind === "avatar").length,
   };
   return {
     inputs,
     evidenceSources,
     snapshot: {
-      policy: "ideation_hub_optional_campaign_offer_inputs_v1",
+      policy: "ideation_hub_optional_campaign_offer_avatar_inputs_v1",
       selected_source_kinds: selectedKinds,
       counts,
       inputs: snapshotInputs,

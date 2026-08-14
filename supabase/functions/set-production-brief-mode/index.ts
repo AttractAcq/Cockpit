@@ -18,6 +18,7 @@ import {
 import {
   briefTextIsHumanOnly,
   isProductionMode,
+  PRODUCTION_MODE_ERROR,
   validateProductionModeTransition,
   type ProductionMode,
 } from "../_shared/production-mode-contract.ts";
@@ -54,7 +55,7 @@ Deno.serve(async (req: Request) => {
     const targetMode = body.production_mode?.trim() ?? "";
     const expectedUpdatedAt = body.expected_updated_at?.trim() ?? "";
     if (!briefId) return fail(400, "request", "production_brief_id is required.");
-    if (!isProductionMode(targetMode)) return fail(400, "request", "production_mode must be human, ai, or hybrid.");
+    if (!isProductionMode(targetMode)) return fail(400, "request", PRODUCTION_MODE_ERROR);
     if (!expectedUpdatedAt) return fail(400, "request", "expected_updated_at is required for optimistic concurrency.");
 
     const loaded = await sb.from("client_production_briefs").select("*").eq("id", briefId).maybeSingle();
@@ -84,13 +85,13 @@ Deno.serve(async (req: Request) => {
     const textConflict = transition.textConflict;
     const metadata = {
       ...(brief.metadata ?? {}),
-      human_only: targetMode === "human",
+      human_only: targetMode === "human" || targetMode === "human_led",
       production_mode: targetMode,
       production_mode_source: "explicit_operator_selection",
       production_mode_set_at: changedAt,
       production_mode_set_by: user.id,
       production_mode_previous: previousMode,
-      ai_production_path: targetMode === "human" ? null : contract.aiPath,
+      ai_production_path: targetMode === "human" || targetMode === "human_led" ? null : contract.aiPath,
       // Kept visible so the UI can warn that the markdown still contradicts the
       // selected mode until the brief is regenerated in that mode.
       production_mode_text_conflict: textConflict,
@@ -122,7 +123,7 @@ Deno.serve(async (req: Request) => {
         new_mode: targetMode,
         brief_status: brief.status,
         text_conflict_confirmed: textConflict,
-        ai_production_path: targetMode === "human" ? null : contract.aiPath,
+        ai_production_path: targetMode === "human" || targetMode === "human_led" ? null : contract.aiPath,
       },
     });
 

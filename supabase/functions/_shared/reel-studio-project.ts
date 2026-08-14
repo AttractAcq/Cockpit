@@ -19,6 +19,9 @@ export interface ReelProjectRecord {
   archetype: string;
   awareness_stage: string;
   target_duration_sec: number;
+  avatar_release_id?: string | null;
+  avatar_asset_ids?: string[];
+  avatar_reference_payload?: Record<string, unknown> | null;
   updated_at: string;
 }
 

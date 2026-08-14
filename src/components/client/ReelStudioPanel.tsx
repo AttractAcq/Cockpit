@@ -898,6 +898,9 @@ function ProjectDetail({ project, organicRows, adsRows, brandBlocks, motions, mo
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
     {motionsError && <div role="alert" className="rounded border border-warn/20 bg-warn/5 px-3 py-2 text-xs text-warn">Motion catalogue unavailable: {motionsError}. Storyboard planning and image generation are unaffected; motion must load before video generation.</div>}
     {handoffInfo && <div role="status" className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{handoffInfo}</div>}
+    {project.avatar_release_id && <div className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-2xs leading-5 text-teal">
+      Avatar OS references attached · release {project.avatar_release_id.slice(0, 8)} · {(project.avatar_asset_ids ?? []).length} approved asset reference{(project.avatar_asset_ids ?? []).length === 1 ? "" : "s"} available to storyboard and image prompts.
+    </div>}
     {spine.strategy && <StoryboardSummary strategy={spine.strategy} continuity={spine.continuity} shots={shots} />}
     <ReelProductionPanel
       clientId={project.client_id}

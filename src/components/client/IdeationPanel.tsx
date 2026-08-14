@@ -83,12 +83,14 @@ const STRATEGIC_SOURCE_OPTIONS: Array<{
   { value: "campaign_intelligence", label: "Campaign Intelligence", description: "Use approved timing, customer context, and strategic themes." },
   { value: "main_offer", label: "Main Offers", description: "Use approved commercial architecture and offer value equation." },
   { value: "seasonal_offer", label: "Seasonal Offers", description: "Use approved campaign-specific offer packaging." },
+  { value: "avatar", label: "Avatar OS", description: "Use approved voice, knowledge boundaries, formats, and creative identity." },
 ];
 
 const STRATEGIC_SOURCE_LABEL: Record<IdeationStrategicSourceKind, string> = {
   campaign_intelligence: "Campaign",
   main_offer: "Main Offer",
   seasonal_offer: "Seasonal Offer",
+  avatar: "Avatar OS",
 };
 
 function errorText(error: unknown): string {
@@ -143,6 +145,7 @@ function strategicKindsForCandidate(candidate: IdeationCandidate): IdeationStrat
     if (reference.source_url.includes("/campaign-intelligence/")) kinds.add("campaign_intelligence");
     if (reference.source_url.includes("/main-offers/")) kinds.add("main_offer");
     if (reference.source_url.includes("/seasonal-offers/")) kinds.add("seasonal_offer");
+    if (reference.source_url.includes("/avatars/")) kinds.add("avatar");
   }
   return [...kinds];
 }
@@ -155,7 +158,7 @@ function selectedSourceKinds(run: IdeationRun | null): IdeationStrategicSourceKi
   const selected = (inputs as Record<string, unknown>).selected_source_kinds;
   if (!Array.isArray(selected)) return STRATEGIC_SOURCE_OPTIONS.map((source) => source.value);
   return selected.filter((value): value is IdeationStrategicSourceKind =>
-    value === "campaign_intelligence" || value === "main_offer" || value === "seasonal_offer",
+    value === "campaign_intelligence" || value === "main_offer" || value === "seasonal_offer" || value === "avatar",
   );
 }
 
@@ -299,10 +302,13 @@ function StrategicInputsCard({
   inputs: IdeationAuthorityInput[];
   selectedKinds: IdeationStrategicSourceKind[];
 }) {
-  const counts = inputs.reduce<Record<IdeationAuthorityInput["source_kind"], number>>((acc, input) => {
-    acc[input.source_kind] += 1;
-    return acc;
-  }, { campaign_intelligence: 0, main_offer: 0, seasonal_offer: 0 });
+  const counts: Record<IdeationStrategicSourceKind, number> = {
+    campaign_intelligence: 0,
+    main_offer: 0,
+    seasonal_offer: 0,
+    avatar: 0,
+  };
+  for (const input of inputs) counts[input.source_kind] += 1;
   const preview = inputs.slice(0, 5);
   return (
     <div className="mt-4 rounded border border-line bg-ink p-3">
@@ -310,12 +316,12 @@ function StrategicInputsCard({
         <div className="min-w-0 flex-1">
           <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Strategic Inputs</h2>
           <p className="mt-1 text-2xs text-paper-3">
-            Optional Campaign and Offer authority available to this Ideation cycle.
+            Optional Campaign, Offer, and Avatar authority available to this Ideation cycle.
           </p>
           <p className="mt-1 font-mono text-2xs text-paper-3">
             Source policy: {selectedKinds.length
               ? selectedKinds.map((kind) => STRATEGIC_SOURCE_LABEL[kind]).join(", ")
-              : "No Campaign or Offer authority"}
+              : "No Campaign, Offer, or Avatar authority"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -327,6 +333,9 @@ function StrategicInputsCard({
           </Tag>
           <Tag kind={counts.seasonal_offer ? "task" : "muted"}>
             Seasonal {counts.seasonal_offer}
+          </Tag>
+          <Tag kind={counts.avatar ? "decision" : "muted"}>
+            Avatar {counts.avatar}
           </Tag>
         </div>
       </div>
@@ -351,7 +360,7 @@ function StrategicInputsCard({
         </div>
       ) : (
         <p className="mt-3 rounded border border-dashed border-line px-3 py-3 text-2xs text-paper-3">
-          No approved Campaign Intelligence or Offer inputs were active when this run was created.
+          No approved Campaign Intelligence, Offer, or Avatar inputs were active when this run was created.
         </p>
       )}
     </div>
@@ -697,7 +706,7 @@ function GenerationModal({
           ))}
         </div>
         <p className="text-2xs text-paper-3">
-          These inputs are optional context. Proof, manual ideas, and the seven research techniques remain independent Ideation sources.
+          These inputs are optional context. Proof, manual ideas, and the seven research techniques remain independent Ideation sources; avatar-led ideas are never mandatory.
         </p>
       </fieldset>
       {error && <div role="alert" className="mt-4 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}

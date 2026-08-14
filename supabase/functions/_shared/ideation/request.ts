@@ -5,7 +5,7 @@ export interface IdeationRequestBody {
   end_date?: string;
   month?: string;
   idempotency_key?: string;
-  strategic_input_sources?: Array<"campaign_intelligence" | "main_offer" | "seasonal_offer">;
+  strategic_input_sources?: Array<"campaign_intelligence" | "main_offer" | "seasonal_offer" | "avatar">;
 }
 
 export function parseIdeationRequestBody(value: unknown):
@@ -54,14 +54,14 @@ export function parseIdeationRequestBody(value: unknown):
         message: "strategic_input_sources must be an array when supplied.",
       };
     }
-    const allowedSources = new Set(["campaign_intelligence", "main_offer", "seasonal_offer"]);
+    const allowedSources = new Set(["campaign_intelligence", "main_offer", "seasonal_offer", "avatar"]);
     const seen = new Set<string>();
     for (const entry of row.strategic_input_sources) {
       if (typeof entry !== "string" || !allowedSources.has(entry)) {
         return {
           ok: false,
           code: "MALFORMED_REQUEST",
-          message: "strategic_input_sources may only contain campaign_intelligence, main_offer, or seasonal_offer.",
+          message: "strategic_input_sources may only contain campaign_intelligence, main_offer, seasonal_offer, or avatar.",
         };
       }
       if (seen.has(entry)) {

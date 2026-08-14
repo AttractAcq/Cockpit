@@ -3275,6 +3275,7 @@ export async function createVideoProject(input: {
   targetDurationSec: number;
   brandPromptBlockId?: string;
   clientProductionBriefId?: string;
+  avatarAssetIds?: string[];
 }): Promise<VideoProjectRow> {
   const result = await invokeFn<{ ok: boolean; project?: VideoProjectRow; message?: string }>("create-video-project", {
     client_id: input.clientId,
@@ -3286,6 +3287,7 @@ export async function createVideoProject(input: {
     target_duration_sec: input.targetDurationSec,
     brand_prompt_block_id: input.brandPromptBlockId,
     client_production_brief_id: input.clientProductionBriefId,
+    avatar_asset_ids: input.avatarAssetIds,
   });
   if (!result.ok || !result.project) throw new Error(result.message ?? "create-video-project returned no project.");
   return result.project;

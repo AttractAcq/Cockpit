@@ -15,7 +15,7 @@
 import type { ContractResult } from "./reel-studio-contract.ts";
 import type { ReelContinuityPlan } from "./reel-studio-story-contract.ts";
 
-export const PROMPT_COMPILER_VERSION = "reel-prompt-compiler@1.0.0";
+export const PROMPT_COMPILER_VERSION = "reel-prompt-compiler@1.1.0";
 
 /** Upper bound on a compiled prompt. Beyond this, image models reweight badly. */
 export const MAX_COMPILED_PROMPT_CHARS = 2000;
@@ -45,6 +45,8 @@ export interface CompilePromptInput {
   humanPresence: "none" | "hands_only";
   /** Brand negative requirements, merged with the global negative prompt. */
   brandNegative: string | null;
+  /** Approved Avatar OS reference text for avatar_led projects only. */
+  avatarPromptContext?: string | null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -197,7 +199,10 @@ export function compileShotPrompt(input: CompilePromptInput): string {
   const d = input.direction;
   const c = input.continuity;
 
-  const humanClause = input.humanPresence === "hands_only"
+  const avatarContext = (input.avatarPromptContext ?? "").trim();
+  const humanClause = avatarContext
+    ? `Avatar-led frame: use only the approved Avatar OS visual identity and reference pack (${bounded(avatarContext)}). Do not create a real human likeness outside that approved avatar.`
+    : input.humanPresence === "hands_only"
     ? "Only hands are visible; no face and no full figure in frame."
     : "No people, no faces and no body parts in frame.";
 
@@ -240,6 +245,7 @@ export function compileShotPrompt(input: CompilePromptInput): string {
     ...STRUCTURAL_NEGATIVES,
     ...(input.brandNegative ? [input.brandNegative] : []),
     c.global_negative_prompt,
+    ...(avatarContext ? ["no unapproved character design, no unapproved wardrobe, no real-person likeness unless approved in Avatar OS"] : []),
   ]);
   const tail = `Avoid: ${negatives.join("; ")}.`;
 

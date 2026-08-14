@@ -7,6 +7,7 @@ import { cors, json, svc } from "../_shared/aa.ts";
 import { STAFF_ROLES } from "../_shared/staff-roles.ts";
 import { validateBoundReelBrief } from "../_shared/reel-studio-contract.ts";
 import { resolveReelSourceEligibility } from "../_shared/reel-studio-eligibility.ts";
+import { isProductionMode, type ProductionMode } from "../_shared/production-mode-contract.ts";
 
 const FUNCTION_NAME = "create-video-project";
 const ARCHETYPES = new Set(["A1", "A2", "A3", "A4", "A5"]);
@@ -26,6 +27,112 @@ interface Body {
   target_duration_sec?: number;
   brand_prompt_block_id?: string;
   client_production_brief_id?: string;
+  avatar_asset_ids?: unknown;
+}
+
+type JsonRecord = Record<string, unknown>;
+
+const AVATAR_COMPONENT_TYPES = [
+  "appearance",
+  "environment",
+  "voice_personality",
+  "creative_direction",
+  "knowledge_expertise",
+  "content_format",
+] as const;
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
+}
+
+function compactText(value: unknown, limit: number): string {
+  return typeof value === "string" ? value.trim().slice(0, limit) : "";
+}
+
+function payloadSummary(payload: JsonRecord): JsonRecord {
+  return {
+    title: compactText(payload.title, 300),
+    summary: compactText(payload.summary, 900),
+    strategic_rationale: compactText(payload.strategic_rationale, 900),
+    structured_payload: payload.structured_payload && typeof payload.structured_payload === "object"
+      ? payload.structured_payload
+      : {},
+  };
+}
+
+async function loadApprovedAvatarReferences(
+  sb: ReturnType<typeof svc>,
+  clientId: string,
+  requestedAssetIds: string[],
+): Promise<{ ok: true; releaseId: string; componentIds: string[]; assetIds: string[]; payload: JsonRecord } | { ok: false; message: string }> {
+  const active = await sb.from("client_avatar_active_releases")
+    .select("release_id, release:client_avatar_releases(id, client_id, version, status, title, summary)")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (active.error) return { ok: false, message: active.error.message };
+  const release = Array.isArray(active.data?.release) ? active.data?.release[0] : active.data?.release;
+  if (!active.data?.release_id || !release || release.status !== "approved") {
+    return { ok: false, message: "Avatar-led Reel Studio projects require an active approved Avatar OS release." };
+  }
+
+  const components = await sb.from("client_avatar_components")
+    .select("id, component_type, title, summary, strategic_rationale, structured_payload")
+    .eq("client_id", clientId)
+    .eq("release_id", active.data.release_id)
+    .in("component_type", [...AVATAR_COMPONENT_TYPES])
+    .order("display_order");
+  if (components.error) return { ok: false, message: components.error.message };
+
+  let assetQuery = sb.from("client_avatar_assets")
+    .select("id, asset_type, title, description, storage_bucket, storage_path, external_url, prompt_payload, generation_provider, generation_model, version")
+    .eq("client_id", clientId)
+    .eq("release_id", active.data.release_id)
+    .eq("status", "approved")
+    .order("created_at", { ascending: false });
+  if (requestedAssetIds.length) assetQuery = assetQuery.in("id", requestedAssetIds);
+  const assets = await assetQuery;
+  if (assets.error) return { ok: false, message: assets.error.message };
+
+  const componentRows = (components.data ?? []) as JsonRecord[];
+  const assetRows = (assets.data ?? []) as JsonRecord[];
+  if (requestedAssetIds.length && assetRows.length !== new Set(requestedAssetIds).size) {
+    return { ok: false, message: "One or more requested Avatar OS assets are not approved for the active release." };
+  }
+
+  const componentIds = componentRows.map((row) => String(row.id));
+  const assetIds = assetRows.map((row) => String(row.id));
+  const payload = {
+    avatar_release: {
+      id: release.id,
+      version: release.version,
+      title: release.title,
+      summary: release.summary,
+      status: release.status,
+    },
+    components: Object.fromEntries(
+      componentRows.map((row) => [String(row.component_type), payloadSummary(row)]),
+    ),
+    approved_assets: assetRows.map((row) => ({
+      id: row.id,
+      asset_type: row.asset_type,
+      title: row.title,
+      description: row.description,
+      storage_bucket: row.storage_bucket,
+      storage_path: row.storage_path,
+      external_url: row.external_url,
+      generation_provider: row.generation_provider,
+      generation_model: row.generation_model,
+      version: row.version,
+      prompt_payload: row.prompt_payload,
+    })),
+    guardrails: [
+      "Use only approved Avatar OS components and approved assets from this payload.",
+      "Do not invent appearance, voice, knowledge, proof, or rights clearance beyond approved Avatar OS authority.",
+      "Avatar-led production is optional downstream authority, not a requirement for non-avatar production modes.",
+    ],
+  };
+
+  return { ok: true, releaseId: active.data.release_id, componentIds, assetIds, payload };
 }
 
 Deno.serve(async (req: Request) => {
@@ -51,6 +158,7 @@ Deno.serve(async (req: Request) => {
     const awarenessStage = body.awareness_stage?.trim() ?? "";
     const targetDurationSec = body.target_duration_sec;
     const productionBriefId = body.client_production_brief_id?.trim() ?? "";
+    const requestedAvatarAssetIds = strings(body.avatar_asset_ids);
 
     if (!clientId) return fail(400, "request", "client_id is required.");
     if (sourceTable || sourceRowId) {
@@ -87,6 +195,7 @@ Deno.serve(async (req: Request) => {
       sourceRow = source.data as Record<string, unknown>;
     }
 
+    let productionMode: ProductionMode | null = null;
     if (productionBriefId) {
       const brief = await sb.from("client_production_briefs")
         .select("id, client_id, source_table, source_row_id, asset_format, status, production_mode, production_status, content_md, metadata")
@@ -108,6 +217,7 @@ Deno.serve(async (req: Request) => {
         sourceTable, sourceRow, brief: brief.data, briefCandidateCount: 1,
       });
       if (!eligibility.eligible) return fail(409, "eligibility", eligibility.reason);
+      productionMode = isProductionMode(brief.data.production_mode) ? brief.data.production_mode : null;
     }
 
     let brandBlock;
@@ -150,10 +260,44 @@ Deno.serve(async (req: Request) => {
       return fail(productionBriefId && message.includes("REEL_") ? 409 : 500, "insert", message);
     }
 
+    let project = insert.data;
+    let avatarReferencePayload: JsonRecord | null = null;
+    if (productionMode === "avatar_led") {
+      const avatarRefs = await loadApprovedAvatarReferences(sb, clientId, requestedAvatarAssetIds);
+      if (!avatarRefs.ok) return fail(409, "avatar_os", avatarRefs.message);
+      avatarReferencePayload = avatarRefs.payload;
+      const avatarPatch = {
+        avatar_release_id: avatarRefs.releaseId,
+        avatar_asset_ids: avatarRefs.assetIds,
+        avatar_reference_payload: avatarRefs.payload,
+      };
+      const updatedProject = await sb.from("video_projects")
+        .update(avatarPatch)
+        .eq("id", project.id)
+        .eq("client_id", clientId)
+        .select("*")
+        .single();
+      if (updatedProject.error || !updatedProject.data) {
+        return fail(500, "avatar_os", updatedProject.error?.message ?? "Could not attach Avatar OS references to the Reel Studio project.");
+      }
+      project = updatedProject.data;
+
+      await sb.from("client_production_briefs")
+        .update({
+          avatar_release_id: avatarRefs.releaseId,
+          avatar_component_ids: avatarRefs.componentIds,
+          avatar_asset_ids: avatarRefs.assetIds,
+          avatar_reference_payload: avatarRefs.payload,
+        })
+        .eq("id", productionBriefId)
+        .eq("client_id", clientId);
+    }
+
     return json({
       ok: true,
-      project: insert.data,
+      project,
       bound_production_brief_id: productionBriefId || null,
+      avatar_reference_attached: avatarReferencePayload !== null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

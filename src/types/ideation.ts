@@ -2,7 +2,7 @@ export type IdeationPeriodType = "one_day" | "one_week" | "date_range" | "one_mo
 export type IdeationAssetType = "reel" | "carousel" | "static" | "story";
 export type IdeationCandidateStatus = "draft" | "needs_review";
 export type IdeationEvidenceType = "exact_quote" | "paraphrase" | "derived_claim";
-export type IdeationStrategicSourceKind = "campaign_intelligence" | "main_offer" | "seasonal_offer";
+export type IdeationStrategicSourceKind = "campaign_intelligence" | "main_offer" | "seasonal_offer" | "avatar";
 
 export interface IdeationTechnique {
   slug: string;
@@ -94,6 +94,7 @@ export interface IdeationResearchResult {
     | "approved_campaign_intelligence"
     | "approved_main_offer"
     | "approved_seasonal_offer"
+    | "approved_avatar_os"
     | "external_research";
   source_url: string;
   source_title: string;
@@ -122,6 +123,7 @@ export interface IdeationAuthorityInput {
   campaign_period_id: string | null;
   main_offer_id: string | null;
   seasonal_offer_id: string | null;
+  avatar_component_id: string | null;
   title: string;
   summary: string;
   source_url: string;
