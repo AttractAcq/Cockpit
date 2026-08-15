@@ -9,7 +9,7 @@ import { audit, cors, json, svc } from "../_shared/aa.ts";
 import { validateIntelligenceAccess } from "../_shared/intelligence/auth.ts";
 import {
   MARKET_RESEARCH_MODULES,
-  runOpenAiMarketResearch,
+  runMarketResearchAgent,
   type MarketModuleFinding,
 } from "../_shared/intelligence/market-research-provider.ts";
 
@@ -92,6 +92,23 @@ function renderAuthority(files: ContextFileRow[]): string {
   return files.map((file) =>
     `\n## Context file ${file.file_number}: ${file.file_name} (approved v${file.version})\n${compact(file.content_md, 3000)}`
   ).join("\n");
+}
+
+/** Renders this module's slice of cross-run agent memory (unresolved unknowns from the prior run) as prompt text. */
+function renderMemoryNote(
+  memory: { summary: string; unresolved_notes: unknown } | null | undefined,
+  moduleKey: string,
+): string | undefined {
+  if (!memory) return undefined;
+  const notes = Array.isArray(memory.unresolved_notes) ? memory.unresolved_notes : [];
+  const relevant = notes
+    .filter((note): note is { module_key?: unknown; claim?: unknown } => Boolean(note) && typeof note === "object")
+    .filter((note) => note.module_key === moduleKey && typeof note.claim === "string")
+    .map((note) => `- ${note.claim as string}`);
+  const parts: string[] = [];
+  if (memory.summary) parts.push(memory.summary);
+  if (relevant.length > 0) parts.push(`Unresolved from last run:\n${relevant.join("\n")}`);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 async function loadMarketAuthority(sb: ServiceClient, clientId: string): Promise<
@@ -189,7 +206,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     .order("version", { ascending: false }).limit(1).maybeSingle();
   if (versionError) return json({ ok: false, mode: "blocked", message: versionError.message }, 500);
   const version = (latestRelease?.version ?? 0) + 1;
-  const model = (Deno.env.get("OPENAI_MARKET_RESEARCH_MODEL") ?? "gpt-5.6-terra").trim();
+  const model = (Deno.env.get("ANTHROPIC_MARKET_RESEARCH_MODEL") ?? "claude-sonnet-5").trim();
   const timeBucket = Math.floor(Date.now() / 600_000);
   const idempotencyKey = `market_os:${authorityHash.slice(0, 40)}:v${version}:${timeBucket}`;
 
@@ -199,7 +216,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     intelligence_domain: "market_os",
     status: "queued",
     idempotency_key: idempotencyKey,
-    provider: "openai",
+    provider: "anthropic",
     model,
     prompt_digest: authorityHash,
     configuration_snapshot: { authority: authoritySnapshot, authority_hash: authorityHash, module_manifest: MARKET_RESEARCH_MODULES },
@@ -282,6 +299,7 @@ async function cleanupStepArtifacts(sb: ServiceClient, clientId: string, release
   }
   await sb.from("client_evidence_records").delete().eq("client_id", clientId).contains("metadata", { research_step_id: stepId });
   await sb.from("client_intelligence_records").delete().eq("client_id", clientId).eq("release_id", releaseId).eq("record_type", stepKey);
+  await sb.from("client_agent_turns").delete().eq("client_id", clientId).eq("research_step_id", stepId);
 }
 
 async function persistModule(input: {
@@ -291,10 +309,33 @@ async function persistModule(input: {
   releaseId: string;
   step: ResearchStepRow;
   authorityFiles: ContextFileRow[];
-  result: Awaited<ReturnType<typeof runOpenAiMarketResearch>>;
+  result: Awaited<ReturnType<typeof runMarketResearchAgent>>;
 }) {
   const { sb, clientId, runId, releaseId, step, authorityFiles, result } = input;
   await cleanupStepArtifacts(sb, clientId, releaseId, step.id, step.step_key);
+
+  // Persist the transcript first, before any check that can throw below — a
+  // module that fails a downstream integrity check (e.g. no records) still
+  // leaves an inspectable audit trail of what the agent actually did.
+  if (result.transcript.length > 0) {
+    const turnRows = result.transcript.map((turn) => ({
+      client_id: clientId,
+      research_run_id: runId,
+      research_step_id: step.id,
+      intelligence_domain: "market_os",
+      turn_order: turn.turnOrder,
+      role: turn.role,
+      content: turn.content,
+      tool_name: turn.toolName,
+      tool_input: turn.toolInput,
+      tool_output: turn.toolOutput,
+      stop_reason: turn.stopReason,
+      input_tokens: turn.inputTokens,
+      output_tokens: turn.outputTokens,
+    }));
+    const { error: turnError } = await sb.from("client_agent_turns").insert(turnRows);
+    if (turnError) throw new Error(turnError.message);
+  }
 
   const sourceRows = result.sources.map((source) => ({
     client_id: clientId,
@@ -360,7 +401,7 @@ async function persistModule(input: {
           requested_source_urls: providerFinding.source_urls,
           requested_context_file_numbers: providerFinding.context_file_numbers,
         },
-        created_by: "openai_market_research",
+        created_by: "anthropic_market_research",
       }).select("id").single();
       if (findingError) throw new Error(findingError.message);
       recordFindingIds.push(finding.id);
@@ -537,10 +578,14 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
   if (!module) return json({ ok: false, terminal: true, message: `Unknown Market OS step ${step.step_key}.` }, 500);
 
   try {
-    const providerResult = await runOpenAiMarketResearch({
+    const { data: memory } = await sb.from("client_agent_memory")
+      .select("summary,unresolved_notes").eq("client_id", clientId).eq("intelligence_domain", "market_os").maybeSingle();
+    const memoryNote = renderMemoryNote(memory, step.step_key);
+    const providerResult = await runMarketResearchAgent({
       module,
       clientName: authorityResult.authority.client.name,
       approvedContext: renderAuthority(authorityResult.authority.files),
+      memoryNote,
       model: run.model ?? undefined,
     });
     await persistModule({
@@ -569,7 +614,7 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       research_run_id: researchRunId,
       research_step_id: step.id,
       capability: "web_research_and_structured_synthesis",
-      provider: "openai",
+      provider: "anthropic",
       model: run.model,
       status: "failed",
       error_class: code,
@@ -667,6 +712,19 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
     completed_modules: progress.completed,
     failed_modules: progress.failed,
   });
+
+  const unresolvedNotes = summaries.flatMap((module) =>
+    module.unknowns.map((claim: unknown) => ({ module_key: module.module_key, claim: compact(String(claim), 500) }))
+  );
+  await sb.from("client_agent_memory").upsert({
+    client_id: clientId,
+    intelligence_domain: "market_os",
+    summary: compact(summary, 2000),
+    unresolved_notes: unresolvedNotes,
+    source_run_id: run.id,
+    updated_at: generatedAt,
+  }, { onConflict: "client_id,intelligence_domain" });
+
   return json({ ok: true, message: "Market OS is ready for human review.", release: updatedRelease, run: updatedRun });
 }
 

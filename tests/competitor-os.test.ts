@@ -1,79 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  COMPETITOR_CORE_MODULES,
-  extractCompetitorResearchSources,
-  parseCompetitorModuleOutput,
-} from "../supabase/functions/_shared/intelligence/competitor-research-provider.ts";
+import { COMPETITOR_CORE_MODULES } from "../supabase/functions/_shared/intelligence/competitor-research-provider.ts";
 
 const providerPath = new URL("../supabase/functions/_shared/intelligence/competitor-research-provider.ts", import.meta.url);
 const edgePath = new URL("../supabase/functions/run-competitor-os/index.ts", import.meta.url);
 const pagePath = new URL("../src/pages/ClientDetailPage.tsx", import.meta.url);
 const panelPath = new URL("../src/components/client/CompetitorOSPanel.tsx", import.meta.url);
 
-function structuredModule(moduleKey = "alternative_registry") {
-  return {
-    module_key: moduleKey,
-    summary: "A supported competitive alternative system.",
-    records: [{
-      record_key: "example_agency",
-      subject_key: "example_agency",
-      alternative_type: "direct",
-      observation_kind: "alternative_identity",
-      observed_at: "2026-08-10T00:00:00.000Z",
-      title: "Example agency",
-      summary: "A direct buyer-visible alternative.",
-      details: [{ label: "Alternative type", value: "Direct" }],
-      findings: [{
-        claim: "Example agency publicly serves the same buyer problem.",
-        disposition: "asserted",
-        confidence: "strongly_inferred",
-        rationale: "Supported by public and approved upstream authority.",
-        source_urls: ["https://example.com/services"],
-        context_file_numbers: [1],
-        market_record_keys: ["buying_mechanism"],
-        avatar_record_keys: ["economic_buyer"],
-      }],
-    }],
-    unknowns: [],
-    contradictions: [],
-  };
-}
-
 test("Competitor OS covers registry, maps, observation libraries, and system patterns", () => {
   assert.deepEqual(
     COMPETITOR_CORE_MODULES.map((module) => module.key),
     ["alternative_registry", "positioning_category_map", "offer_commercial_observations", "messaging_claims", "proof_trust", "distribution_attention", "landscape_patterns"],
   );
-});
-
-test("Competitor provider preserves Context, Market, Avatar, and web evidence identities", () => {
-  const payload = {
-    output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(structuredModule()) }] }],
-  };
-  const output = parseCompetitorModuleOutput(payload, "alternative_registry");
-  assert.deepEqual(output.records[0].findings[0].market_record_keys, ["buying_mechanism"]);
-  assert.deepEqual(output.records[0].findings[0].avatar_record_keys, ["economic_buyer"]);
-  assert.equal(output.records[0].alternative_type, "direct");
-  assert.throws(() => parseCompetitorModuleOutput(payload, "proof_trust"), /invalid identity/i);
-});
-
-test("Competitor source extraction keeps only inspectable, deduplicated HTTP sources", () => {
-  const sources = extractCompetitorResearchSources({
-    output: [
-      { type: "web_search_call", action: { sources: [
-        { url: "https://example.com/services#scope", title: "Services" },
-        { url: "data:text/plain,unsafe", title: "Unsafe" },
-      ] } },
-      { type: "message", content: [{
-        type: "output_text",
-        text: JSON.stringify(structuredModule()),
-        annotations: [{ type: "url_citation", url: "https://example.com/services", title: "Alternative evidence" }],
-      }] },
-    ],
-  });
-  assert.deepEqual(sources, [{ url: "https://example.com/services", title: "Alternative evidence" }]);
 });
 
 test("Competitor orchestration requires approved Market and Avatar authority and preserves refresh history", async () => {
@@ -85,8 +24,7 @@ test("Competitor orchestration requires approved Market and Avatar authority and
   assert.match(edge, /market_os: \{/);
   assert.match(edge, /avatar_os: \{/);
   assert.match(edge, /previous_competitor_os:/);
-  assert.match(edge, /ensureCompetitorFollowupSteps/);
-  assert.match(edge, /COMPETITOR_CORE_MODULES\.slice\(0, 1\)/);
+  assert.match(edge, /ensureNextResearchStep/);
   assert.match(edge, /observation_identity/);
   assert.match(edge, /observation_fingerprint/);
   assert.match(edge, /change_status/);
@@ -98,6 +36,38 @@ test("Competitor orchestration requires approved Market and Avatar authority and
   assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
+});
+
+test("Competitor orchestration is an Anthropic tool-calling agent with memory and an audit trail", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /runCompetitorResearchAgent/);
+  assert.doesNotMatch(edge, /runOpenAiCompetitorResearch/);
+  assert.match(edge, /provider: "anthropic"/);
+  assert.match(edge, /ANTHROPIC_COMPETITOR_RESEARCH_MODEL/);
+  assert.match(edge, /client_agent_memory/);
+  assert.match(edge, /client_agent_turns/);
+  assert.match(edge, /renderMemoryNote/);
+});
+
+test("every module runs as a two-phase search step then write step, each a separate invocation", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /function researchStepKey\(moduleKey: string\)/);
+  assert.match(edge, /runCompetitorSearchPhase/);
+  assert.match(edge, /ensureWriteStep/);
+  assert.match(edge, /ensureNextResearchStep/);
+  assert.match(edge, /priorResearchNotes/);
+  assert.match(edge, /priorSources/);
+  assert.match(edge, /realModuleKeys\.has\(step\.step_key\)/);
+});
+
+test("Competitor provider is a bounded Anthropic web_search agent loop with a schema-enforced non-empty records array", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /callAnthropicWithTools/);
+  assert.match(provider, /web_search_20260209/);
+  assert.match(provider, /submit_module/);
+  assert.match(provider, /minItems: 1/);
+  assert.match(provider, /MAX_AGENT_TURNS/);
+  assert.match(provider, /export async function runCompetitorSearchPhase/);
 });
 
 test("Competitor provider enforces lawful observation and prohibits copying or prescriptions", async () => {

@@ -10,11 +10,26 @@ import { validateIntelligenceAccess } from "../_shared/intelligence/auth.ts";
 import {
   COMPETITOR_CORE_MODULES,
   COMPETITOR_RESEARCH_MODULES,
-  runOpenAiCompetitorResearch,
+  runCompetitorResearchAgent,
+  runCompetitorSearchPhase,
   type CompetitorModuleFinding,
 } from "../_shared/intelligence/competitor-research-provider.ts";
 
 type Action = "prepare" | "step" | "finalize" | "retry_step";
+
+// Every Competitor OS module repeatedly exceeded Supabase's ~150s
+// per-invocation ceiling doing search+write in one call — first observed on
+// alternative_registry, then confirmed on positioning_category_map too, so
+// the failure is systemic rather than limited to one module. Each module
+// now runs as two genuinely separate client_research_steps rows — a search
+// phase ("{module_key}_research") followed by the module's own write phase
+// — so each phase gets its own full Supabase invocation and time budget.
+// Modules run one pair at a time: a write phase's completion queues the
+// NEXT module's research phase (see ensureNextResearchStep), mirroring how
+// only the next step was ever queued before this split existed.
+function researchStepKey(moduleKey: string): string {
+  return `${moduleKey}_research`;
+}
 type ServiceClient = ReturnType<typeof svc>;
 
 interface ContextFileRow {
@@ -154,50 +169,68 @@ function renderAuthority(files: ContextFileRow[]): string {
   ).join("\n");
 }
 
+/** Renders this module's slice of cross-run agent memory (unresolved unknowns from the prior run) as prompt text. */
+function renderMemoryNote(
+  memory: { summary: string; unresolved_notes: unknown } | null | undefined,
+  moduleKey: string,
+): string | undefined {
+  if (!memory) return undefined;
+  const notes = Array.isArray(memory.unresolved_notes) ? memory.unresolved_notes : [];
+  const relevant = notes
+    .filter((note): note is { module_key?: unknown; claim?: unknown } => Boolean(note) && typeof note === "object")
+    .filter((note) => note.module_key === moduleKey && typeof note.claim === "string")
+    .map((note) => `- ${note.claim as string}`);
+  const parts: string[] = [];
+  if (memory.summary) parts.push(memory.summary);
+  if (relevant.length > 0) parts.push(`Unresolved from last run:\n${relevant.join("\n")}`);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+// Caps each record individually before joining, rather than joining then
+// capping the whole block — the latter silently truncates or drops whichever
+// records render last. Competitor OS stacks four record-based context
+// sections (Market authority, Avatar authority, previous Competitor OS,
+// Competitor model built so far), so each section's per-record and total
+// caps are kept tighter than a single-section agent (Market/Avatar) to keep
+// combined prompt size comparable to what already works for those agents.
+const RECORD_BLOCK_CAP = 400;
+const SECTION_TOTAL_CAP = 9000;
+
+function renderRecordBlock(record: { record_type: string; record_key: string; title: string; summary: string; payload: Record<string, unknown> }, cap: number): string {
+  const details = Array.isArray(record.payload?.details)
+    ? record.payload.details
+        .filter((detail): detail is { label: string; value: string } =>
+          Boolean(detail) && typeof detail === "object" &&
+          typeof (detail as { label?: unknown }).label === "string" &&
+          typeof (detail as { value?: unknown }).value === "string"
+        )
+        .map((detail) => `- ${detail.label}: ${detail.value}`)
+        .join("\n")
+    : "";
+  const block = `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
+  return compact(block, cap);
+}
+
 function renderMarketAuthority(authority: CompetitorAuthority): string {
   const release = authority.marketRelease;
-  const records = authority.marketRecords.map((record) => {
-    const details = Array.isArray(record.payload?.details)
-      ? record.payload.details
-          .filter((detail): detail is { label: string; value: string } =>
-            Boolean(detail) && typeof detail === "object" &&
-            typeof (detail as { label?: unknown }).label === "string" &&
-            typeof (detail as { value?: unknown }).value === "string"
-          )
-          .map((detail) => `- ${detail.label}: ${detail.value}`)
-          .join("\n")
-      : "";
-    return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
-  }).join("\n\n");
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  const records = authority.marketRecords.map((record) => renderRecordBlock(record, RECORD_BLOCK_CAP)).join("\n\n");
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, SECTION_TOTAL_CAP)}`;
 }
 
 function renderAvatarAuthority(authority: CompetitorAuthority): string {
   const release = authority.avatarRelease;
   const records = renderCompetitorModel(authority.avatarRecords);
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, SECTION_TOTAL_CAP)}`;
 }
 
 function renderPreviousCompetitorOS(authority: CompetitorAuthority): string {
   const release = authority.previousCompetitorRelease;
   if (!release) return "";
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(renderCompetitorModel(authority.previousCompetitorRecords), 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(renderCompetitorModel(authority.previousCompetitorRecords), SECTION_TOTAL_CAP)}`;
 }
 
 function renderCompetitorModel(records: Array<{ record_type: string; record_key: string; title: string; summary: string; payload: Record<string, unknown> }>): string {
-  return records.map((record) => {
-    const details = Array.isArray(record.payload?.details)
-      ? record.payload.details
-          .filter((detail): detail is { label: string; value: string } =>
-            Boolean(detail) && typeof detail === "object" &&
-            typeof (detail as { label?: unknown }).label === "string" &&
-            typeof (detail as { value?: unknown }).value === "string"
-          )
-          .map((detail) => `- ${detail.label}: ${detail.value}`)
-          .join("\n")
-      : "";
-    return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
-  }).join("\n\n");
+  return records.map((record) => renderRecordBlock(record, RECORD_BLOCK_CAP)).join("\n\n");
 }
 
 async function loadCompetitorAuthority(sb: ServiceClient, clientId: string): Promise<
@@ -367,25 +400,57 @@ async function stepProgress(sb: ServiceClient, researchRunId: string) {
   return { completed, failed, total: steps.length, terminal: !recoverable };
 }
 
-async function ensureCompetitorFollowupSteps(
+// Two-slot ordering per module: research phase then write phase, so all
+// pairs sort predictably and every step_order stays >= 1 (a DB constraint).
+function moduleResearchStepOrder(moduleIndex: number): number {
+  return moduleIndex * 2 + 1;
+}
+function moduleWriteStepOrder(moduleIndex: number): number {
+  return moduleIndex * 2 + 2;
+}
+
+async function ensureWriteStep(
   sb: ServiceClient,
   clientId: string,
   researchRunId: string,
+  moduleIndex: number,
 ) {
-  const modules = COMPETITOR_CORE_MODULES.slice(1);
+  const module = COMPETITOR_RESEARCH_MODULES[moduleIndex];
   const { data: existing, error: existingError } = await sb.from("client_research_steps")
-    .select("step_key").eq("research_run_id", researchRunId);
+    .select("step_key").eq("research_run_id", researchRunId).eq("step_key", module.key).maybeSingle();
   if (existingError) throw new Error(existingError.message);
-  const existingKeys = new Set((existing ?? []).map((step) => step.step_key));
-  const rows = modules.filter((module) => !existingKeys.has(module.key)).map((module) => ({
+  if (existing) return;
+  const { error } = await sb.from("client_research_steps").insert({
     client_id: clientId,
     research_run_id: researchRunId,
     step_key: module.key,
-    step_order: COMPETITOR_RESEARCH_MODULES.findIndex((candidate) => candidate.key === module.key) + 1,
+    step_order: moduleWriteStepOrder(moduleIndex),
     title: module.title,
-  }));
-  if (rows.length === 0) return;
-  const { error } = await sb.from("client_research_steps").insert(rows);
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function ensureNextResearchStep(
+  sb: ServiceClient,
+  clientId: string,
+  researchRunId: string,
+  completedModuleIndex: number,
+) {
+  const nextIndex = completedModuleIndex + 1;
+  const nextModule = COMPETITOR_RESEARCH_MODULES[nextIndex];
+  if (!nextModule) return;
+  const stepKey = researchStepKey(nextModule.key);
+  const { data: existing, error: existingError } = await sb.from("client_research_steps")
+    .select("step_key").eq("research_run_id", researchRunId).eq("step_key", stepKey).maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing) return;
+  const { error } = await sb.from("client_research_steps").insert({
+    client_id: clientId,
+    research_run_id: researchRunId,
+    step_key: stepKey,
+    step_order: moduleResearchStepOrder(nextIndex),
+    title: `${nextModule.title} — research phase`,
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -473,7 +538,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     .order("version", { ascending: false }).limit(1).maybeSingle();
   if (versionError) return json({ ok: false, mode: "blocked", message: versionError.message }, 500);
   const version = (latestRelease?.version ?? 0) + 1;
-  const model = (Deno.env.get("OPENAI_COMPETITOR_RESEARCH_MODEL") ?? Deno.env.get("OPENAI_MARKET_RESEARCH_MODEL") ?? "gpt-5.6-terra").trim();
+  const model = (Deno.env.get("ANTHROPIC_COMPETITOR_RESEARCH_MODEL") ?? "claude-sonnet-5").trim();
   const timeBucket = Math.floor(Date.now() / 600_000);
   const idempotencyKey = `competitor_os:${authorityHash.slice(0, 40)}:v${version}:${timeBucket}`;
 
@@ -483,7 +548,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     intelligence_domain: "competitor_os",
     status: "queued",
     idempotency_key: idempotencyKey,
-    provider: "openai",
+    provider: "anthropic",
     model,
     prompt_digest: authorityHash,
     configuration_snapshot: {
@@ -523,13 +588,14 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     return json({ ok: false, mode: "blocked", message: releaseError.message }, 500);
   }
 
-  const stepRows = COMPETITOR_CORE_MODULES.slice(0, 1).map((module) => ({
+  const firstModule = COMPETITOR_CORE_MODULES[0];
+  const stepRows = [{
     client_id: clientId,
     research_run_id: run.id,
-    step_key: module.key,
+    step_key: researchStepKey(firstModule.key),
     step_order: 1,
-    title: module.title,
-  }));
+    title: `${firstModule.title} — research phase`,
+  }];
   const { data: steps, error: stepError } = await sb.from("client_research_steps")
     .insert(stepRows).select("*").order("step_order");
   if (stepError) {
@@ -570,6 +636,7 @@ async function cleanupStepArtifacts(sb: ServiceClient, clientId: string, release
   }
   await sb.from("client_evidence_records").delete().eq("client_id", clientId).contains("metadata", { research_step_id: stepId });
   await sb.from("client_intelligence_records").delete().eq("client_id", clientId).eq("release_id", releaseId).eq("record_type", stepKey);
+  await sb.from("client_agent_turns").delete().eq("client_id", clientId).eq("research_step_id", stepId);
 }
 
 async function persistModule(input: {
@@ -579,10 +646,33 @@ async function persistModule(input: {
   releaseId: string;
   step: ResearchStepRow;
   authority: CompetitorAuthority;
-  result: Awaited<ReturnType<typeof runOpenAiCompetitorResearch>>;
+  result: Awaited<ReturnType<typeof runCompetitorResearchAgent>>;
 }) {
   const { sb, clientId, runId, releaseId, step, authority, result } = input;
   await cleanupStepArtifacts(sb, clientId, releaseId, step.id, step.step_key);
+
+  // Persist the transcript first, before any check that can throw below — a
+  // module that fails a downstream integrity check (e.g. no records) still
+  // leaves an inspectable audit trail of what the agent actually did.
+  if (result.transcript.length > 0) {
+    const turnRows = result.transcript.map((turn) => ({
+      client_id: clientId,
+      research_run_id: runId,
+      research_step_id: step.id,
+      intelligence_domain: "competitor_os",
+      turn_order: turn.turnOrder,
+      role: turn.role,
+      content: turn.content,
+      tool_name: turn.toolName,
+      tool_input: turn.toolInput,
+      tool_output: turn.toolOutput,
+      stop_reason: turn.stopReason,
+      input_tokens: turn.inputTokens,
+      output_tokens: turn.outputTokens,
+    }));
+    const { error: turnError } = await sb.from("client_agent_turns").insert(turnRows);
+    if (turnError) throw new Error(turnError.message);
+  }
 
   const sourceRows = result.sources.map((source) => ({
     client_id: clientId,
@@ -668,7 +758,7 @@ async function persistModule(input: {
           requested_market_record_keys: providerFinding.market_record_keys,
           requested_avatar_record_keys: providerFinding.avatar_record_keys,
         },
-        created_by: "openai_competitor_research",
+        created_by: "anthropic_competitor_research",
       }).select("id").single();
       if (findingError) throw new Error(findingError.message);
       recordFindingIds.push(finding.id);
@@ -920,7 +1010,110 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
     await sb.from("client_research_runs").update({ status: "failed", failure_code: "AUTHORITY_CHANGED", failure_message: message, retryable: false }).eq("id", researchRunId);
     return json({ ok: false, terminal: true, message, research_run_id: researchRunId, release_id: release.id, progress: await stepProgress(sb, researchRunId) }, 409);
   }
-  const module = COMPETITOR_RESEARCH_MODULES.find((candidate) => candidate.key === step.step_key);
+  const researchModuleIndex = COMPETITOR_RESEARCH_MODULES.findIndex(
+    (candidate) => researchStepKey(candidate.key) === step.step_key,
+  );
+  if (researchModuleIndex >= 0) {
+    try {
+      const researchModule = COMPETITOR_RESEARCH_MODULES[researchModuleIndex];
+      const { data: existingRecords, error: existingRecordsError } = await sb.from("client_intelligence_records")
+        .select("record_type,record_key,title,summary,payload")
+        .eq("client_id", clientId)
+        .eq("release_id", release.id)
+        .order("display_order");
+      if (existingRecordsError) throw new Error(existingRecordsError.message);
+      const providerResult = await runCompetitorSearchPhase({
+        module: researchModule,
+        clientName: authorityResult.authority.client.name,
+        approvedContext: renderAuthority(authorityResult.authority.files),
+        approvedMarketOS: renderMarketAuthority(authorityResult.authority),
+        approvedAvatarOS: renderAvatarAuthority(authorityResult.authority),
+        previousActiveCompetitorOS: renderPreviousCompetitorOS(authorityResult.authority),
+        existingCompetitorModel: compact(renderCompetitorModel(existingRecords ?? []), SECTION_TOTAL_CAP),
+        model: run.model ?? undefined,
+      });
+      if (providerResult.transcript.length > 0) {
+        const { error: turnError } = await sb.from("client_agent_turns").insert(providerResult.transcript.map((turn) => ({
+          client_id: clientId,
+          research_run_id: researchRunId,
+          research_step_id: step.id,
+          intelligence_domain: "competitor_os",
+          turn_order: turn.turnOrder,
+          role: turn.role,
+          content: turn.content,
+          tool_name: turn.toolName,
+          tool_input: turn.toolInput,
+          tool_output: turn.toolOutput,
+          stop_reason: turn.stopReason,
+          input_tokens: turn.inputTokens,
+          output_tokens: turn.outputTokens,
+        })));
+        if (turnError) throw new Error(turnError.message);
+      }
+      const { error: completeError } = await sb.from("client_research_steps").update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        lease_owner: null,
+        lease_expires_at: null,
+        output_summary: {
+          notes: providerResult.notes,
+          sources: providerResult.sources,
+          provider_request_id: providerResult.providerRequestId,
+        },
+      }).eq("id", step.id);
+      if (completeError) throw new Error(completeError.message);
+      await ensureWriteStep(sb, clientId, researchRunId, researchModuleIndex);
+      const progress = await stepProgress(sb, researchRunId);
+      return json({
+        ok: true,
+        terminal: progress.terminal,
+        message: `${step.title} completed.`,
+        research_run_id: researchRunId,
+        release_id: release.id,
+        step: { ...step, status: "completed", completed_at: new Date().toISOString() },
+        progress,
+      });
+    } catch (error) {
+      const message = compact(errorMessage(error), 2000);
+      const code = safeFailureCode(error);
+      const retryable = isRetryableProviderError(error) && step.attempt_count < step.maximum_attempts;
+      await sb.from("client_provider_operation_receipts").insert({
+        client_id: clientId,
+        research_run_id: researchRunId,
+        research_step_id: step.id,
+        capability: "web_research_and_structured_synthesis",
+        provider: "anthropic",
+        model: run.model,
+        status: "failed",
+        error_class: code,
+        error_message: message,
+      });
+      await sb.from("client_research_steps").update({
+        status: "failed",
+        attempt_count: retryable ? step.attempt_count : step.maximum_attempts,
+        failure_code: code,
+        failure_message: message,
+        lease_owner: null,
+        lease_expires_at: null,
+      }).eq("id", step.id);
+      await sb.from("client_research_runs").update({
+        status: "failed", failure_code: code, failure_message: message, retryable,
+      }).eq("id", researchRunId);
+      const progress = await stepProgress(sb, researchRunId);
+      return json({
+        ok: retryable || (progress.completed > 0 && progress.terminal),
+        terminal: progress.terminal,
+        message: retryable ? `${step.title} failed and can be retried: ${message}` : `${step.title} failed: ${message}`,
+        research_run_id: researchRunId,
+        release_id: release.id,
+        step: { ...step, status: "failed", failure_code: code, failure_message: message },
+        progress,
+      });
+    }
+  }
+
+  const moduleIndex = COMPETITOR_RESEARCH_MODULES.findIndex((candidate) => candidate.key === step.step_key);
+  const module = COMPETITOR_RESEARCH_MODULES[moduleIndex];
   if (!module) return json({ ok: false, terminal: true, message: `Unknown Competitor OS step ${step.step_key}.` }, 500);
 
   try {
@@ -930,19 +1123,40 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       .eq("release_id", release.id)
       .order("display_order");
     if (existingRecordsError) throw new Error(existingRecordsError.message);
-    const providerResult = await runOpenAiCompetitorResearch({
+    const { data: memory } = await sb.from("client_agent_memory")
+      .select("summary,unresolved_notes").eq("client_id", clientId).eq("intelligence_domain", "competitor_os").maybeSingle();
+    const memoryNote = renderMemoryNote(memory, step.step_key);
+    // Every module's write phase is preceded by its own search-only research
+    // step (see researchModuleIndex handling above) — search+write in one
+    // call repeatedly exceeded Supabase's ~150s ceiling on more than one
+    // module, so no module runs a live web_search during its write phase.
+    const { data: researchStep, error: researchStepError } = await sb.from("client_research_steps")
+      .select("output_summary")
+      .eq("research_run_id", researchRunId)
+      .eq("step_key", researchStepKey(step.step_key))
+      .eq("status", "completed")
+      .maybeSingle();
+    if (researchStepError) throw new Error(researchStepError.message);
+    if (!researchStep) throw new Error(`${step.title} write phase has no completed research phase to draw on.`);
+    const priorResearchNotes = typeof researchStep.output_summary?.notes === "string" ? researchStep.output_summary.notes : "";
+    const priorSources: Array<{ url: string; title: string }> = Array.isArray(researchStep.output_summary?.sources)
+      ? researchStep.output_summary.sources
+      : [];
+    const providerResult = await runCompetitorResearchAgent({
       module,
       clientName: authorityResult.authority.client.name,
       approvedContext: renderAuthority(authorityResult.authority.files),
       approvedMarketOS: renderMarketAuthority(authorityResult.authority),
       approvedAvatarOS: renderAvatarAuthority(authorityResult.authority),
-      existingCompetitorModel: compact(renderCompetitorModel(existingRecords ?? []), 24000),
+      existingCompetitorModel: compact(renderCompetitorModel(existingRecords ?? []), SECTION_TOTAL_CAP),
       previousActiveCompetitorOS: renderPreviousCompetitorOS(authorityResult.authority),
+      memoryNote,
+      priorResearchNotes,
+      priorSources,
+      attemptNumber: step.attempt_count,
       model: run.model ?? undefined,
     });
-    if (step.step_key === "alternative_registry") {
-      await ensureCompetitorFollowupSteps(sb, clientId, researchRunId);
-    }
+    await ensureNextResearchStep(sb, clientId, researchRunId, moduleIndex);
     await persistModule({
       sb, clientId, runId: researchRunId, releaseId: release.id, step,
       authority: authorityResult.authority, result: providerResult,
@@ -969,7 +1183,7 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       research_run_id: researchRunId,
       research_step_id: step.id,
       capability: "web_research_and_structured_synthesis",
-      provider: "openai",
+      provider: "anthropic",
       model: run.model,
       status: "failed",
       error_class: code,
@@ -1033,7 +1247,8 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
     counts[status] = (counts[status] ?? 0) + 1;
     return counts;
   }, {});
-  const summaries = steps.filter((step) => step.status === "completed")
+  const realModuleKeys = new Set(COMPETITOR_RESEARCH_MODULES.map((module) => module.key));
+  const summaries = steps.filter((step) => step.status === "completed" && realModuleKeys.has(step.step_key))
     .map((step) => ({
       module_key: step.step_key,
       title: step.title,
@@ -1079,6 +1294,19 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
     completed_modules: progress.completed,
     failed_modules: progress.failed,
   });
+
+  const unresolvedNotes = summaries.flatMap((module) =>
+    module.unknowns.map((claim: unknown) => ({ module_key: module.module_key, claim: compact(String(claim), 500) }))
+  );
+  await sb.from("client_agent_memory").upsert({
+    client_id: clientId,
+    intelligence_domain: "competitor_os",
+    summary: compact(summary, 2000),
+    unresolved_notes: unresolvedNotes,
+    source_run_id: run.id,
+    updated_at: generatedAt,
+  }, { onConflict: "client_id,intelligence_domain" });
+
   return json({ ok: true, message: "Competitor OS is ready for human review.", release: updatedRelease, run: updatedRun });
 }
 

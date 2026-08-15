@@ -4,8 +4,6 @@ import test from "node:test";
 import {
   AVATAR_CONDITIONAL_MODULES,
   AVATAR_CORE_MODULES,
-  extractAvatarResearchSources,
-  parseAvatarModuleOutput,
 } from "../supabase/functions/_shared/intelligence/avatar-research-provider.ts";
 
 const providerPath = new URL("../supabase/functions/_shared/intelligence/avatar-research-provider.ts", import.meta.url);
@@ -16,31 +14,6 @@ const researchDomainMigrationPath = new URL(
   "../supabase/migrations/20260812160000_phase_2a_research_domain_compatibility.sql",
   import.meta.url,
 );
-
-function structuredModule(moduleKey = "buyer_role_system") {
-  return {
-    module_key: moduleKey,
-    summary: "A supported buying-role system.",
-    records: [{
-      record_key: "economic_buyer",
-      title: "Economic buyer",
-      summary: "Owns the commercial decision.",
-      details: [{ label: "Decision authority", value: "Final commercial approval" }],
-      findings: [{
-        claim: "The economic buyer owns final approval.",
-        disposition: "asserted",
-        confidence: "strongly_inferred",
-        rationale: "Supported by approved market and context authority.",
-        source_urls: ["https://example.com/buyer-research"],
-        context_file_numbers: [1],
-        market_record_keys: ["buying_mechanism"],
-      }],
-    }],
-    unknowns: [],
-    contradictions: [],
-    conditional_module_keys: ["multi_role_governance"],
-  };
-}
 
 test("Avatar OS uses a focused core plus bounded conditional research modules", () => {
   assert.deepEqual(
@@ -53,30 +26,14 @@ test("Avatar OS uses a focused core plus bounded conditional research modules", 
   );
 });
 
-test("Avatar provider preserves Context, Market OS, and web evidence identities", () => {
-  const payload = {
-    output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(structuredModule()) }] }],
-  };
-  const output = parseAvatarModuleOutput(payload, "buyer_role_system");
-  assert.deepEqual(output.records[0].findings[0].market_record_keys, ["buying_mechanism"]);
-  assert.throws(() => parseAvatarModuleOutput(payload, "trust_proof_credibility"), /invalid identity/i);
-});
-
-test("Avatar source extraction keeps only inspectable, deduplicated HTTP sources", () => {
-  const sources = extractAvatarResearchSources({
-    output: [
-      { type: "web_search_call", action: { sources: [
-        { url: "https://example.com/buyer-research#roles", title: "Buyer research" },
-        { url: "data:text/plain,unsafe", title: "Unsafe" },
-      ] } },
-      { type: "message", content: [{
-        type: "output_text",
-        text: JSON.stringify(structuredModule()),
-        annotations: [{ type: "url_citation", url: "https://example.com/buyer-research", title: "Role evidence" }],
-      }] },
-    ],
-  });
-  assert.deepEqual(sources, [{ url: "https://example.com/buyer-research", title: "Role evidence" }]);
+test("Avatar provider is a bounded Anthropic web_search agent loop with a schema-enforced non-empty records array", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /callAnthropicWithTools/);
+  assert.match(provider, /web_search_20260209/);
+  assert.match(provider, /submit_module/);
+  assert.match(provider, /minItems: 1/);
+  assert.match(provider, /MAX_AGENT_TURNS/);
+  assert.match(provider, /cache_control: \{ type: "ephemeral" \}/);
 });
 
 test("Avatar orchestration requires approved Market authority and selects conditional steps", async () => {
@@ -93,6 +50,17 @@ test("Avatar orchestration requires approved Market authority and selects condit
   assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
+});
+
+test("Avatar orchestration is an Anthropic tool-calling agent with memory and an audit trail", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /runAvatarResearchAgent/);
+  assert.doesNotMatch(edge, /runOpenAiAvatarResearch/);
+  assert.match(edge, /provider: "anthropic"/);
+  assert.match(edge, /ANTHROPIC_AVATAR_RESEARCH_MODEL/);
+  assert.match(edge, /client_agent_memory/);
+  assert.match(edge, /client_agent_turns/);
+  assert.match(edge, /renderMemoryNote/);
 });
 
 test("the preserved research-run table accepts every Phase 2A execution domain", async () => {

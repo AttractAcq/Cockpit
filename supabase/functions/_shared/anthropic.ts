@@ -43,6 +43,155 @@ export function hasAnthropicKey(): boolean {
   return (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim().length > 0;
 }
 
+/** A cache breakpoint marker: everything up to and including the block it's attached to becomes an independently cacheable prefix segment (5-minute ephemeral TTL). */
+export type AnthropicCacheControl = { type: "ephemeral" };
+
+/** One content block from a tool-calling turn. Narrow on `type` before reading other fields. */
+export type AnthropicContentBlock =
+  | { type: "text"; text: string; cache_control?: AnthropicCacheControl }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "server_tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "web_search_tool_result"; tool_use_id: string; content: unknown }
+  | { type: string; [key: string]: unknown };
+
+export type AnthropicToolResultBlock = {
+  type: "tool_result";
+  tool_use_id: string;
+  content: string;
+  is_error?: boolean;
+};
+
+export type AnthropicMessageParam = {
+  role: "user" | "assistant";
+  content: string | Array<AnthropicContentBlock | AnthropicToolResultBlock>;
+};
+
+/** Either a custom tool (name/description/input_schema) or an Anthropic-hosted server tool (type/name). */
+export type AnthropicToolParam =
+  | { name: string; description: string; input_schema: Record<string, unknown>; strict?: boolean }
+  | { type: string; name: string; [key: string]: unknown };
+
+export interface AnthropicToolCallOpts {
+  /** Plain string (never cached) or an array of text blocks — attach cache_control to the last block you want cached. */
+  system: string | Array<{ type: "text"; text: string; cache_control?: AnthropicCacheControl }>;
+  messages: AnthropicMessageParam[];
+  tools: AnthropicToolParam[];
+  model?: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+  /** Passed through verbatim, e.g. {type: "adaptive"} or {type: "disabled"}. Omitted = provider default. */
+  thinking?: Record<string, unknown>;
+}
+
+export type AnthropicToolCallResult =
+  | {
+    ok: true;
+    content: AnthropicContentBlock[];
+    stopReason: string;
+    usage: { inputTokens: number; outputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number };
+  }
+  | { ok: false; code: AnthropicErrorCode; error: string; retryable: boolean };
+
+/**
+ * Single turn of a tool-calling conversation. Returns the raw content blocks and
+ * stop_reason so the caller drives its own agent loop (append the assistant
+ * turn, execute any tool_use blocks, append a user turn with tool_result
+ * blocks, call again). Never throws — all errors returned as { ok: false }.
+ */
+export async function callAnthropicWithTools(opts: AnthropicToolCallOpts): Promise<AnthropicToolCallResult> {
+  if (!isAiEnabled()) {
+    return anthropicFailure("ANTHROPIC_DISABLED", "AA_AI_GENERATION_ENABLED is not true. No AI call made.", false);
+  }
+  const apiKey = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim();
+  if (!apiKey) {
+    return anthropicFailure("ANTHROPIC_KEY_MISSING", "ANTHROPIC_API_KEY is not set. Cannot proceed with AI generation.", false);
+  }
+
+  const {
+    system,
+    messages,
+    tools,
+    model = DEFAULT_AI_MODEL,
+    maxTokens = 16000,
+    timeoutMs = 300_000,
+    thinking,
+  } = opts;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_API_VERSION,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages,
+        tools,
+        ...(thinking ? { thinking } : {}),
+      }),
+      signal: controller.signal,
+    });
+
+    const responseText = await res.text();
+    if (!res.ok) {
+      return anthropicFailure(
+        "ANTHROPIC_HTTP_ERROR",
+        `Anthropic API returned HTTP ${res.status}: ${responseText.slice(0, 400)}`,
+        res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500,
+      );
+    }
+
+    let data: {
+      content?: AnthropicContentBlock[];
+      error?: { message: string };
+      stop_reason?: string;
+      usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+    };
+    try {
+      data = JSON.parse(responseText) as typeof data;
+    } catch {
+      return anthropicFailure("ANTHROPIC_RESPONSE_INVALID", "Anthropic returned an invalid JSON response body.", true);
+    }
+
+    if (data.error) {
+      return anthropicFailure("ANTHROPIC_HTTP_ERROR", `Anthropic error: ${data.error.message}`, true);
+    }
+    if (data.stop_reason === "refusal") {
+      return anthropicFailure("ANTHROPIC_REFUSAL", "Anthropic refused the generation request.", false);
+    }
+
+    return {
+      ok: true,
+      content: data.content ?? [],
+      stopReason: data.stop_reason ?? "end_turn",
+      usage: {
+        inputTokens: data.usage?.input_tokens ?? 0,
+        outputTokens: data.usage?.output_tokens ?? 0,
+        cacheCreationInputTokens: data.usage?.cache_creation_input_tokens ?? 0,
+        cacheReadInputTokens: data.usage?.cache_read_input_tokens ?? 0,
+      },
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return anthropicFailure("ANTHROPIC_TIMEOUT", `Anthropic call timed out after ${Math.round(timeoutMs / 1000)}s.`, true);
+    }
+    return anthropicFailure(
+      "ANTHROPIC_FETCH_ERROR",
+      `Anthropic fetch error: ${err instanceof Error ? err.message : String(err)}`,
+      true,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface AnthropicCallOpts {
   system: string;
   user: string;

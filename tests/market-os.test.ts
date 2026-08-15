@@ -1,38 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  extractMarketResearchSources,
-  MARKET_RESEARCH_MODULES,
-  parseMarketModuleOutput,
-} from "../supabase/functions/_shared/intelligence/market-research-provider.ts";
+import { MARKET_RESEARCH_MODULES } from "../supabase/functions/_shared/intelligence/market-research-provider.ts";
 
 const migrationPath = new URL("../supabase/migrations/20260812140000_phase_2a_a_intelligence_foundation.sql", import.meta.url);
 const clientPagePath = new URL("../src/pages/ClientDetailPage.tsx", import.meta.url);
 const edgePath = new URL("../supabase/functions/run-market-os/index.ts", import.meta.url);
-
-function structuredModule(moduleKey = "market_definition") {
-  return {
-    module_key: moduleKey,
-    summary: "A bounded market summary.",
-    records: [{
-      record_key: "market_boundary",
-      title: "Market boundary",
-      summary: "The supported market boundary.",
-      details: [{ label: "Geography", value: "Italy" }],
-      findings: [{
-        claim: "The client serves a defined regional market.",
-        disposition: "asserted",
-        confidence: "strongly_inferred",
-        rationale: "Supported by approved Context and external evidence.",
-        source_urls: ["https://example.com/research"],
-        context_file_numbers: [1],
-      }],
-    }],
-    unknowns: [],
-    contradictions: [],
-  };
-}
+const providerPath = new URL("../supabase/functions/_shared/intelligence/market-research-provider.ts", import.meta.url);
 
 test("Market OS module manifest covers the five bounded research modules", () => {
   assert.deepEqual(
@@ -41,37 +15,14 @@ test("Market OS module manifest covers the five bounded research modules", () =>
   );
 });
 
-test("OpenAI provider parser accepts the expected structured module and rejects identity drift", () => {
-  const payload = {
-    output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(structuredModule()) }] }],
-  };
-  assert.equal(parseMarketModuleOutput(payload, "market_definition").records.length, 1);
-  assert.throws(() => parseMarketModuleOutput(payload, "commercial_structure"), /invalid identity/i);
-});
-
-test("web source extraction returns inspectable, deduplicated HTTP sources", () => {
-  const sources = extractMarketResearchSources({
-    output: [
-      {
-        type: "web_search_call",
-        action: { sources: [
-          { url: "https://example.com/research#section", title: "Research" },
-          { url: "javascript:alert(1)", title: "Unsafe" },
-        ] },
-      },
-      {
-        type: "message",
-        content: [{
-          type: "output_text",
-          text: JSON.stringify(structuredModule()),
-          annotations: [{ type: "url_citation", url: "https://example.com/research", title: "Research source" }],
-        }],
-      },
-    ],
-  });
-  assert.equal(sources.length, 1);
-  assert.equal(sources[0].url, "https://example.com/research");
-  assert.equal(sources[0].title, "Research source");
+test("Market provider is a bounded Anthropic web_search agent loop with a schema-enforced non-empty records array", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /callAnthropicWithTools/);
+  assert.match(provider, /web_search_20260209/);
+  assert.match(provider, /submit_module/);
+  assert.match(provider, /minItems: 1/);
+  assert.match(provider, /MAX_AGENT_TURNS/);
+  assert.match(provider, /cache_control: \{ type: "ephemeral" \}/);
 });
 
 test("Phase 2A-A migration extends the canonical research tables and separates authority layers", async () => {
@@ -109,13 +60,19 @@ test("client UX exposes Context and the five-tab Intelligence page", async () =>
   assert.doesNotMatch(page, /label: "Data"/);
 });
 
-test("Market OS orchestration is resumable, web-backed, and stops before approval", async () => {
+test("Market OS orchestration is an Anthropic tool-calling agent, resumable, and stops before approval", async () => {
   const edge = await readFile(edgePath, "utf8");
   assert.match(edge, /type Action = "prepare" \| "step" \| "finalize" \| "retry_step"/);
   assert.match(edge, /action === "prepare"/);
   assert.match(edge, /action === "step"/);
   assert.match(edge, /action === "retry_step"/);
-  assert.match(edge, /runOpenAiMarketResearch/);
+  assert.match(edge, /runMarketResearchAgent/);
+  assert.doesNotMatch(edge, /runOpenAiMarketResearch/);
+  assert.match(edge, /provider: "anthropic"/);
+  assert.match(edge, /ANTHROPIC_MARKET_RESEARCH_MODEL/);
+  assert.match(edge, /client_agent_memory/);
+  assert.match(edge, /client_agent_turns/);
+  assert.match(edge, /renderMemoryNote/);
   assert.match(edge, /failed_module_requeued/);
   assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);

@@ -11,7 +11,7 @@ import {
   AVATAR_CONDITIONAL_MODULES,
   AVATAR_CORE_MODULES,
   AVATAR_RESEARCH_MODULES,
-  runOpenAiAvatarResearch,
+  runAvatarResearchAgent,
   type AvatarModuleFinding,
   type AvatarConditionalModuleKey,
 } from "../_shared/intelligence/avatar-research-provider.ts";
@@ -112,38 +112,60 @@ function renderAuthority(files: ContextFileRow[]): string {
   ).join("\n");
 }
 
+/** Renders this module's slice of cross-run agent memory (unresolved unknowns from the prior run) as prompt text. */
+function renderMemoryNote(
+  memory: { summary: string; unresolved_notes: unknown } | null | undefined,
+  moduleKey: string,
+): string | undefined {
+  if (!memory) return undefined;
+  const notes = Array.isArray(memory.unresolved_notes) ? memory.unresolved_notes : [];
+  const relevant = notes
+    .filter((note): note is { module_key?: unknown; claim?: unknown } => Boolean(note) && typeof note === "object")
+    .filter((note) => note.module_key === moduleKey && typeof note.claim === "string")
+    .map((note) => `- ${note.claim as string}`);
+  const parts: string[] = [];
+  if (memory.summary) parts.push(memory.summary);
+  if (relevant.length > 0) parts.push(`Unresolved from last run:\n${relevant.join("\n")}`);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+// Each record is capped individually, before joining, so every record gets
+// guaranteed complete coverage within its own budget — the previous design
+// only capped the joined string's total length, which meant whichever
+// records happened to render last could get silently truncated mid-sentence
+// or dropped entirely once earlier records had already used up the budget.
+const MARKET_AUTHORITY_RECORD_CAP = 500;
+const MARKET_AUTHORITY_TOTAL_CAP = 18000;
+const AVATAR_MODEL_RECORD_CAP = 500;
+const AVATAR_MODEL_TOTAL_CAP = 16000;
+
+function renderRecordBlock(record: { title: string; record_type: string; record_key: string; summary: string; payload: Record<string, unknown> }, cap: number): string {
+  const details = Array.isArray(record.payload?.details)
+    ? record.payload.details
+        .filter((detail): detail is { label: string; value: string } =>
+          Boolean(detail) && typeof detail === "object" &&
+          typeof (detail as { label?: unknown }).label === "string" &&
+          typeof (detail as { value?: unknown }).value === "string"
+        )
+        .map((detail) => `- ${detail.label}: ${detail.value}`)
+        .join("\n")
+    : "";
+  const block = `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
+  return compact(block, cap);
+}
+
 function renderMarketAuthority(authority: AvatarAuthority): string {
   const release = authority.marketRelease;
-  const records = authority.marketRecords.map((record) => {
-    const details = Array.isArray(record.payload?.details)
-      ? record.payload.details
-          .filter((detail): detail is { label: string; value: string } =>
-            Boolean(detail) && typeof detail === "object" &&
-            typeof (detail as { label?: unknown }).label === "string" &&
-            typeof (detail as { value?: unknown }).value === "string"
-          )
-          .map((detail) => `- ${detail.label}: ${detail.value}`)
-          .join("\n")
-      : "";
-    return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
-  }).join("\n\n");
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  const records = authority.marketRecords
+    .map((record) => renderRecordBlock(record, MARKET_AUTHORITY_RECORD_CAP))
+    .join("\n\n");
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, MARKET_AUTHORITY_TOTAL_CAP)}`;
 }
 
 function renderAvatarModel(records: Array<{ record_type: string; record_key: string; title: string; summary: string; payload: Record<string, unknown> }>): string {
-  return records.map((record) => {
-    const details = Array.isArray(record.payload?.details)
-      ? record.payload.details
-          .filter((detail): detail is { label: string; value: string } =>
-            Boolean(detail) && typeof detail === "object" &&
-            typeof (detail as { label?: unknown }).label === "string" &&
-            typeof (detail as { value?: unknown }).value === "string"
-          )
-          .map((detail) => `- ${detail.label}: ${detail.value}`)
-          .join("\n")
-      : "";
-    return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
-  }).join("\n\n");
+  return records
+    .map((record) => renderRecordBlock(record, AVATAR_MODEL_RECORD_CAP))
+    .join("\n\n");
 }
 
 async function loadAvatarAuthority(sb: ServiceClient, clientId: string): Promise<
@@ -322,7 +344,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     .order("version", { ascending: false }).limit(1).maybeSingle();
   if (versionError) return json({ ok: false, mode: "blocked", message: versionError.message }, 500);
   const version = (latestRelease?.version ?? 0) + 1;
-  const model = (Deno.env.get("OPENAI_AVATAR_RESEARCH_MODEL") ?? Deno.env.get("OPENAI_MARKET_RESEARCH_MODEL") ?? "gpt-5.6-terra").trim();
+  const model = (Deno.env.get("ANTHROPIC_AVATAR_RESEARCH_MODEL") ?? "claude-sonnet-5").trim();
   const timeBucket = Math.floor(Date.now() / 600_000);
   const idempotencyKey = `avatar_os:${authorityHash.slice(0, 40)}:v${version}:${timeBucket}`;
 
@@ -332,7 +354,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     intelligence_domain: "avatar_os",
     status: "queued",
     idempotency_key: idempotencyKey,
-    provider: "openai",
+    provider: "anthropic",
     model,
     prompt_digest: authorityHash,
     configuration_snapshot: {
@@ -420,6 +442,7 @@ async function cleanupStepArtifacts(sb: ServiceClient, clientId: string, release
   }
   await sb.from("client_evidence_records").delete().eq("client_id", clientId).contains("metadata", { research_step_id: stepId });
   await sb.from("client_intelligence_records").delete().eq("client_id", clientId).eq("release_id", releaseId).eq("record_type", stepKey);
+  await sb.from("client_agent_turns").delete().eq("client_id", clientId).eq("research_step_id", stepId);
 }
 
 async function persistModule(input: {
@@ -429,10 +452,33 @@ async function persistModule(input: {
   releaseId: string;
   step: ResearchStepRow;
   authority: AvatarAuthority;
-  result: Awaited<ReturnType<typeof runOpenAiAvatarResearch>>;
+  result: Awaited<ReturnType<typeof runAvatarResearchAgent>>;
 }) {
   const { sb, clientId, runId, releaseId, step, authority, result } = input;
   await cleanupStepArtifacts(sb, clientId, releaseId, step.id, step.step_key);
+
+  // Persist the transcript first, before any check that can throw below — a
+  // module that fails a downstream integrity check (e.g. no records) still
+  // leaves an inspectable audit trail of what the agent actually did.
+  if (result.transcript.length > 0) {
+    const turnRows = result.transcript.map((turn) => ({
+      client_id: clientId,
+      research_run_id: runId,
+      research_step_id: step.id,
+      intelligence_domain: "avatar_os",
+      turn_order: turn.turnOrder,
+      role: turn.role,
+      content: turn.content,
+      tool_name: turn.toolName,
+      tool_input: turn.toolInput,
+      tool_output: turn.toolOutput,
+      stop_reason: turn.stopReason,
+      input_tokens: turn.inputTokens,
+      output_tokens: turn.outputTokens,
+    }));
+    const { error: turnError } = await sb.from("client_agent_turns").insert(turnRows);
+    if (turnError) throw new Error(turnError.message);
+  }
 
   const sourceRows = result.sources.map((source) => ({
     client_id: clientId,
@@ -503,7 +549,7 @@ async function persistModule(input: {
           requested_context_file_numbers: providerFinding.context_file_numbers,
           requested_market_record_keys: providerFinding.market_record_keys,
         },
-        created_by: "openai_avatar_research",
+        created_by: "anthropic_avatar_research",
       }).select("id").single();
       if (findingError) throw new Error(findingError.message);
       recordFindingIds.push(finding.id);
@@ -709,12 +755,16 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       .eq("release_id", release.id)
       .order("display_order");
     if (existingRecordsError) throw new Error(existingRecordsError.message);
-    const providerResult = await runOpenAiAvatarResearch({
+    const { data: memory } = await sb.from("client_agent_memory")
+      .select("summary,unresolved_notes").eq("client_id", clientId).eq("intelligence_domain", "avatar_os").maybeSingle();
+    const memoryNote = renderMemoryNote(memory, step.step_key);
+    const providerResult = await runAvatarResearchAgent({
       module,
       clientName: authorityResult.authority.client.name,
       approvedContext: renderAuthority(authorityResult.authority.files),
       approvedMarketOS: renderMarketAuthority(authorityResult.authority),
-      existingAvatarModel: compact(renderAvatarModel(existingRecords ?? []), 24000),
+      existingAvatarModel: compact(renderAvatarModel(existingRecords ?? []), AVATAR_MODEL_TOTAL_CAP),
+      memoryNote,
       model: run.model ?? undefined,
     });
     if (step.step_key === "buyer_role_system") {
@@ -751,7 +801,7 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       research_run_id: researchRunId,
       research_step_id: step.id,
       capability: "web_research_and_structured_synthesis",
-      provider: "openai",
+      provider: "anthropic",
       model: run.model,
       status: "failed",
       error_class: code,
@@ -849,6 +899,19 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
     completed_modules: progress.completed,
     failed_modules: progress.failed,
   });
+
+  const unresolvedNotes = summaries.flatMap((module) =>
+    module.unknowns.map((claim: unknown) => ({ module_key: module.module_key, claim: compact(String(claim), 500) }))
+  );
+  await sb.from("client_agent_memory").upsert({
+    client_id: clientId,
+    intelligence_domain: "avatar_os",
+    summary: compact(summary, 2000),
+    unresolved_notes: unresolvedNotes,
+    source_run_id: run.id,
+    updated_at: generatedAt,
+  }, { onConflict: "client_id,intelligence_domain" });
+
   return json({ ok: true, message: "Avatar OS is ready for human review.", release: updatedRelease, run: updatedRun });
 }
 
