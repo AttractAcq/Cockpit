@@ -48,6 +48,7 @@ import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
 import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, ReelContinuityPlan, ReelStoryStrategy, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
+  IdeationAssetType,
   IdeationCandidate,
   IdeationAuthorityInput,
   IdeationOverview,
@@ -1156,6 +1157,49 @@ export async function runIdeation(input: RunIdeationInput): Promise<RunIdeationR
     month: input.month,
     idempotency_key: input.idempotency_key,
     strategic_input_sources: input.strategic_input_sources,
+  });
+}
+
+export interface CommitManualContentInput {
+  client_id: string;
+  asset_type: IdeationAssetType;
+  working_title: string;
+  hook: string;
+  core_message: string;
+  cta: string;
+  psychological_angle?: string | null;
+  distribution_date: string;
+  origin: "manual" | "proof_led";
+  content_source_id?: string | null;
+}
+
+export interface CommitManualContentResponse {
+  ref: string;
+  master_table: "organic_master" | "story_master";
+  master_id: string;
+  calendar_cell_id: string;
+}
+
+/**
+ * Commits a manually-typed or proof-led idea straight to the Calendar,
+ * alongside — not through — the AI-generation candidate/scoring/proposal
+ * pipeline (client_ideation_candidates is provenance-locked to real AI
+ * runs). Owned by the Ideation tab, not Content Supply.
+ */
+export async function commitManualContent(
+  input: CommitManualContentInput,
+): Promise<CommitManualContentResponse> {
+  return await invokeFn<CommitManualContentResponse>("commit-manual-content", {
+    client_id: input.client_id,
+    asset_type: input.asset_type,
+    working_title: input.working_title,
+    hook: input.hook,
+    core_message: input.core_message,
+    cta: input.cta,
+    psychological_angle: input.psychological_angle ?? null,
+    distribution_date: input.distribution_date,
+    origin: input.origin,
+    content_source_id: input.content_source_id ?? null,
   });
 }
 
