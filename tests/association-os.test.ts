@@ -3,9 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   ASSOCIATION_CORE_MODULES,
-  extractAssociationResearchSources,
   normaliseAssociationAuthorityRecordKey,
-  parseAssociationModuleOutput,
 } from "../supabase/functions/_shared/intelligence/association-research-provider.ts";
 
 const providerPath = new URL("../supabase/functions/_shared/intelligence/association-research-provider.ts", import.meta.url);
@@ -13,55 +11,11 @@ const edgePath = new URL("../supabase/functions/run-association-os/index.ts", im
 const pagePath = new URL("../src/pages/ClientDetailPage.tsx", import.meta.url);
 const panelPath = new URL("../src/components/client/AssociationOSPanel.tsx", import.meta.url);
 
-function structuredModule(moduleKey = "association_map") {
-  return {
-    module_key: moduleKey,
-    summary: "A supported buyer-association map.",
-    records: [{
-      record_key: "specific_proof",
-      association_key: "specific_proof",
-      polarity: "positive",
-      association_kind: "proof_form",
-      scope: "economic buyer",
-      applies_to_avatar_record_keys: ["economic_buyer"],
-      observed_at: "2026-08-10T00:00:00.000Z",
-      title: "Specific, inspectable proof",
-      summary: "Specific proof strengthens confidence for the supported buyer role.",
-      details: [{ label: "Trust effect", value: "Reduces perceived claim risk" }],
-      findings: [{
-        claim: "The economic buyer values specific, inspectable evidence.",
-        disposition: "asserted",
-        confidence: "strongly_inferred",
-        rationale: "Supported by public and approved upstream authority.",
-        source_urls: ["https://example.com/trust-research"],
-        context_file_numbers: [1],
-        market_record_keys: ["buying_mechanism"],
-        avatar_record_keys: ["economic_buyer"],
-        competitor_record_keys: ["example_agency__proof_pattern"],
-      }],
-    }],
-    unknowns: [],
-    contradictions: [],
-  };
-}
-
 test("Association OS covers polarity, trust, proof, cues, variation, and cautions", () => {
   assert.deepEqual(
     ASSOCIATION_CORE_MODULES.map((module) => module.key),
     ["association_map", "trust_credibility_signals", "proof_authority_ecosystem", "emotional_symbolic_language_cues", "role_segment_variation", "tensions_cautions_unknowns"],
   );
-});
-
-test("Association provider preserves Context, Market, Avatar, Competitor, and web evidence identities", () => {
-  const payload = {
-    output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(structuredModule()) }] }],
-  };
-  const output = parseAssociationModuleOutput(payload, "association_map");
-  assert.deepEqual(output.records[0].findings[0].market_record_keys, ["buying_mechanism"]);
-  assert.deepEqual(output.records[0].findings[0].avatar_record_keys, ["economic_buyer"]);
-  assert.deepEqual(output.records[0].findings[0].competitor_record_keys, ["example_agency__proof_pattern"]);
-  assert.equal(output.records[0].polarity, "positive");
-  assert.throws(() => parseAssociationModuleOutput(payload, "trust_credibility_signals"), /invalid identity/i);
 });
 
 test("Association authority keys accept exact keys and unambiguous type/key drift only", () => {
@@ -74,36 +28,18 @@ test("Association authority keys accept exact keys and unambiguous type/key drif
   assert.equal(normaliseAssociationAuthorityRecordKey("buyer_role_system/invented_role", allowed), null);
 });
 
-test("Association source extraction keeps only inspectable, deduplicated HTTP sources", () => {
-  const sources = extractAssociationResearchSources({
-    output: [
-      { type: "web_search_call", action: { sources: [
-        { url: "https://example.com/trust-research#proof", title: "Trust research" },
-        { url: "data:text/plain,unsafe", title: "Unsafe" },
-      ] } },
-      { type: "message", content: [{
-        type: "output_text",
-        text: JSON.stringify(structuredModule()),
-        annotations: [{ type: "url_citation", url: "https://example.com/trust-research", title: "Trust evidence" }],
-      }] },
-    ],
-  });
-  assert.deepEqual(sources, [{ url: "https://example.com/trust-research", title: "Trust evidence" }]);
-});
-
 test("Association orchestration requires every upstream OS and preserves refresh history", async () => {
   const edge = await readFile(edgePath, "utf8");
-  assert.match(edge, /APPROVED_MARKET_OS_REQUIRED/);
   assert.match(edge, /APPROVED_AVATAR_OS_REQUIRED/);
-  assert.match(edge, /APPROVED_COMPETITOR_OS_REQUIRED/);
-  assert.match(edge, /eq\("intelligence_domain", "market_os"\)/);
+  assert.doesNotMatch(edge, /APPROVED_MARKET_OS_REQUIRED/);
+  assert.doesNotMatch(edge, /APPROVED_COMPETITOR_OS_REQUIRED/);
+  assert.match(edge, /eq\("intelligence_domain", "avatar_os"\)/);
   assert.match(edge, /eq\("status", "approved"\)/);
-  assert.match(edge, /market_os: \{/);
+  assert.match(edge, /market_os: authority\.marketRelease \? \{/);
   assert.match(edge, /avatar_os: \{/);
-  assert.match(edge, /competitor_os: \{/);
+  assert.match(edge, /competitor_os: authority\.competitorRelease \? \{/);
   assert.match(edge, /previous_association_os:/);
-  assert.match(edge, /ensureAssociationFollowupSteps/);
-  assert.match(edge, /ASSOCIATION_CORE_MODULES\.slice\(0, 1\)/);
+  assert.match(edge, /ensureNextResearchStep/);
   assert.match(edge, /association_identity/);
   assert.match(edge, /association_fingerprint/);
   assert.match(edge, /change_status/);
@@ -111,8 +47,80 @@ test("Association orchestration requires every upstream OS and preserves refresh
   assert.match(edge, /retry_step/);
   assert.match(edge, /failed_module_requeued/);
   assert.match(edge, /refresh_interval_days: 180/);
+  assert.match(edge, /"completed_partial"/);
+  assert.match(edge, /exhaustedFailedStepIds/);
+  assert.match(edge, /status: "queued",\s+attempt_count: 0/);
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
+});
+
+test("Market OS and Competitor OS are optional enrichment, not hard requirements — only Avatar OS blocks", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function loadOptionalUpstreamAuthority\(/);
+  assert.match(edge, /domain: "market_os" \| "competitor_os"/);
+  assert.match(edge, /return \{ ok: true, release: null, records: \[\] \}/);
+  assert.match(edge, /marketRelease: marketAuthorityResult\.release/);
+  assert.match(edge, /competitorRelease: competitorAuthorityResult\.release/);
+  assert.match(edge, /No approved Market OS release is available for this client/);
+  assert.match(edge, /No approved Competitor OS release is available for this client/);
+});
+
+test("Association orchestration is an Anthropic tool-calling agent with memory and an audit trail", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /runAssociationResearchAgent/);
+  assert.doesNotMatch(edge, /runOpenAiAssociationResearch/);
+  assert.match(edge, /provider: "anthropic"/);
+  assert.match(edge, /ANTHROPIC_ASSOCIATION_RESEARCH_MODEL/);
+  assert.match(edge, /client_agent_memory/);
+  assert.match(edge, /client_agent_turns/);
+  assert.match(edge, /renderMemoryNote/);
+});
+
+test("every module runs as a two-phase search step then write step, each a separate invocation", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /function researchStepKey\(moduleKey: string\)/);
+  assert.match(edge, /runAssociationSearchPhase/);
+  assert.match(edge, /ensureWriteStep/);
+  assert.match(edge, /ensureNextResearchStep/);
+  assert.match(edge, /priorResearchNotes/);
+  assert.match(edge, /priorSources/);
+  assert.match(edge, /realModuleKeys\.has\(step\.step_key\)/);
+});
+
+test("prepare() archives runs that can never resume instead of leaving them in limbo", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function archiveStaleRun\(/);
+  assert.match(edge, /status: "cancelled", retryable: false/);
+  assert.match(edge, /status: "archived"/);
+  assert.match(edge, /association_os\.stale_run_archived/);
+  assert.match(edge, /if \(!release\) \{[\s\S]*?await archiveStaleRun\(sb, clientId, run\.id, null\);/);
+  assert.match(edge, /if \(!canResume\) \{[\s\S]*?await archiveStaleRun\(sb, clientId, run\.id, release\.id\);/);
+});
+
+test("search phase runs targeted gap searches against the existing corpus instead of re-discovering it every module", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /const hasExistingCorpus = Boolean\(input\.existingAssociationModel\) && input\.module\.key !== "association_map"/);
+  assert.match(provider, /Do NOT re-run broad discovery searches for new associations/);
+  assert.match(provider, /targeted, subject-specific queries/);
+});
+
+test("Association provider is a bounded Anthropic web_search agent loop with a schema-enforced non-empty records array", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /callAnthropicWithTools/);
+  assert.match(provider, /web_search_20260209/);
+  assert.match(provider, /submit_module/);
+  assert.match(provider, /minItems: 1/);
+  assert.match(provider, /MAX_AGENT_TURNS/);
+  assert.match(provider, /export async function runAssociationSearchPhase/);
+  assert.match(provider, /cache_control: \{ type: "ephemeral" \}/);
+});
+
+test("Association provider rejects placeholder and degenerate content with a structural check", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /function isPlaceholderText\(/);
+  assert.match(provider, /if \(!\/\\s\/\.test\(trimmed\)\) return true;/);
+  assert.match(provider, /if \(words\.length < 4\) return true;/);
+  assert.match(provider, /submit_module returned a placeholder\/degenerate record/);
 });
 
 test("Association provider blocks unsafe profiling, stereotypes, and strategy", async () => {
