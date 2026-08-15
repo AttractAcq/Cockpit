@@ -52,6 +52,14 @@ test("Avatar orchestration requires approved Market authority and selects condit
   assert.doesNotMatch(edge, /review_intelligence_release/);
 });
 
+test("prepare() archives runs that can never resume instead of leaving them in limbo", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function archiveStaleRun\(/);
+  assert.match(edge, /status: "cancelled", retryable: false/);
+  assert.match(edge, /status: "archived"/);
+  assert.match(edge, /avatar_os\.stale_run_archived/);
+});
+
 test("Avatar orchestration is an Anthropic tool-calling agent with memory and an audit trail", async () => {
   const edge = await readFile(edgePath, "utf8");
   assert.match(edge, /runAvatarResearchAgent/);

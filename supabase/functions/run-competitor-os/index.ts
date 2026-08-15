@@ -400,6 +400,24 @@ async function stepProgress(sb: ServiceClient, researchRunId: string) {
   return { completed, failed, total: steps.length, terminal: !recoverable };
 }
 
+/**
+ * Marks a run that can never resume as cancelled (and archives its draft
+ * release, if any) instead of leaving it sitting in an "open" status
+ * (queued/running/waiting_provider/failed/completed_partial) forever —
+ * prepare()'s scan over open runs would otherwise re-examine and skip past
+ * it on every future call. Confirmed live this required manual SQL cleanup
+ * more than once in a single session (after AUTHORITY_CHANGED, and after a
+ * module permanently exhausted its retry budget) before a fresh prepare()
+ * could create a usable new run.
+ */
+async function archiveStaleRun(sb: ServiceClient, clientId: string, runId: string, releaseId: string | null) {
+  await sb.from("client_research_runs").update({ status: "cancelled", retryable: false }).eq("id", runId);
+  if (releaseId) {
+    await sb.from("client_intelligence_releases").update({ status: "archived" }).eq("id", releaseId).eq("status", "draft");
+  }
+  await audit(sb, "competitor_os.stale_run_archived", "client_research_runs", runId, { client_id: clientId, release_id: releaseId });
+}
+
 // Two-slot ordering per module: research phase then write phase, so all
 // pairs sort predictably and every step_order stays >= 1 (a DB constraint).
 function moduleResearchStepOrder(moduleIndex: number): number {
@@ -490,7 +508,17 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     const { data: release } = await sb.from("client_intelligence_releases")
       .select("id,status").eq("client_id", clientId).eq("research_run_id", run.id)
       .in("status", ["draft", "needs_review"]).maybeSingle();
-    if (!release || release.status === "needs_review") continue;
+    if (!release) {
+      // A run in an open status (queued/running/waiting_provider/failed/
+      // completed_partial) with no draft/needs_review release attached is
+      // orphaned — its release was archived, approved, or never created
+      // properly. Left alone it sits in "open" limbo forever and gets
+      // re-scanned on every future prepare() call. Confirmed live this
+      // required manual SQL cleanup more than once; archive it here instead.
+      await archiveStaleRun(sb, clientId, run.id, null);
+      continue;
+    }
+    if (release.status === "needs_review") continue;
     const { data: loadedSteps, error: stepsError } = await sb.from("client_research_steps")
       .select("*").eq("research_run_id", run.id).order("step_order");
     if (stepsError) return json({ ok: false, mode: "blocked", message: stepsError.message }, 500);
@@ -520,7 +548,17 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
       step.status === "queued" || step.status === "running" || step.status === "waiting_provider" ||
       (step.status === "failed" && step.attempt_count < step.maximum_attempts)
     );
-    if (!canResume) continue;
+    if (!canResume) {
+      // Every step is exhausted (failed with no attempts left) and none are
+      // queued/running — this run can never resume. Confirmed live this
+      // required manual SQL cleanup (cancel run, archive release) more than
+      // once this session (once after AUTHORITY_CHANGED, once after a
+      // module permanently exhausted its retries) before a fresh prepare()
+      // would create a usable new run. Automate that here instead of
+      // silently skipping past a dead run forever.
+      await archiveStaleRun(sb, clientId, run.id, release.id);
+      continue;
+    }
     await sb.from("client_research_runs").update({ status: "queued", retryable: false, failure_code: null, failure_message: null })
       .eq("id", run.id);
     return json({

@@ -78,3 +78,11 @@ test("Market OS orchestration is an Anthropic tool-calling agent, resumable, and
   assert.match(edge, /status: "needs_review"/);
   assert.doesNotMatch(edge, /review_intelligence_release/);
 });
+
+test("prepare() archives runs that can never resume instead of leaving them in limbo", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function archiveStaleRun\(/);
+  assert.match(edge, /status: "cancelled", retryable: false/);
+  assert.match(edge, /status: "archived"/);
+  assert.match(edge, /market_os\.stale_run_archived/);
+});

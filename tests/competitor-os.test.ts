@@ -49,6 +49,16 @@ test("Competitor orchestration is an Anthropic tool-calling agent with memory an
   assert.match(edge, /renderMemoryNote/);
 });
 
+test("prepare() archives runs that can never resume instead of leaving them in limbo", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function archiveStaleRun\(/);
+  assert.match(edge, /status: "cancelled", retryable: false/);
+  assert.match(edge, /status: "archived"/);
+  assert.match(edge, /competitor_os\.stale_run_archived/);
+  assert.match(edge, /if \(!release\) \{[\s\S]*?await archiveStaleRun\(sb, clientId, run\.id, null\);/);
+  assert.match(edge, /if \(!canResume\) \{[\s\S]*?await archiveStaleRun\(sb, clientId, run\.id, release\.id\);/);
+});
+
 test("every module runs as a two-phase search step then write step, each a separate invocation", async () => {
   const edge = await readFile(edgePath, "utf8");
   assert.match(edge, /function researchStepKey\(moduleKey: string\)/);
@@ -68,6 +78,13 @@ test("Competitor provider is a bounded Anthropic web_search agent loop with a sc
   assert.match(provider, /minItems: 1/);
   assert.match(provider, /MAX_AGENT_TURNS/);
   assert.match(provider, /export async function runCompetitorSearchPhase/);
+});
+
+test("search phase runs targeted gap searches against the existing corpus instead of re-discovering it every module", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /const hasExistingCorpus = Boolean\(input\.existingCompetitorModel\) && input\.module\.key !== "alternative_registry"/);
+  assert.match(provider, /Do NOT re-run broad discovery searches for new alternatives/);
+  assert.match(provider, /targeted, subject-specific queries/);
 });
 
 test("Competitor provider enforces lawful observation and prohibits copying or prescriptions", async () => {

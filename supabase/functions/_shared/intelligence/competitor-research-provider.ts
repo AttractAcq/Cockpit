@@ -701,10 +701,24 @@ export async function runCompetitorSearchPhase(input: {
 
   const model = (input.model ?? Deno.env.get("ANTHROPIC_COMPETITOR_RESEARCH_MODEL") ?? "claude-sonnet-5").trim();
 
+  // alternative_registry is the only module that needs broad discovery — it's
+  // what establishes the named competitor set in the first place. Every later
+  // module was confirmed live to redundantly re-run broad "who are the
+  // competitors" searches instead of targeted queries about the subjects
+  // alternative_registry already found, burning search budget on
+  // rediscovery and pushing this session into Anthropic's web_search rate
+  // limit sooner than a gap-focused search pattern would have. Corpus-first:
+  // once a competitor set exists, later modules search THAT set's specific
+  // aspect for this module (pricing, proof, distribution, etc.), not the
+  // market from scratch.
+  const hasExistingCorpus = Boolean(input.existingCompetitorModel) && input.module.key !== "alternative_registry";
+
   const system = `You are the evidence-gathering phase of the Competitor OS research agent for Attract Acquisition.
 Your only job this call is to research the buyer-visible competitive system inside the approved market using web_search, then write a plain-text research brief — not a final structured registry. A second pass will turn your brief into the structured module.
 Use only public, lawfully accessible material. Do not log in, bypass access controls, evade platform restrictions, impersonate anyone, or collect private/personal data.
-Search for real, named direct and indirect competitors, substitutes, internal/in-house alternatives, and clearly distinguished reference brands. Search broadly enough to surface several real alternatives where they plausibly exist.
+${hasExistingCorpus
+    ? "A prior module has already discovered and named this client's competitive set — see COMPETITOR MODEL BUILT SO FAR below. Do NOT re-run broad discovery searches for new alternatives; that work is done. Instead, run targeted, subject-specific queries about this module's objective for the SPECIFIC named subjects already on file (e.g. \"<competitor name> pricing\", \"<competitor name> case studies\", \"<competitor name> LinkedIn\" rather than \"best agencies in this category\"). Only search for a new, previously unlisted alternative if evidence you encounter while doing targeted searches strongly and unambiguously points to one — that should be the rare exception, not where you start."
+    : "Search for real, named direct and indirect competitors, substitutes, internal/in-house alternatives, and clearly distinguished reference brands. Search broadly enough to surface several real alternatives where they plausibly exist."}
 When you have gathered enough evidence (or are confident none exists), stop calling web_search and write a concise plain-text brief: for each alternative found, give its name, a one-line description, its likely alternative type (direct/indirect/substitute/internal/do_nothing/reference_brand), and the exact source URL(s) that support it. Note explicit unknowns rather than guessing.`;
 
   const memorySection = input.memoryNote
@@ -726,14 +740,16 @@ PREVIOUS ACTIVE COMPETITOR OS (REFRESH COMPARISON ONLY)
 ${input.previousActiveCompetitorOS || "No previous approved Competitor OS exists."}`;
 
   const existingModelSection = input.existingCompetitorModel
-    ? `\nCOMPETITOR MODEL BUILT SO FAR (reuse these canonical subject identities where the same entity comes up again)\n${input.existingCompetitorModel}\n`
+    ? `\nCOMPETITOR MODEL BUILT SO FAR (reuse these canonical subject identities where the same entity comes up again${hasExistingCorpus ? " — this is your search target list, not just a naming reference" : ""})\n${input.existingCompetitorModel}\n`
     : "";
 
   const variableModuleBlock = `
 MODULE KEY: ${input.module.key}
 MODULE OBJECTIVE: ${input.module.focus}
 ${memorySection}${existingModelSection}
-Gather evidence now with web_search, then write your plain-text research brief.`;
+${hasExistingCorpus
+    ? "Gather evidence now with web_search — targeted queries about the named subjects above, for this module's specific objective — then write your plain-text research brief."
+    : "Gather evidence now with web_search, then write your plain-text research brief."}`;
 
   const messages: AnthropicMessageParam[] = [{
     role: "user",
