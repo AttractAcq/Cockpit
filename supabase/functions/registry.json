@@ -9,8 +9,8 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 100,
-    "uiCalled": 78,
+    "localFunctions": 101,
+    "uiCalled": 79,
     "nonUiCalled": 22,
     "retired": 13
   },
@@ -255,6 +255,28 @@
         "tests/phase1-intelligence.test.ts",
         "tests/execution-config.test.ts"
       ],
+      "internalCallers": []
+    },
+    {
+      "name": "attach-asset-to-ad-creative",
+      "purpose": "Finds-or-creates the Ad Opportunity + Ad Brief for an approved ads_master-origin asset's Calendar ref, then attaches the asset as a real image ad_creative_variants row -- the paid-content counterpart to promoteAssetGroupToDistribution's organic path.",
+      "system": "Distribution and Paid",
+      "page": "Creation / Assets",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "production",
+        "assets",
+        "paid"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        7,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [],
       "internalCallers": []
     },
     {

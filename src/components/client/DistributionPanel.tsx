@@ -426,6 +426,7 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   // Phase 3: the final-Reel rows a Reels capability decision depends on.
   const [deliverables, setDeliverables] = useState<Map<string, VideoProjectDeliverableRow>>(new Map());
   const [videoProjects, setVideoProjects] = useState<Map<string, VideoProjectRow>>(new Map());
+  const [thumbnails, setThumbnails] = useState<Map<string, string | null>>(new Map());
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -452,6 +453,25 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
   useEffect(() => { const reload = () => { void load(); }; window.addEventListener("aa:reload", reload); return () => window.removeEventListener("aa:reload", reload); }, [load]);
 
   const active = useMemo(() => records.filter((record) => ACTIVE_STATUSES.includes(record.publish_status)), [records]);
+  useEffect(() => {
+    let cancelled = false;
+    const pending = active.filter((record) => !thumbnails.has(record.id));
+    if (!pending.length) return;
+    void Promise.all(pending.map(async (record) => {
+      const media = (record.publish_payload as Partial<DistributionPublishPayload>).media ?? [];
+      const first = media[0];
+      const url = first ? await signDistributionMedia(first.storage_bucket, first.storage_path) : null;
+      return [record.id, url] as const;
+    })).then((entries) => {
+      if (cancelled) return;
+      setThumbnails((current) => {
+        const next = new Map(current);
+        for (const [id, url] of entries) next.set(id, url);
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [active, thumbnails]);
   const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(active, { lifecycleStage: "distribution", context: lifecycleContext, direction: dateDirection }), [active, dateDirection, lifecycleContext]);
   const publishedCount = records.filter((record) => record.publish_status === "published").length;
   const passedThroughEntries = useMemo(() => [...stageMap.values()].filter((entry) => isPassedThrough(entry.stage, "distribution")), [stageMap]);
@@ -532,9 +552,22 @@ export function DistributionPanel({ clientId, executionMonth, onViewAssets }: { 
           // Phase 2, Workstream E: unsupported records stay visible and their
           // history is preserved, but they never offer a publishing entry point.
           const capability = resolveRecordPublishCapability(record, buildReelContext(record, deliverables, videoProjects));
+          const thumbnail = thumbnails.get(record.id);
+          const isReelRecord = contentType.label === "Reels";
           return (
           <article key={record.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
-            <span className="w-28 shrink-0 font-mono text-2xs text-teal">{record.source_ref}</span>
+            <div className="w-28 shrink-0">
+              <div className={`w-full overflow-hidden rounded border border-line bg-black/20 ${contentType.label === "Stories" || isReelRecord ? "aspect-[9/16]" : "aspect-[4/5]"}`}>
+                {!thumbnail ? (
+                  <div className="flex h-full items-center justify-center p-1 text-center text-2xs text-paper-3">no preview</div>
+                ) : isReelRecord ? (
+                  <video src={thumbnail} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                ) : (
+                  <img src={thumbnail} alt={`${record.source_ref} preview`} className="h-full w-full object-cover" />
+                )}
+              </div>
+              <span className="mt-1 block truncate font-mono text-2xs text-teal">{record.source_ref}</span>
+            </div>
             <div className="min-w-[240px] flex-1">
               <div className="break-words text-xs text-paper">{record.title ?? record.source_ref}</div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-paper-3">

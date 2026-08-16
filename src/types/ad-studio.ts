@@ -2,7 +2,8 @@
 
 export type AdOpportunityOrigin =
   | "manual_idea" | "proof" | "research" | "campaign_requirement"
-  | "organic_winner" | "performance_insight" | "offer_launch" | "seasonal_trigger";
+  | "organic_winner" | "performance_insight" | "offer_launch" | "seasonal_trigger"
+  | "calendar_planned";
 
 export const AD_OPPORTUNITY_ORIGIN_LABEL: Record<AdOpportunityOrigin, string> = {
   manual_idea: "Manual Idea",
@@ -13,6 +14,7 @@ export const AD_OPPORTUNITY_ORIGIN_LABEL: Record<AdOpportunityOrigin, string> = 
   performance_insight: "Performance Insight",
   offer_launch: "Offer launch",
   seasonal_trigger: "Seasonal trigger",
+  calendar_planned: "Calendar-planned",
 };
 
 export type AdOpportunityStatus = "identified" | "shortlisted" | "selected" | "rejected" | "expired";
@@ -23,6 +25,7 @@ export interface AdOpportunityRow {
   title: string;
   origin: AdOpportunityOrigin;
   promoted_from_content_opportunity_id: string | null;
+  ads_master_id: string | null;
   status: AdOpportunityStatus;
   core_claim: string | null;
   offer_ref: string | null;
@@ -80,6 +83,7 @@ export interface AdCreativeVariantRow {
   copy_text: string;
   cta_text: string;
   status: "draft" | "approved" | "rejected";
+  client_asset_id: string | null;
   created_at: string;
 }
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives";
-import { acceptPartialAssetGroup, acknowledgeAssetGroupWarning, activateAssetVersion, fetchAssetCompletenessOverrides, fetchAssetWarningAcknowledgements, fetchClientAssets, fetchEffectiveStageMap, fetchLatestAssetJobsByBrief, fetchLifecycleDateContext, fetchProductionBrief, generateAiAssets, isAssetJobActive, promoteAssetGroupToDistribution, regenerateAssetFrame, startAssetGeneration, driveAssetJob, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
+import { acceptPartialAssetGroup, acknowledgeAssetGroupWarning, activateAssetVersion, fetchAssetCompletenessOverrides, fetchAssetWarningAcknowledgements, fetchClientAssets, fetchEffectiveStageMap, fetchLatestAssetJobsByBrief, fetchLifecycleDateContext, fetchProductionBrief, generateAiAssets, isAssetJobActive, promoteAssetGroupToDistribution, regenerateAssetFrame, startAssetGeneration, driveAssetJob, transitionAssetsToDistribution, updateClientAssetGroupStatus, type EffectiveStageEntry } from "@/lib/api";
+import { attachAssetToAdCreative } from "@/lib/ad-studio";
 import { assetDownloadFilename, assetVersion, downloadAsset, downloadAssetsZip } from "@/lib/assetExport";
 import { assetAspectClass, assetMediaLabel, isVideoAsset, isVideoAssetGroup } from "@/lib/assetMedia";
 import { ROUTES } from "@/lib/constants";
@@ -460,16 +461,37 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
         // Best-effort; the status write already committed and presence keeps
         // visibility correct even if this fails.
         let distributionBlocked: string | null = null;
+        let paidAttachment: { createdOpportunity: boolean; createdBrief: boolean } | null = null;
+        const isPaidAsset = pendingGroup.first.production_brief?.source_table === "ads_master";
         if (pending.kind === "approved" && executionMonth) {
           const entry = stageMap.get(pendingGroup.first.source_ref);
           if (!entry || !isPassedThrough(entry.stage, "assets")) {
             try {
-              await promoteAssetGroupToDistribution({
-                clientId, executionMonth, sourceRef: pendingGroup.first.source_ref,
-                assetGroupRef: pendingGroup.ref, productionBriefId: pendingGroup.first.production_brief_id,
-                title: pendingGroup.first.title, assetFormat: pendingGroup.first.asset_format,
-                assetRows: rows.map((row) => ({ id: row.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index, mime_type: row.mime_type, width: row.width, height: row.height, status: row.status })),
-              });
+              if (isPaidAsset) {
+                // Paid content never reaches client_distribution_records — it
+                // attaches as a real image creative into Ad Studio instead,
+                // finding or auto-creating the Ad Opportunity + Ad Brief for
+                // this ref's Calendar row.
+                const result = await attachAssetToAdCreative({ clientId, assetGroupRef: pendingGroup.ref });
+                paidAttachment = { createdOpportunity: result.created_opportunity, createdBrief: result.created_brief };
+                // Mirrors what promoteAssetGroupToDistribution does internally for
+                // the organic path — advances pipeline state so this ref shows
+                // correctly in Archived/Passed Through views instead of looking
+                // stuck at "assets" forever.
+                await transitionAssetsToDistribution({
+                  clientId, executionMonth, sourceRef: pendingGroup.first.source_ref,
+                  assetGroupRef: pendingGroup.ref, productionBriefId: pendingGroup.first.production_brief_id,
+                  title: pendingGroup.first.title, assetFormat: pendingGroup.first.asset_format,
+                  assetSnapshot: { asset_group_ref: pendingGroup.ref, files: rows.map((row) => ({ id: row.id, storage_path: row.storage_path, sequence_index: row.sequence_index, status: row.status })) },
+                }).catch(() => { /* non-fatal — visibility stays correct via presence */ });
+              } else {
+                await promoteAssetGroupToDistribution({
+                  clientId, executionMonth, sourceRef: pendingGroup.first.source_ref,
+                  assetGroupRef: pendingGroup.ref, productionBriefId: pendingGroup.first.production_brief_id,
+                  title: pendingGroup.first.title, assetFormat: pendingGroup.first.asset_format,
+                  assetRows: rows.map((row) => ({ id: row.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, sequence_index: row.sequence_index, mime_type: row.mime_type, width: row.width, height: row.height, status: row.status })),
+                });
+              }
             } catch (promotionError) {
               // Phase 2, Workstream E: an unsupported media type (a Reel Studio
               // MP4) is refused a distribution draft on purpose, and the operator
@@ -477,7 +499,7 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
               // promotion failure stays non-fatal as before — the approval itself
               // already committed.
               const code = (promotionError as { code?: string }).code ?? "";
-              if (code.startsWith("UNSUPPORTED_DISTRIBUTION:")) {
+              if (code.startsWith("UNSUPPORTED_DISTRIBUTION:") || isPaidAsset) {
                 distributionBlocked = promotionError instanceof Error ? promotionError.message : String(promotionError);
               }
             }
@@ -486,12 +508,17 @@ export function AssetsPanel({ clientId, executionMonth, onViewProductionBrief }:
           window.dispatchEvent(new Event("aa:reload"));
         }
         const reviewNoun = pendingGroup.isVideo ? `shot clip${rows.length === 1 ? "" : "s"}` : `group file${rows.length === 1 ? "" : "s"}`;
+        const approvalOutcome = isPaidAsset
+          ? distributionBlocked
+            ? ` Not attached as an ad creative: ${distributionBlocked}`
+            : ` Attached to Ad Studio as a creative${paidAttachment?.createdOpportunity ? " (new Ad Opportunity + Brief created)" : ""}.`
+          : distributionBlocked
+            ? ` Not queued for distribution: ${distributionBlocked}`
+            : " Moved to Distribution.";
         setNotice({
           error: false,
           message: `All ${rows.length} ${reviewNoun} marked ${pending.kind.replaceAll("_", " ")}.${
-            pending.kind === "approved" && executionMonth
-              ? distributionBlocked ? ` Not queued for distribution: ${distributionBlocked}` : " Moved to Distribution."
-              : ""
+            pending.kind === "approved" && executionMonth ? approvalOutcome : ""
           }`,
         });
       }

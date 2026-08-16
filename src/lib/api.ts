@@ -1768,6 +1768,14 @@ export async function fetchAssetsForBrief(productionBriefId: string): Promise<Cl
   return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
 }
 
+/** Signed-URL asset lookups by id, e.g. rendering a real thumbnail for an ad_creative_variants.client_asset_id. */
+export async function fetchClientAssetsByIds(ids: string[]): Promise<ClientAssetRow[]> {
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from("client_assets").select("*").in("id", ids);
+  if (error) throw error;
+  return addSignedAssetUrls((data ?? []) as ClientAssetRow[]);
+}
+
 export async function updateClientAssetGroupStatus(
   clientId: string,
   assetGroupRef: string,

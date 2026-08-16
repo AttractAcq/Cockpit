@@ -18,6 +18,7 @@ import { AD_OPPORTUNITY_ORIGIN_LABEL, AD_CAMPAIGN_STATUS_LABEL, type AdOpportuni
 import {
   fetchAdCampaignMetricSnapshots, fetchAdCampaignBusinessSignalSnapshots, upsertAdCampaignMetricSnapshot,
   upsertAdCampaignBusinessSignalSnapshot, fetchAdPerformanceScore, fetchAdPerformanceInsights, runAdCampaignPerformanceAnalysis,
+  fetchClientAssetsByIds,
 } from "@/lib/api";
 import type { AdCampaignMetricSnapshot, AdCampaignBusinessSignalSnapshot, ClientPerformanceScore, ClientPerformanceInsight, AdSupportedMetricKey } from "@/types/phase";
 
@@ -229,6 +230,7 @@ export function AdStudioPanel({ clientId }: { clientId: string }) {
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>(null);
   const [briefs, setBriefs] = useState<AdBriefRow[]>([]);
   const [variants, setVariants] = useState<AdCreativeVariantRow[]>([]);
+  const [variantThumbnails, setVariantThumbnails] = useState<Map<string, string | null>>(new Map());
   const [campaigns, setCampaigns] = useState<AdCampaignRow[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [attempts, setAttempts] = useState<AdLaunchAttemptRow[]>([]);
@@ -262,6 +264,13 @@ export function AdStudioPanel({ clientId }: { clientId: string }) {
     try {
       const [variantRows, campaignRows] = await Promise.all([fetchCreativeVariantsForBrief(briefId), fetchAdCampaignsForBrief(briefId)]);
       setVariants(variantRows); setCampaigns(campaignRows);
+      const assetIds = [...new Set(variantRows.map((v) => v.client_asset_id).filter((id): id is string => !!id))];
+      if (assetIds.length) {
+        const assets = await fetchClientAssetsByIds(assetIds);
+        setVariantThumbnails(new Map(assets.map((asset) => [asset.id, asset.signed_url ?? null])));
+      } else {
+        setVariantThumbnails(new Map());
+      }
     } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
   }, []);
   useEffect(() => { if (latestBrief) loadBriefDetail(latestBrief.id); }, [latestBrief, loadBriefDetail]);
@@ -450,12 +459,16 @@ export function AdStudioPanel({ clientId }: { clientId: string }) {
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => void handleGenerateVariants()}>Generate variants</Button>
               </div>
               {variants.length > 0 && <div className="max-h-40 overflow-y-auto">
-                {variants.map((v) => (
-                  <label key={v.id} className="flex items-center gap-2 border-b border-line py-1 text-2xs text-paper-2">
-                    <input type="checkbox" checked={selectedVariantIds.includes(v.id)} onChange={(e) => setSelectedVariantIds((cur) => e.target.checked ? [...cur, v.id] : cur.filter((id) => id !== v.id))} />
-                    {v.hook_text} · {v.copy_text} · {v.cta_text} · {v.format}
-                  </label>
-                ))}
+                {variants.map((v) => {
+                  const thumbnail = v.client_asset_id ? variantThumbnails.get(v.client_asset_id) : null;
+                  return (
+                    <label key={v.id} className="flex items-center gap-2 border-b border-line py-1 text-2xs text-paper-2">
+                      <input type="checkbox" checked={selectedVariantIds.includes(v.id)} onChange={(e) => setSelectedVariantIds((cur) => e.target.checked ? [...cur, v.id] : cur.filter((id) => id !== v.id))} />
+                      {thumbnail && <img src={thumbnail} alt="" className="h-8 w-8 shrink-0 rounded border border-line object-cover" />}
+                      <span className="min-w-0 truncate">{v.hook_text} · {v.copy_text} · {v.cta_text} · {v.format}</span>
+                    </label>
+                  );
+                })}
               </div>}
               {selectedVariantIds.length > 0 && <div className="mt-3 flex flex-wrap items-end gap-2">
                 <input className={field} placeholder="Campaign name" value={campaignForm.name} onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })} />

@@ -43,6 +43,31 @@ export async function reviewAdBrief(input: {
   });
 }
 
+export interface AttachAssetToAdCreativeResult {
+  ok: true;
+  ad_opportunity_id: string;
+  ad_brief_id: string;
+  ad_creative_variant_id: string;
+  created_opportunity: boolean;
+  created_brief: boolean;
+  replayed: boolean;
+}
+
+/**
+ * The paid-content counterpart to promoteAssetGroupToDistribution: attaches an
+ * approved ads_master-origin asset group as a real image creative into Ad
+ * Studio, finding or auto-creating the Ad Opportunity + Ad Brief for its
+ * Calendar ref. Idempotent — re-calling for an already-attached group returns
+ * the existing variant (replayed: true) rather than erroring or duplicating.
+ */
+export async function attachAssetToAdCreative(input: {
+  clientId: string; assetGroupRef: string;
+}): Promise<AttachAssetToAdCreativeResult> {
+  return await invokeFn("attach-asset-to-ad-creative", {
+    client_id: input.clientId, asset_group_ref: input.assetGroupRef,
+  });
+}
+
 export async function fetchCreativeVariantsForBrief(briefId: string): Promise<AdCreativeVariantRow[]> {
   const { data, error } = await supabase.from("ad_creative_variants").select("*").eq("ad_brief_id", briefId).order("created_at", { ascending: true });
   if (error) throw error;
