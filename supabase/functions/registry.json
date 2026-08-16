@@ -9,8 +9,8 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 109,
-    "uiCalled": 90,
+    "localFunctions": 111,
+    "uiCalled": 92,
     "nonUiCalled": 19,
     "retired": 10
   },
@@ -3361,6 +3361,50 @@
         "generate-phase-2",
         "generate-phase-3"
       ]
+    },
+    {
+      "name": "commit-manual-content",
+      "purpose": "Commits a manually-typed or proof-led content item directly to the operational Calendar, alongside (not through) the AI-generation candidate/scoring/proposal pipeline, since client_ideation_candidates cannot honestly represent a non-AI-generated item.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [],
+      "internalCallers": []
+    },
+    {
+      "name": "distribute-content-items-to-calendar",
+      "purpose": "Bulk-reschedules selected Content Items (organic_master/story_master rows) across an operator-chosen date range, per content format and any approved Execution Ideation Schedule Contract.",
+      "system": "Ideation",
+      "page": "Ideation",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "calendar"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [],
+      "internalCallers": []
     }
   ]
 }

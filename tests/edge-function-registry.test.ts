@@ -42,8 +42,8 @@ function clone<T>(value: T): T {
 test("canonical Edge Function registry reconciles all local functions", async () => {
   const result = await validateRepositoryRegistry();
   assert.deepEqual(result.errors, []);
-  assert.equal(result.contracts.length, 109);
-  assert.equal(result.contracts.filter((entry) => entry.caller === "ui").length, 90);
+  assert.equal(result.contracts.length, 111);
+  assert.equal(result.contracts.filter((entry) => entry.caller === "ui").length, 92);
   assert.equal(result.contracts.filter((entry) => entry.lifecycle === "retired").length, 10);
   assert.deepEqual(result.warnings.map((entry) => entry.code), ["JWT_CONFIG_EXCEPTION"]);
 });
