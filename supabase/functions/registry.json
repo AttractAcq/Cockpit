@@ -9,8 +9,8 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 111,
-    "uiCalled": 92,
+    "localFunctions": 99,
+    "uiCalled": 80,
     "nonUiCalled": 19,
     "retired": 10
   },
@@ -234,31 +234,6 @@
       "internalCallers": []
     },
     {
-      "name": "approve-calendar-proposal",
-      "purpose": "Perform the existing approve calendar proposal operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
       "name": "approve-execution-config",
       "purpose": "Perform the existing approve execution config operation for the Context and Execution system without expanding its product responsibility.",
       "system": "Context and Execution",
@@ -334,10 +309,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -461,8 +433,7 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -575,33 +546,6 @@
       "internalCallers": []
     },
     {
-      "name": "create-calendar-proposal",
-      "purpose": "Perform the existing create calendar proposal operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-CALENDAR-001"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
       "name": "create-composition-contract",
       "purpose": "Perform the existing create composition contract operation for the Reel Studio system without expanding its product responsibility.",
       "system": "Reel Studio",
@@ -625,61 +569,6 @@
       "testCoverage": [
         "tests/reel-studio-phase1.test.ts",
         "tests/reel-studio-phase2.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "create-content-opportunity",
-      "purpose": "Perform the existing create content opportunity operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-ERROR-001"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "create-distribution-record-from-content-item",
-      "purpose": "Perform the existing create distribution record from content item operation for the Distribution and Paid system without expanding its product responsibility.",
-      "system": "Distribution and Paid",
-      "page": "Distribution / Paid",
-      "profile": "ui_operational",
-      "databaseDomains": [
-        "distribution",
-        "paid",
-        "analytics"
-      ],
-      "storageBuckets": [
-        "client-assets",
-        "video-assets"
-      ],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        7,
-        10
-      ],
-      "remediationIds": [],
-      "testCoverage": [
-        "tests/distribution-policy.test.ts",
-        "tests/ad-studio.test.ts"
       ],
       "internalCallers": []
     },
@@ -738,8 +627,7 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -904,8 +792,7 @@
         "EF-ERROR-002"
       ],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -1044,10 +931,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1075,10 +959,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1137,10 +1018,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1168,75 +1046,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "generate-content-brief",
-      "purpose": "Perform the existing generate content brief operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [
-        "anthropic"
-      ],
-      "requiredEnvironment": [
-        "AA_AI_GENERATION_ENABLED",
-        "ANTHROPIC_API_KEY"
-      ],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-AUTHORITY-004",
-        "EF-ERROR-005"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "generate-content-opportunities",
-      "purpose": "Perform the existing generate content opportunities operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [
-        "anthropic"
-      ],
-      "requiredEnvironment": [
-        "AA_AI_GENERATION_ENABLED",
-        "ANTHROPIC_API_KEY"
-      ],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-ERROR-003"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1288,10 +1098,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1408,10 +1215,7 @@
         "EF-AUTH-001",
         "EF-DESTRUCT-003"
       ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1442,10 +1246,7 @@
         "EF-PHASE3-001",
         "EF-CONC-007"
       ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1475,10 +1276,7 @@
         "EF-AUTH-001",
         "EF-AUTHORITY-005"
       ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1506,10 +1304,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1536,10 +1331,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -1594,8 +1386,7 @@
         "EF-TXN-001"
       ],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -1930,10 +1721,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2159,10 +1947,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2243,8 +2028,7 @@
         "EF-CONC-003"
       ],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -2303,33 +2087,6 @@
       "internalCallers": []
     },
     {
-      "name": "review-content-brief",
-      "purpose": "Perform the existing review content brief operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-CONC-006"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
       "name": "review-final-reel",
       "purpose": "Perform the existing review final reel operation for the Reel Studio system without expanding its product responsibility.",
       "system": "Reel Studio",
@@ -2355,34 +2112,6 @@
       "testCoverage": [
         "tests/reel-studio-phase1.test.ts",
         "tests/reel-studio-phase2.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "route-content-brief-to-studio",
-      "purpose": "Perform the existing route content brief to studio operation for the Creation system without expanding its product responsibility.",
-      "system": "Creation",
-      "page": "Creation / Production",
-      "profile": "ui_operational",
-      "databaseDomains": [
-        "execution",
-        "production",
-        "assets"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        5,
-        10
-      ],
-      "remediationIds": [
-        "EF-AUTH-001",
-        "EF-CONC-008"
-      ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
       ],
       "internalCallers": []
     },
@@ -2713,8 +2442,7 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -2781,39 +2509,6 @@
       "internalCallers": []
     },
     {
-      "name": "score-content-opportunity",
-      "purpose": "Perform the existing score content opportunity operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [
-        "anthropic"
-      ],
-      "requiredEnvironment": [
-        "AA_AI_GENERATION_ENABLED",
-        "ANTHROPIC_API_KEY"
-      ],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-ERROR-004",
-        "EF-TXN-002"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
       "name": "score-ideation-candidates",
       "purpose": "Perform the existing score ideation candidates operation for the Ideation system without expanding its product responsibility.",
       "system": "Ideation",
@@ -2839,8 +2534,7 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
+        "tests/ideation-stage4.test.ts"
       ],
       "internalCallers": []
     },
@@ -2899,10 +2593,7 @@
         "EF-PRODUCTION-001",
         "EF-PROVIDER-001"
       ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2974,10 +2665,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -3005,10 +2693,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -3035,38 +2720,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "submit-production-review",
-      "purpose": "Perform the existing submit production review operation for the Creation system without expanding its product responsibility.",
-      "system": "Creation",
-      "page": "Creation / Production",
-      "profile": "ui_operational",
-      "databaseDomains": [
-        "execution",
-        "production",
-        "assets"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        5,
-        10
-      ],
-      "remediationIds": [
-        "EF-AUTH-001",
-        "EF-PRODUCTION-003"
-      ],
-      "testCoverage": [
-        "tests/production-studio.test.ts",
-        "tests/production-studio.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -3199,33 +2853,6 @@
       "internalCallers": []
     },
     {
-      "name": "update-calendar-proposal-slot",
-      "purpose": "Perform the existing update calendar proposal slot operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-CONC-005"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
       "name": "update-composition-contract",
       "purpose": "Perform the existing update composition contract operation for the Reel Studio system without expanding its product responsibility.",
       "system": "Reel Studio",
@@ -3249,33 +2876,6 @@
       "testCoverage": [
         "tests/reel-studio-phase1.test.ts",
         "tests/reel-studio-phase2.test.ts"
-      ],
-      "internalCallers": []
-    },
-    {
-      "name": "update-content-opportunity-status",
-      "purpose": "Perform the existing update content opportunity status operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
-      "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
-      ],
-      "storageBuckets": [],
-      "externalProviders": [],
-      "requiredEnvironment": [],
-      "auditPhases": [
-        4,
-        10
-      ],
-      "remediationIds": [
-        "EF-CONC-004"
-      ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts",
-        "tests/calendar-planning.test.ts"
       ],
       "internalCallers": []
     },
