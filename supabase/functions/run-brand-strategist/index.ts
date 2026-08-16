@@ -1,15 +1,20 @@
 // Phase 2A-E — one-button Brand Strategist orchestration.
 //
-// One UI action drives prepare -> bounded research steps -> finalize. Each
+// One UI action drives prepare -> bounded synthesis steps -> finalize. Each
 // provider call is isolated so the workflow can resume after navigation,
 // provider failure, or an Edge Function wall-clock interruption. Human review
 // remains a separate database-controlled decision.
+//
+// Unlike the other four Intelligence agents, Brand Strategist has no
+// web_search step — it's pure cross-OS synthesis over already-approved
+// upstream authority, so there is no research/write pair per module, just
+// one synthesis step per module.
 
 import { audit, cors, json, svc } from "../_shared/aa.ts";
 import { validateIntelligenceAccess } from "../_shared/intelligence/auth.ts";
 import {
   BRAND_STRATEGIST_MODULES,
-  runOpenAiBrandStrategistSynthesis,
+  runBrandStrategistSynthesisAgent,
   type BrandStrategistFinding,
 } from "../_shared/intelligence/brand-strategist-provider.ts";
 
@@ -238,32 +243,40 @@ function renderMarketAuthority(authority: BrandStrategistAuthority): string {
       : "";
     return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${details ? `\n${details}` : ""}`;
   }).join("\n\n");
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, RECORD_SECTION_CAP)}`;
 }
 
 function renderAvatarAuthority(authority: BrandStrategistAuthority): string {
   const release = authority.avatarRelease;
   const records = renderBrandStrategistModel(authority.avatarRecords);
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, RECORD_SECTION_CAP)}`;
 }
 
 function renderCompetitorAuthority(authority: BrandStrategistAuthority): string {
   const release = authority.competitorRelease;
   const records = renderBrandStrategistModel(authority.competitorRecords);
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, RECORD_SECTION_CAP)}`;
 }
 
 function renderAssociationAuthority(authority: BrandStrategistAuthority): string {
   const release = authority.associationRelease;
   const records = renderBrandStrategistModel(authority.associationRecords);
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(records, RECORD_SECTION_CAP)}`;
 }
 
 function renderPreviousBrandStrategistOS(authority: BrandStrategistAuthority): string {
   const release = authority.previousBrandStrategistRelease;
   if (!release) return "";
-  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(renderBrandStrategistModel(authority.previousBrandStrategistRecords), 24000)}`;
+  return `# ${release.title} (approved v${release.version})\n${release.summary}\n\n${compact(renderBrandStrategistModel(authority.previousBrandStrategistRecords), RECORD_SECTION_CAP)}`;
 }
+
+// Brand Strategist stacks five record-based context sections (Market,
+// Avatar, Competitor, Association authority, plus previous Brand Strategist
+// and the strategy built so far this run) — the most of any Intelligence
+// agent, and all five are hard-required, not optional enrichment. Caps kept
+// tight to keep combined prompt size in check given there's no search phase
+// to isolate the way Competitor/Association OS have.
+const RECORD_SECTION_CAP = 7000;
 
 function renderBrandStrategistModel(records: Array<{ record_type: string; record_key: string; title: string; summary: string; payload: Record<string, unknown> }>): string {
   return records.map((record) => {
@@ -290,6 +303,23 @@ function renderBrandStrategistModel(records: Array<{ record_type: string; record
     const payload = [details, strategicFields].filter(Boolean).join("\n");
     return `## ${record.title} [${record.record_type}/${record.record_key}]\n${record.summary}${payload ? `\n${payload}` : ""}`;
   }).join("\n\n");
+}
+
+/** Renders this module's slice of cross-run agent memory (unresolved unknowns from the prior run) as prompt text. */
+function renderMemoryNote(
+  memory: { summary: string; unresolved_notes: unknown } | null | undefined,
+  moduleKey: string,
+): string | undefined {
+  if (!memory) return undefined;
+  const notes = Array.isArray(memory.unresolved_notes) ? memory.unresolved_notes : [];
+  const relevant = notes
+    .filter((note): note is { module_key?: unknown; claim?: unknown } => Boolean(note) && typeof note === "object")
+    .filter((note) => note.module_key === moduleKey && typeof note.claim === "string")
+    .map((note) => `- ${note.claim as string}`);
+  const parts: string[] = [];
+  if (memory.summary) parts.push(memory.summary);
+  if (relevant.length > 0) parts.push(`Unresolved from last run:\n${relevant.join("\n")}`);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 async function loadBrandStrategistAuthority(sb: ServiceClient, clientId: string): Promise<
@@ -598,25 +628,40 @@ async function stepProgress(sb: ServiceClient, researchRunId: string) {
   return { completed, failed, total: steps.length, terminal: !recoverable };
 }
 
-async function ensureBrandStrategistFollowupSteps(
+/**
+ * Marks a run that can never resume as cancelled (and archives its draft
+ * release, if any) instead of leaving it sitting in an "open" status
+ * forever. See the equivalent Competitor/Market/Avatar/Association OS
+ * helper for the live incident that motivated this.
+ */
+async function archiveStaleRun(sb: ServiceClient, clientId: string, runId: string, releaseId: string | null) {
+  await sb.from("client_research_runs").update({ status: "cancelled", retryable: false }).eq("id", runId);
+  if (releaseId) {
+    await sb.from("client_intelligence_releases").update({ status: "archived" }).eq("id", releaseId).eq("status", "draft");
+  }
+  await audit(sb, "brand_strategist.stale_run_archived", "client_research_runs", runId, { client_id: clientId, release_id: releaseId });
+}
+
+/** Queues just the next module's step after the current one completes — Brand Strategist has no research/write pairing, one step per module. */
+async function ensureNextModuleStep(
   sb: ServiceClient,
   clientId: string,
   researchRunId: string,
+  completedModuleIndex: number,
 ) {
-  const modules = BRAND_STRATEGIST_MODULES.slice(1);
+  const nextModule = BRAND_STRATEGIST_MODULES[completedModuleIndex + 1];
+  if (!nextModule) return;
   const { data: existing, error: existingError } = await sb.from("client_research_steps")
-    .select("step_key").eq("research_run_id", researchRunId);
+    .select("step_key").eq("research_run_id", researchRunId).eq("step_key", nextModule.key).maybeSingle();
   if (existingError) throw new Error(existingError.message);
-  const existingKeys = new Set((existing ?? []).map((step) => step.step_key));
-  const rows = modules.filter((module) => !existingKeys.has(module.key)).map((module) => ({
+  if (existing) return;
+  const { error } = await sb.from("client_research_steps").insert({
     client_id: clientId,
     research_run_id: researchRunId,
-    step_key: module.key,
-    step_order: BRAND_STRATEGIST_MODULES.findIndex((candidate) => candidate.key === module.key) + 1,
-    title: module.title,
-  }));
-  if (rows.length === 0) return;
-  const { error } = await sb.from("client_research_steps").insert(rows);
+    step_key: nextModule.key,
+    step_order: completedModuleIndex + 2,
+    title: nextModule.title,
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -659,7 +704,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
 
   const { data: openRuns, error: openRunError } = await sb.from("client_research_runs")
     .select("*").eq("client_id", clientId).eq("intelligence_domain", "brand_strategist")
-    .in("status", ["queued", "running", "waiting_provider", "failed"])
+    .in("status", ["queued", "running", "waiting_provider", "failed", "completed_partial"])
     .order("created_at", { ascending: false }).limit(5);
   if (openRunError) return json({ ok: false, mode: "blocked", message: openRunError.message }, 500);
 
@@ -667,19 +712,44 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     const { data: release } = await sb.from("client_intelligence_releases")
       .select("id,status").eq("client_id", clientId).eq("research_run_id", run.id)
       .in("status", ["draft", "needs_review"]).maybeSingle();
-    if (!release || release.status === "needs_review") continue;
-    const { data: steps, error: stepsError } = await sb.from("client_research_steps")
+    if (!release) {
+      await archiveStaleRun(sb, clientId, run.id, null);
+      continue;
+    }
+    if (release.status === "needs_review") continue;
+    const { data: loadedSteps, error: stepsError } = await sb.from("client_research_steps")
       .select("*").eq("research_run_id", run.id).order("step_order");
     if (stepsError) return json({ ok: false, mode: "blocked", message: stepsError.message }, 500);
-    const hasExhaustedFailure = (steps ?? []).some((step) =>
-      step.status === "failed" && step.attempt_count >= step.maximum_attempts
-    );
-    if (hasExhaustedFailure) continue;
+    let steps = loadedSteps ?? [];
+    if (run.status === "completed_partial") {
+      const exhaustedFailedStepIds = steps
+        .filter((step) => step.status === "failed" && step.attempt_count >= step.maximum_attempts)
+        .map((step) => step.id);
+      if (exhaustedFailedStepIds.length > 0) {
+        const { error: resetError } = await sb.from("client_research_steps").update({
+          status: "queued",
+          attempt_count: 0,
+          failure_code: null,
+          failure_message: null,
+          started_at: null,
+          completed_at: null,
+          lease_owner: null,
+          lease_expires_at: null,
+        }).in("id", exhaustedFailedStepIds).eq("client_id", clientId);
+        if (resetError) return json({ ok: false, mode: "blocked", message: resetError.message }, 500);
+        steps = steps.map((step) => exhaustedFailedStepIds.includes(step.id)
+          ? { ...step, status: "queued", attempt_count: 0, failure_code: null, failure_message: null }
+          : step);
+      }
+    }
     const canResume = (steps ?? []).some((step) =>
       step.status === "queued" || step.status === "running" || step.status === "waiting_provider" ||
       (step.status === "failed" && step.attempt_count < step.maximum_attempts)
     );
-    if (!canResume) continue;
+    if (!canResume) {
+      await archiveStaleRun(sb, clientId, run.id, release.id);
+      continue;
+    }
     await sb.from("client_research_runs").update({ status: "queued", retryable: false, failure_code: null, failure_message: null })
       .eq("id", run.id);
     return json({
@@ -688,7 +758,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
       message: "Resuming the existing Brand Strategist build.",
       research_run_id: run.id,
       release_id: release.id,
-      steps: steps ?? [],
+      steps,
     });
   }
 
@@ -697,7 +767,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     .order("version", { ascending: false }).limit(1).maybeSingle();
   if (versionError) return json({ ok: false, mode: "blocked", message: versionError.message }, 500);
   const version = (latestRelease?.version ?? 0) + 1;
-  const model = (Deno.env.get("OPENAI_BRAND_STRATEGIST_MODEL") ?? "gpt-5.6-terra").trim();
+  const model = (Deno.env.get("ANTHROPIC_BRAND_STRATEGIST_MODEL") ?? "claude-sonnet-5").trim();
   const timeBucket = Math.floor(Date.now() / 600_000);
   const idempotencyKey = `brand_strategist:${authorityHash.slice(0, 40)}:v${version}:${timeBucket}`;
 
@@ -707,7 +777,7 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     intelligence_domain: "brand_strategist",
     status: "queued",
     idempotency_key: idempotencyKey,
-    provider: "openai",
+    provider: "anthropic",
     model,
     prompt_digest: authorityHash,
     configuration_snapshot: {
@@ -747,13 +817,14 @@ async function prepare(sb: ServiceClient, clientId: string, userId: string) {
     return json({ ok: false, mode: "blocked", message: releaseError.message }, 500);
   }
 
-  const stepRows = BRAND_STRATEGIST_MODULES.slice(0, 1).map((module) => ({
+  const firstModule = BRAND_STRATEGIST_MODULES[0];
+  const stepRows = [{
     client_id: clientId,
     research_run_id: run.id,
-    step_key: module.key,
+    step_key: firstModule.key,
     step_order: 1,
-    title: module.title,
-  }));
+    title: firstModule.title,
+  }];
   const { data: steps, error: stepError } = await sb.from("client_research_steps")
     .insert(stepRows).select("*").order("step_order");
   if (stepError) {
@@ -794,6 +865,7 @@ async function cleanupStepArtifacts(sb: ServiceClient, clientId: string, release
   }
   await sb.from("client_evidence_records").delete().eq("client_id", clientId).contains("metadata", { research_step_id: stepId });
   await sb.from("client_intelligence_records").delete().eq("client_id", clientId).eq("release_id", releaseId).eq("record_type", stepKey);
+  await sb.from("client_agent_turns").delete().eq("client_id", clientId).eq("research_step_id", stepId);
 }
 
 async function persistModule(input: {
@@ -803,10 +875,34 @@ async function persistModule(input: {
   releaseId: string;
   step: ResearchStepRow;
   authority: BrandStrategistAuthority;
-  result: Awaited<ReturnType<typeof runOpenAiBrandStrategistSynthesis>>;
+  result: Awaited<ReturnType<typeof runBrandStrategistSynthesisAgent>>;
 }) {
   const { sb, clientId, runId, releaseId, step, authority, result } = input;
   await cleanupStepArtifacts(sb, clientId, releaseId, step.id, step.step_key);
+
+  // Persist the transcript first, before any check that can throw below — a
+  // module that fails a downstream integrity check still leaves an
+  // inspectable audit trail of what the agent actually did.
+  if (result.transcript.length > 0) {
+    const turnRows = result.transcript.map((turn) => ({
+      client_id: clientId,
+      research_run_id: runId,
+      research_step_id: step.id,
+      intelligence_domain: "brand_strategist",
+      turn_order: turn.turnOrder,
+      role: turn.role,
+      content: turn.content,
+      tool_name: turn.toolName,
+      tool_input: turn.toolInput,
+      tool_output: turn.toolOutput,
+      stop_reason: turn.stopReason,
+      input_tokens: turn.inputTokens,
+      output_tokens: turn.outputTokens,
+    }));
+    const { error: turnError } = await sb.from("client_agent_turns").insert(turnRows);
+    if (turnError) throw new Error(turnError.message);
+  }
+
   const contextByNumber = new Map(authority.files.map((file) => [file.file_number, file]));
   const marketByKey = recordLookup(authority.marketRecords);
   const avatarByKey = recordLookup(authority.avatarRecords);
@@ -875,7 +971,7 @@ async function persistModule(input: {
           requested_competitor_record_keys: providerFinding.competitor_record_keys,
           requested_association_record_keys: providerFinding.association_record_keys,
         },
-        created_by: "openai_brand_strategist_synthesis",
+        created_by: "anthropic_brand_strategist_synthesis",
       }).select("id").single();
       if (findingError) throw new Error(findingError.message);
       recordFindingIds.push(finding.id);
@@ -1180,7 +1276,8 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
     await sb.from("client_research_runs").update({ status: "failed", failure_code: "AUTHORITY_CHANGED", failure_message: message, retryable: false }).eq("id", researchRunId);
     return json({ ok: false, terminal: true, message, research_run_id: researchRunId, release_id: release.id, progress: await stepProgress(sb, researchRunId) }, 409);
   }
-  const module = BRAND_STRATEGIST_MODULES.find((candidate) => candidate.key === step.step_key);
+  const moduleIndex = BRAND_STRATEGIST_MODULES.findIndex((candidate) => candidate.key === step.step_key);
+  const module = BRAND_STRATEGIST_MODULES[moduleIndex];
   if (!module) return json({ ok: false, terminal: true, message: `Unknown Brand Strategist step ${step.step_key}.` }, 500);
 
   try {
@@ -1190,7 +1287,10 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       .eq("release_id", release.id)
       .order("display_order");
     if (existingRecordsError) throw new Error(existingRecordsError.message);
-    const providerResult = await runOpenAiBrandStrategistSynthesis({
+    const { data: memory } = await sb.from("client_agent_memory")
+      .select("summary,unresolved_notes").eq("client_id", clientId).eq("intelligence_domain", "brand_strategist").maybeSingle();
+    const memoryNote = renderMemoryNote(memory, step.step_key);
+    const providerResult = await runBrandStrategistSynthesisAgent({
       module,
       clientName: authorityResult.authority.client.name,
       approvedContext: renderAuthority(authorityResult.authority.files),
@@ -1199,20 +1299,17 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       approvedCompetitorOS: renderCompetitorAuthority(authorityResult.authority),
       approvedAssociationOS: renderAssociationAuthority(authorityResult.authority),
       authorityReadiness: JSON.stringify(authorityResult.authority.readiness, null, 2),
-      existingStrategy: compact(renderBrandStrategistModel(existingRecords ?? []), 24000),
+      existingStrategy: compact(renderBrandStrategistModel(existingRecords ?? []), RECORD_SECTION_CAP),
       previousActiveStrategy: renderPreviousBrandStrategistOS(authorityResult.authority),
+      memoryNote,
+      attemptNumber: step.attempt_count,
       model: run.model ?? undefined,
     });
-    if (step.step_key === "cross_os_synthesis") {
-      await ensureBrandStrategistFollowupSteps(sb, clientId, researchRunId);
-    }
+    await ensureNextModuleStep(sb, clientId, researchRunId, moduleIndex);
     await persistModule({
       sb, clientId, runId: researchRunId, releaseId: release.id, step,
       authority: authorityResult.authority, result: providerResult,
     });
-    const { count: sourceCount } = await sb.from("client_research_sources")
-      .select("id", { count: "exact", head: true }).eq("research_run_id", researchRunId);
-    await sb.from("client_research_runs").update({ source_count: sourceCount ?? 0 }).eq("id", researchRunId);
     const progress = await stepProgress(sb, researchRunId);
     return json({
       ok: true,
@@ -1232,7 +1329,7 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
       research_run_id: researchRunId,
       research_step_id: step.id,
       capability: "evidence_bound_strategic_synthesis",
-      provider: "openai",
+      provider: "anthropic",
       model: run.model,
       status: "failed",
       error_class: code,
@@ -1263,15 +1360,14 @@ async function runStep(sb: ServiceClient, clientId: string, researchRunId: strin
 }
 
 async function finalize(sb: ServiceClient, clientId: string, researchRunId: string) {
-  const [runResult, releaseResult, stepsResult, recordsResult, findingsResult, sourceCountResult] = await Promise.all([
+  const [runResult, releaseResult, stepsResult, recordsResult, findingsResult] = await Promise.all([
     sb.from("client_research_runs").select("*").eq("id", researchRunId).eq("client_id", clientId).maybeSingle(),
     sb.from("client_intelligence_releases").select("*").eq("client_id", clientId).eq("research_run_id", researchRunId).maybeSingle(),
     sb.from("client_research_steps").select("*").eq("research_run_id", researchRunId).order("step_order"),
     sb.from("client_intelligence_records").select("*").eq("client_id", clientId).order("display_order"),
     sb.from("client_intelligence_release_findings").select("release_id,finding_id").eq("client_id", clientId),
-    sb.from("client_research_sources").select("id", { count: "exact", head: true }).eq("research_run_id", researchRunId),
   ]);
-  const error = runResult.error ?? releaseResult.error ?? stepsResult.error ?? recordsResult.error ?? findingsResult.error ?? sourceCountResult.error;
+  const error = runResult.error ?? releaseResult.error ?? stepsResult.error ?? recordsResult.error ?? findingsResult.error;
   if (error || !runResult.data || !releaseResult.data) return json({ ok: false, message: error?.message ?? "Brand Strategist run or release not found." }, 404);
   const run = runResult.data;
   const release = releaseResult.data;
@@ -1329,7 +1425,6 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
       modules: summaries,
       record_count: records.length,
       finding_count: findingIds.length,
-      source_count: sourceCountResult.count ?? 0,
       completed_modules: progress.completed,
       failed_modules: progress.failed,
       readiness: release.authority_snapshot?.readiness ?? null,
@@ -1346,7 +1441,6 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
   const runStatus = progress.failed > 0 ? "completed_partial" : "completed";
   const { data: updatedRun, error: updateRunError } = await sb.from("client_research_runs").update({
     status: runStatus,
-    source_count: sourceCountResult.count ?? 0,
     completed_at: generatedAt,
     retryable: false,
     failure_code: progress.failed > 0 ? "PARTIAL_MODULE_FAILURE" : null,
@@ -1360,6 +1454,19 @@ async function finalize(sb: ServiceClient, clientId: string, researchRunId: stri
     completed_modules: progress.completed,
     failed_modules: progress.failed,
   });
+
+  const unresolvedNotes = summaries.flatMap((module) =>
+    module.unknowns.map((claim: unknown) => ({ module_key: module.module_key, claim: compact(String(claim), 500) }))
+  );
+  await sb.from("client_agent_memory").upsert({
+    client_id: clientId,
+    intelligence_domain: "brand_strategist",
+    summary: compact(summary, 2000),
+    unresolved_notes: unresolvedNotes,
+    source_run_id: run.id,
+    updated_at: generatedAt,
+  }, { onConflict: "client_id,intelligence_domain" });
+
   return json({ ok: true, message: "Brand Strategist is ready for human review.", release: updatedRelease, run: updatedRun });
 }
 

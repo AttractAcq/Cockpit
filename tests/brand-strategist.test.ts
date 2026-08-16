@@ -1,54 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  BRAND_STRATEGIST_MODULES,
-  parseBrandStrategistModuleOutput,
-} from "../supabase/functions/_shared/intelligence/brand-strategist-provider.ts";
+import { BRAND_STRATEGIST_MODULES } from "../supabase/functions/_shared/intelligence/brand-strategist-provider.ts";
 
 const providerPath = new URL("../supabase/functions/_shared/intelligence/brand-strategist-provider.ts", import.meta.url);
 const edgePath = new URL("../supabase/functions/run-brand-strategist/index.ts", import.meta.url);
 const pagePath = new URL("../src/pages/ClientDetailPage.tsx", import.meta.url);
 const panelPath = new URL("../src/components/client/BrandStrategistPanel.tsx", import.meta.url);
-
-function structuredModule(moduleKey = "strategic_recommendations") {
-  return {
-    module_key: moduleKey,
-    summary: "Approved intelligence supports a proof-led recommendation.",
-    records: [{
-      record_key: "lead_with_inspectable_proof",
-      record_kind: "recommendation",
-      recommendation_type: "proof",
-      priority: "now",
-      title: "Lead with inspectable proof",
-      statement: "Make specific proof the primary trust mechanism.",
-      rationale: "The buyer role requires proof and the market buying mechanism rewards inspectability.",
-      expected_impact: "Reduce perceived claim risk during evaluation.",
-      dependencies: ["Approved proof inventory"],
-      risks: ["Weak proof could undermine trust"],
-      trade_offs: ["Claims must remain narrower and defensible"],
-      contradictions: [],
-      buyer_role_keys: ["economic_buyer"],
-      market_condition_keys: ["buying_mechanism"],
-      downstream_owner: "brand_system",
-      proposed_next_action: "A human owner reviews the available proof before accepting this recommendation.",
-      validation_needed: "Confirm that inspectable proof is available before execution.",
-      findings: [{
-        claim: "Specific proof addresses the supported buyer's evaluation risk.",
-        disposition: "asserted",
-        confidence: "strongly_inferred",
-        rationale: "Supported by approved upstream authority.",
-        context_file_numbers: [1],
-        market_record_keys: ["buying_mechanism"],
-        avatar_record_keys: ["economic_buyer"],
-        competitor_record_keys: ["example_agency__proof_pattern"],
-        association_record_keys: ["specific_proof__specific_proof"],
-      }],
-    }],
-    unknowns: [],
-    contradictions: [],
-  };
-}
 
 test("Brand Strategist separates synthesis, recommendations, and portfolio assembly", () => {
   assert.deepEqual(
@@ -57,23 +15,13 @@ test("Brand Strategist separates synthesis, recommendations, and portfolio assem
   );
 });
 
-test("Brand Strategist output preserves exact Context and all four OS trace keys", () => {
-  const payload = {
-    output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(structuredModule()) }] }],
-  };
-  const output = parseBrandStrategistModuleOutput(payload, "strategic_recommendations");
-  const finding = output.records[0].findings[0];
-  assert.deepEqual(finding.context_file_numbers, [1]);
-  assert.deepEqual(finding.market_record_keys, ["buying_mechanism"]);
-  assert.deepEqual(finding.avatar_record_keys, ["economic_buyer"]);
-  assert.deepEqual(finding.competitor_record_keys, ["example_agency__proof_pattern"]);
-  assert.deepEqual(finding.association_record_keys, ["specific_proof__specific_proof"]);
-  assert.equal(output.records[0].downstream_owner, "brand_system");
-  assert.throws(() => parseBrandStrategistModuleOutput(payload, "recommendation_portfolio"), /invalid identity/i);
-});
-
-test("Brand Strategist provider is synthesis-only and treats recommendations as proposals", async () => {
+test("Brand Strategist provider is synthesis-only with no web_search — pure reasoning over approved authority", async () => {
   const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /callAnthropicWithTools/);
+  assert.match(provider, /submit_module/);
+  assert.match(provider, /minItems: 1/);
+  assert.doesNotMatch(provider, /web_search_20260209/);
+  assert.doesNotMatch(provider, /tools: \[WEB_SEARCH_TOOL/);
   assert.match(provider, /Do not conduct new research or introduce outside facts/i);
   assert.match(provider, /Every recommendation must be supported by at least two distinct approved OS domains/i);
   assert.match(provider, /Prefer the bare record_key exactly as shown in brackets/i);
@@ -81,12 +29,46 @@ test("Brand Strategist provider is synthesis-only and treats recommendations as 
   assert.match(provider, /Recommendations are proposals for human approval/i);
   assert.match(provider, /not approved experiments, completed work, instructions to mutate an upstream OS/i);
   assert.match(provider, /expected_impact must be qualitative unless an approved upstream record provides a defensible number/i);
-  assert.match(provider, /AbortSignal\.timeout\(105_000\)/);
-  assert.doesNotMatch(provider, /tools:\s*\[/);
-  assert.doesNotMatch(provider, /web_search_preview/);
 });
 
-test("Brand Strategist requires complete, current authority and snapshots readiness", async () => {
+test("Brand Strategist provider rejects placeholder and degenerate content with a structural check", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /function isPlaceholderText\(/);
+  assert.match(provider, /if \(!\/\\s\/\.test\(trimmed\)\) return true;/);
+  assert.match(provider, /if \(words\.length < 4\) return true;/);
+  assert.match(provider, /submit_module returned a placeholder\/degenerate record/);
+});
+
+test("Brand Strategist write phase is capped to one Anthropic call per invocation with attempt-aware conciseness recovery", async () => {
+  const provider = await readFile(providerPath, "utf8");
+  assert.match(provider, /const MAX_TURNS = 1/);
+  assert.match(provider, /attemptNumber\?: number/);
+  assert.match(provider, /a previous attempt at this module was cut off/i);
+  assert.match(provider, /cache_control: \{ type: "ephemeral" \}/);
+});
+
+test("Brand Strategist orchestration is an Anthropic tool-calling agent with memory and an audit trail", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /runBrandStrategistSynthesisAgent/);
+  assert.doesNotMatch(edge, /runOpenAiBrandStrategistSynthesis/);
+  assert.match(edge, /provider: "anthropic"/);
+  assert.match(edge, /ANTHROPIC_BRAND_STRATEGIST_MODEL/);
+  assert.match(edge, /client_agent_memory/);
+  assert.match(edge, /client_agent_turns/);
+  assert.match(edge, /renderMemoryNote/);
+});
+
+test("prepare() archives runs that can never resume instead of leaving them in limbo", async () => {
+  const edge = await readFile(edgePath, "utf8");
+  assert.match(edge, /async function archiveStaleRun\(/);
+  assert.match(edge, /status: "cancelled", retryable: false/);
+  assert.match(edge, /status: "archived"/);
+  assert.match(edge, /brand_strategist\.stale_run_archived/);
+  assert.match(edge, /"completed_partial"/);
+  assert.match(edge, /exhaustedFailedStepIds/);
+});
+
+test("Brand Strategist requires complete, current authority from all four upstream domains and snapshots readiness", async () => {
   const edge = await readFile(edgePath, "utf8");
   assert.match(edge, /type Action = "prepare" \| "step" \| "finalize" \| "retry_step"/);
   for (const code of [
@@ -100,7 +82,6 @@ test("Brand Strategist requires complete, current authority and snapshots readin
   assert.match(edge, /\.in\("intelligence_domain", \["market_os", "avatar_os", "competitor_os", "association_os"\]\)/);
   assert.match(edge, /readinessWarnings/);
   assert.match(edge, /status: readinessWarnings\.length > 0 \? "degraded" : "ready"/);
-  assert.match(edge, /hasExhaustedFailure/);
   assert.match(edge, /association_os: \{/);
   assert.match(edge, /expectedAssociationAuthority\.release_id/);
   assert.match(edge, /previous_brand_strategist:/);
@@ -108,6 +89,8 @@ test("Brand Strategist requires complete, current authority and snapshots readin
   assert.match(edge, /action === "retry_step"/);
   assert.match(edge, /failed_module_requeued/);
   assert.match(edge, /status: "queued",\s+attempt_count: 0/);
+  assert.match(edge, /status: "needs_review"/);
+  assert.doesNotMatch(edge, /review_intelligence_release/);
 });
 
 test("Brand Strategist enforces evidence-bound recommendations and human review", async () => {
@@ -123,8 +106,6 @@ test("Brand Strategist enforces evidence-bound recommendations and human review"
   assert.match(edge, /upstream_domain: "association_os"/);
   assert.match(edge, /cross_os_synthesis.*cannot emit recommendation records/s);
   assert.match(edge, /recommendationCount === 0/);
-  assert.match(edge, /status: "needs_review"/);
-  assert.doesNotMatch(edge, /review_intelligence_release/);
 });
 
 test("Brand Strategist tab renders the real recommendation workspace", async () => {
