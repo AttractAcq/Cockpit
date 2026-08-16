@@ -15,6 +15,7 @@ import {
   scoreIdeationCandidates,
 } from "@/lib/api";
 import { IdeationCommitConfirmation } from "./IdeationCommitConfirmation";
+import { IdeationManualCommitPanel } from "./IdeationManualCommitPanel";
 import { COMMIT_RECOVERY_LABELS, commitRecoveryAction } from "@/lib/ideation-commit-view";
 import type { IdeationCommitFailure, IdeationCommitOverview } from "@/types/ideation-commit";
 import {
@@ -750,6 +751,7 @@ export function IdeationPanel({
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitFailure, setCommitFailure] = useState<IdeationCommitFailure | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const [manualCommitOpen, setManualCommitOpen] = useState(false);
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const clientIdRef = useRef(clientId);
@@ -1152,6 +1154,7 @@ export function IdeationPanel({
           <h1 className="text-base font-medium text-paper">Generate Content</h1>
           <p className="mt-1 text-2xs text-paper-3">Generate upstream ideas from approved Context and Execution Files.</p>
         </div>
+        <Button variant="secondary" onClick={() => { setNotice(null); setManualCommitOpen(true); }}>Add Manual / Proof Item</Button>
         <Button variant="primary" onClick={() => { setNotice(null); setGenerationWarnings([]); setGenerateOpen(true); }}>Generate Content</Button>
       </header>
 
@@ -1499,6 +1502,17 @@ export function IdeationPanel({
             })
           )}
         </div>
+      )}
+
+      {manualCommitOpen && (
+        <IdeationManualCommitPanel
+          clientId={clientId}
+          onClose={() => setManualCommitOpen(false)}
+          onCommitted={({ ref, distributionDate }) => {
+            setManualCommitOpen(false);
+            setNotice(`${ref} was committed to the Calendar for ${distributionDate}. It enters the normal review workflow.`);
+          }}
+        />
       )}
 
       {generateOpen && (

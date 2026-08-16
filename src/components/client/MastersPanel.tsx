@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/primitives";
+import { Button, Modal } from "@/components/primitives";
 import { DestructiveDialog } from "./DestructiveDialog";
 import {
+  distributeContentItemsToCalendar,
   fetchAdsMasterRows,
   fetchCalendarCells,
   fetchEffectiveStageMap,
@@ -215,6 +216,89 @@ function MasterCard({ table, row, flags, selected, onSelected, onOpen, updating,
   return <div className="min-w-0 border-b border-line px-4 py-3.5 last:border-b-0"><div className="flex flex-col gap-2 sm:flex-row sm:items-start"><input aria-label={`Select ${row.ref}`} type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} className="mt-1 accent-teal" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-2xs font-mono text-teal">{row.ref}</span><span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">{contentType.label}</span><span className="text-2xs font-mono text-paper-3">{TABLE_LABEL[table]}</span><span className="text-2xs font-mono text-paper-3">{masterDate(row) ?? "No date"}</span><StateBadge state={row.review_state} />{flags.map((flag) => <span key={flag.code} className={`rounded border px-1.5 py-0.5 text-2xs ${flag.severity === "block" ? "border-neg/20 text-neg" : "border-warn/20 text-warn"}`}>{flag.label}</span>)}</div><h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{titleFor(row)}</h3>{hook && <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-paper-3">{hook}</p>}</div><div className="flex shrink-0 gap-2">{reelStudioActionVisible(table, row) && <Button size="sm" variant="ghost" title="Reel Studio requires an approved reel_video production brief for this row" onClick={() => navigate(`${ROUTES.clientSection(row.client_id, "reel_studio")}?reel_source_table=${table}&reel_source_row_id=${row.id}&reel_source_ref=${encodeURIComponent(row.ref)}`)}>Reel Studio</Button>}<Button size="sm" variant="ghost" onClick={onOpen}>View</Button>{row.review_state === "needs_review" && <Button size="sm" variant="subtle" disabled={updating} onClick={onApprove}>Approve</Button>}</div></div></div>;
 }
 
+function todayIso(): string {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Bulk-reschedules the selected Content Items across a date range. Only
+ * organic_master/story_master rows are eligible (ads_master has its own
+ * distribution flow) -- ineligible selections are called out, not silently
+ * dropped, so the operator can deselect them.
+ */
+function DistributeToCalendarModal({
+  clientId,
+  targets,
+  ineligibleCount,
+  onClose,
+  onDistributed,
+}: {
+  clientId: string;
+  targets: Array<{ table: "organic_master" | "story_master"; ref: string }>;
+  ineligibleCount: number;
+  onClose: () => void;
+  onDistributed: (count: number) => void;
+}) {
+  const [startDate, setStartDate] = useState(todayIso());
+  const [endDate, setEndDate] = useState(todayIso());
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const result = await distributeContentItemsToCalendar({
+        client_id: clientId,
+        items: targets,
+        start_date: startDate,
+        end_date: endDate,
+      });
+      onDistributed(result.count);
+    } catch (value) {
+      setError(errorText(value));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Distribute to Calendar"
+      description={`Spreads ${targets.length} selected Content Item(s) across the chosen date range, per content format and any approved Ideation Schedule Contract. Each moved item gets a freshly allocated ref.`}
+      onClose={onClose}
+      closeDisabled={submitting}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} disabled={submitting || !targets.length || !startDate || !endDate || startDate > endDate}>
+            {submitting ? "Distributing…" : "Distribute"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-xs text-paper">
+        {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
+        {ineligibleCount > 0 && (
+          <div role="alert" className="rounded border border-warn/30 bg-warn/5 px-3 py-2 text-2xs text-warn">
+            {ineligibleCount} selected row(s) are ads_master and not eligible for calendar distribution — they will be skipped.
+          </div>
+        )}
+        <div className="flex gap-2">
+          <label className="flex-1 text-2xs text-paper-3">Start date
+            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1 w-full rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50" />
+          </label>
+          <label className="flex-1 text-2xs text-paper-3">End date
+            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1 w-full rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50" />
+          </label>
+        </div>
+        <p className="text-2xs text-paper-3">Only needs_review items with no downstream production (brief/asset/distribution/analytics) can move. This is all-or-nothing: if any selected item isn't eligible, or its target date is full or protected, nothing moves.</p>
+      </div>
+    </Modal>
+  );
+}
+
 export function MastersPanel({ clientId, executionMonth }: { clientId: string; executionMonth: string }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<Array<{ table: MasterTable; row: MasterRow }>>([]);
@@ -223,9 +307,11 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [open, setOpen] = useState<{ table: MasterTable; row: MasterRow } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [distributeOpen, setDistributeOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [proofFilter, setProofFilter] = useState("all");
@@ -278,6 +364,11 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
   const groupedByDate = useMemo(() => groupLifecycleRecordsByDate(filtered, { lifecycleStage: "content", context: lifecycleContext, direction: dateDirection }), [dateDirection, filtered, lifecycleContext]);
   const approved = rows.filter((item) => item.row.review_state === "approved").length;
   const blocking = assessed.filter((item) => item.flags.some((flag) => flag.severity === "block")).length;
+  const selectedItems = filtered.filter(({ row }) => selected.has(row.id));
+  const distributeTargets = selectedItems
+    .filter((item): item is typeof item & { table: "organic_master" | "story_master" } => item.table !== "ads_master")
+    .map((item) => ({ table: item.table, ref: item.row.ref }));
+  const distributeIneligibleCount = selectedItems.length - distributeTargets.length;
   function accept(table: MasterTable, next: MasterRow, keepOpen = true) { setRows((current) => current.map((item) => item.table === table && item.row.id === next.id ? { table, row: next } : item)); setCells((current) => current.map((cell) => cell.ref === next.ref ? { ...cell, review_state: next.review_state } : cell)); if (keepOpen) setOpen({ table, row: next }); }
   async function approve(table: MasterTable, row: MasterRow) { if (qaFlags(table, row, cells).some((flag) => flag.severity === "block")) { setError(`${row.ref} has blocking QA flags. Resolve them before approval.`); return; } if (!window.confirm(`Approve ${row.ref}?`)) return; setUpdating(true); try { const next = await updateMasterReviewState(table, row, "approved"); accept(table, next, false); } catch (value) { setError(errorText(value)); } finally { setUpdating(false); } }
   async function bulkReview(state: Extract<ReviewState, "approved" | "rejected">) {
@@ -304,8 +395,9 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
 
   if (loading && rows.length === 0) return <div className="p-6 text-xs text-paper-3">Loading Phase 3 masters…</div>;
   return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4"><div className="shrink-0 rounded-[10px] border border-line bg-ink-200 px-4 py-3"><div className="flex flex-wrap items-center gap-4 text-xs"><span className="text-paper">{rows.length} master rows</span><span className="text-teal">{approved} approved</span><span className="text-warn">{rows.length - approved} require review</span><span className={blocking ? "text-neg" : "text-teal"}>{blocking} blocking QA flags</span><span className="text-paper-3">{filtered.length} active shown</span><Button size="sm" variant="ghost" className="ml-auto" disabled={!passedThroughEntries.length} onClick={() => setDrawerOpen(true)}>Archived / Passed Through{passedThroughEntries.length ? ` (${passedThroughEntries.length})` : ""}</Button></div></div>
-    <div className="shrink-0 rounded-[10px] border border-line bg-ink-200 p-3"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or content…" className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50 xl:col-span-2" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All content types</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select value={proofFilter} onChange={(event) => setProofFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All proof risk</option><option value="risk">Proof review required</option><option value="clear">No proof flags</option></select><div className="flex gap-1"><input aria-label="From date" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /><input aria-label="To date" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /></div></div><div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><Button size="sm" variant="ghost" onClick={() => setSelected(new Set(filtered.map(({ row }) => row.id)))}>Select shown</Button><Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>Clear selection</Button><span className="text-2xs text-paper-3">{selected.size} selected</span><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => void bulkReview("approved")}>Bulk approve</Button><Button size="sm" variant="danger" disabled={!selected.size || updating} onClick={() => void bulkReview("rejected")}>Bulk reject</Button></div></div>
+    <div className="shrink-0 rounded-[10px] border border-line bg-ink-200 p-3"><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ref or content…" className="rounded border border-line bg-ink px-2.5 py-2 text-xs text-paper outline-none focus:border-teal/50 xl:col-span-2" /><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All content types</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All statuses</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select value={proofFilter} onChange={(event) => setProofFilter(event.target.value)} className="rounded border border-line bg-ink px-2 py-2 text-xs text-paper"><option value="all">All proof risk</option><option value="risk">Proof review required</option><option value="clear">No proof flags</option></select><div className="flex gap-1"><input aria-label="From date" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /><input aria-label="To date" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-ink px-1 py-2 text-2xs text-paper" /></div></div><div className="mt-3 flex flex-wrap items-center gap-2"><LifecycleDirectionToggle value={dateDirection} onChange={setDateDirection} /><Button size="sm" variant="ghost" onClick={() => setSelected(new Set(filtered.map(({ row }) => row.id)))}>Select shown</Button><Button size="sm" variant="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>Clear selection</Button><span className="text-2xs text-paper-3">{selected.size} selected</span><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => void bulkReview("approved")}>Bulk approve</Button><Button size="sm" variant="danger" disabled={!selected.size || updating} onClick={() => void bulkReview("rejected")}>Bulk reject</Button><Button size="sm" variant="secondary" disabled={!selected.size || updating} onClick={() => { setNotice(null); setDistributeOpen(true); }}>Distribute to Calendar</Button></div></div>
     {error && <div role="alert" className="rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
+    {notice && <div role="status" className="rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{notice}</div>}
     {groupedByDate.map((group) => {
       const approvedInGroup = group.records.filter(({ row }) => row.review_state === "approved").length;
       return <LifecycleDateSection key={group.key} group={group} statusSummary={<><span className="text-teal">{approvedInGroup} approved</span>{approvedInGroup < group.records.length && <> · <span className="text-warn">{group.records.length - approvedInGroup} need review</span></>}</>}>
@@ -314,5 +406,19 @@ export function MastersPanel({ clientId, executionMonth }: { clientId: string; e
     })}
     {filtered.length === 0 && <div className="rounded-[10px] border border-dashed border-line p-10 text-center text-xs text-paper-3">No rows match the current filters.</div>}
     {open && <MasterContentModal key={`${open.table}:${open.row.id}`} table={open.table} initialRow={open.row} cells={cells} onClose={() => setOpen(null)} onUpdated={accept} onApproveNext={approveNext} onProgressed={() => { void refreshStages(); window.dispatchEvent(new Event("aa:reload")); }} />}
-    {drawerOpen && <PassedThroughDrawer tabStage="master" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}</div>;
+    {drawerOpen && <PassedThroughDrawer tabStage="master" entries={passedThroughEntries} onClose={() => setDrawerOpen(false)} onViewFullArchive={(sourceRef) => navigate(`${ROUTES.clientSection(clientId, "archive")}?source_ref=${encodeURIComponent(sourceRef)}`)} />}
+    {distributeOpen && (
+      <DistributeToCalendarModal
+        clientId={clientId}
+        targets={distributeTargets}
+        ineligibleCount={distributeIneligibleCount}
+        onClose={() => setDistributeOpen(false)}
+        onDistributed={(count) => {
+          setDistributeOpen(false);
+          setSelected(new Set());
+          setNotice(`${count} Content Item(s) distributed to the Calendar.`);
+          void load();
+        }}
+      />
+    )}</div>;
 }

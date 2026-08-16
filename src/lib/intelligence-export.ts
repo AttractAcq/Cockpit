@@ -228,6 +228,7 @@ function pdfText(value: string): string {
     .replace(/[\u2013\u2014]/g, "-")
     .replace(/\u2026/g, "...")
     .replace(/\u2022/g, "-")
+    // eslint-disable-next-line no-control-regex -- intentional allowlist: keeps tab/LF/CR plus printable ASCII, strips everything else for PDF-safe output.
     .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
 }
 
