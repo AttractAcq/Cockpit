@@ -26,10 +26,6 @@ import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
 import { IdeationPanel } from "@/components/client/IdeationPanel";
 import { ContentSupplyPanel } from "@/components/client/ContentSupplyPanel";
-import { OpportunityPoolPanel } from "@/components/client/OpportunityPoolPanel";
-import { CalendarPlanningPanel } from "@/components/client/CalendarPlanningPanel";
-import { ContentItemsPanel } from "@/components/client/ContentItemsPanel";
-import { ProductionStudioPanel } from "@/components/client/ProductionStudioPanel";
 import { AdStudioPanel } from "@/components/client/AdStudioPanel";
 import { AutomationPanel } from "@/components/client/AutomationPanel";
 import { ExecutionConfigPanel } from "@/components/client/ExecutionConfigPanel";
@@ -64,10 +60,7 @@ type Section =
   | "execution_contract"
   | "proof_upload"
   | "content_supply"
-  | "opportunity_pool"
-  | "calendar_planning"
   | "content_items"
-  | "production_studio"
   | "ideation"
   | "overview"
   | "client_settings"
@@ -158,19 +151,16 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     tabs: [
       { label: "Content Supply", section: "content_supply" },
       { label: "Ideation", section: "ideation" },
-      { label: "Opportunity Pool", section: "opportunity_pool" },
-      { label: "Calendar Planning", section: "calendar_planning" },
       { label: "Calendar", section: "calendar" },
       { label: "Content Items", section: "content_items" },
     ],
   },
   {
     label: "Creation",
-    defaultSection: "masters",
+    defaultSection: "content_creation",
     tabs: [
-      { label: "Content", section: "masters" },
+      { label: "Content", section: "masters", hidden: true },
       { label: "Content Briefs", section: "content_creation" },
-      { label: "Production Studio", section: "production_studio" },
       { label: "Reel Studio", section: "reel_studio" },
       { label: "Assets", section: "assets" },
     ],
@@ -787,7 +777,7 @@ export function ClientDetailPage() {
             executionMonth={currentMonth()}
             onOpenCalendarDate={() => navigate(ROUTES.clientSection(id, "calendar"))}
             onOpenContentRef={(operationalRef) =>
-              navigate(`${ROUTES.clientSection(id, "masters")}?source_ref=${encodeURIComponent(operationalRef)}`)}
+              navigate(`${ROUTES.clientSection(id, "content_items")}?source_ref=${encodeURIComponent(operationalRef)}`)}
           />
         );
       case "content_creation":
@@ -796,14 +786,12 @@ export function ClientDetailPage() {
         return <ExecutionConfigPanel clientId={id} executionMonth={currentMonth()} />;
       case "content_supply":
         return <ContentSupplyPanel clientId={id} />;
-      case "opportunity_pool":
-        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><OpportunityPoolPanel clientId={id} /></div>;
-      case "calendar_planning":
-        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><CalendarPlanningPanel clientId={id} /></div>;
       case "content_items":
-        return <div className="m-4 min-h-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-ink-200 p-4"><ContentItemsPanel clientId={id} /></div>;
-      case "production_studio":
-        return <ProductionStudioPanel clientId={id} />;
+        // Phase 1 nav consolidation: Content Items is now the Masters view
+        // (organic_master/story_master/ads_master), relocated into the
+        // Ideation group. The old Pipeline B content_items/content_briefs
+        // panel it used to render is retired.
+        return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "proof_upload":
         return <ContentSupplyPanel clientId={id} initialTab="proof" />;
       case "reel_studio":
