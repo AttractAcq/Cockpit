@@ -1146,6 +1146,36 @@ export async function fetchIdeationOverview(clientId: string, signal?: AbortSign
   };
 }
 
+export interface DistributeContentItemsInput {
+  client_id: string;
+  items: Array<{ table: "organic_master" | "story_master"; ref: string }>;
+  start_date: string;
+  end_date: string;
+}
+
+export interface DistributeContentItemsResponse {
+  count: number;
+  moves: Array<{ old_ref: string; new_ref: string; date: string }>;
+}
+
+/**
+ * Bulk-distributes selected Content Items across a chosen date range on the
+ * Calendar, per content format and any approved "Ideation Schedule
+ * Contract" in Execution authority. Only needs_review items with zero
+ * downstream production are eligible; a moved item gets a freshly
+ * allocated ref (refs are date-stamped identities in this system).
+ */
+export async function distributeContentItemsToCalendar(
+  input: DistributeContentItemsInput,
+): Promise<DistributeContentItemsResponse> {
+  return await invokeFn<DistributeContentItemsResponse>("distribute-content-items-to-calendar", {
+    client_id: input.client_id,
+    items: input.items,
+    start_date: input.start_date,
+    end_date: input.end_date,
+  });
+}
+
 export async function runIdeation(input: RunIdeationInput): Promise<RunIdeationResponse> {
   // invokeFn throws EdgeFunctionInvocationError for every non-2xx response.
   // This function therefore returns only the successful discriminated shape.
