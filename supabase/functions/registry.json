@@ -9,10 +9,10 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 99,
-    "uiCalled": 80,
-    "nonUiCalled": 19,
-    "retired": 10
+    "localFunctions": 100,
+    "uiCalled": 78,
+    "nonUiCalled": 22,
+    "retired": 13
   },
   "profiles": {
     "ui_authority": {
@@ -415,14 +415,12 @@
     },
     {
       "name": "commit-ideation-content",
-      "purpose": "Perform the existing commit ideation content operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
+      "purpose": "Retired 2026-08-16 (Ideation Phase 6): the Proposal stage's pre-commit calendar-assignment write is superseded by review-content-source (Sources approval, unscheduled) plus distribute-content-items-to-calendar (scheduling). The underlying commit_ideation_content RPC has been dropped; this directory has been removed from the repo.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
       "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
+        "legacy"
       ],
       "storageBuckets": [],
       "externalProviders": [],
@@ -432,9 +430,7 @@
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -603,32 +599,22 @@
     },
     {
       "name": "create-ideation-calendar-proposal",
-      "purpose": "Perform the existing create ideation calendar proposal operation for the Ideation system without expanding its product responsibility.",
-      "system": "Ideation",
-      "page": "Ideation",
-      "profile": "ui_authority",
+      "purpose": "Retired 2026-08-16 (Ideation Phase 6): the Proposal stage is removed entirely -- scoring is now the last AI-side stage, and scheduling happens once, uniformly, via distribute-content-items-to-calendar acting on Content Items. The underlying proposal RPCs and tables have been dropped; this directory has been removed from the repo.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
       "databaseDomains": [
-        "ideation",
-        "content_supply",
-        "calendar"
+        "legacy"
       ],
       "storageBuckets": [],
-      "externalProviders": [
-        "anthropic"
-      ],
-      "requiredEnvironment": [
-        "AA_AI_GENERATION_ENABLED",
-        "ANTHROPIC_API_KEY",
-        "SUPABASE_ANON_KEY"
-      ],
+      "externalProviders": [],
+      "requiredEnvironment": [],
       "auditPhases": [
         4,
         10
       ],
       "remediationIds": [],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2964,7 +2950,27 @@
     },
     {
       "name": "commit-manual-content",
-      "purpose": "Commits a manually-typed or proof-led content item directly to the operational Calendar, alongside (not through) the AI-generation candidate/scoring/proposal pipeline, since client_ideation_candidates cannot honestly represent a non-AI-generated item.",
+      "purpose": "Retired 2026-08-16 (Ideation Phase 6): superseded same-day by review-content-source, which approves manual/proof-led/AI-candidate content_sources rows uniformly into an unscheduled master row instead of committing straight to the Calendar. The underlying commit_manual_content RPC has been dropped; this directory has been removed from the repo.",
+      "system": "Retired Legacy",
+      "page": "No active UI page",
+      "profile": "retired",
+      "databaseDomains": [
+        "legacy"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        4,
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [],
+      "internalCallers": []
+    },
+    {
+      "name": "review-content-source",
+      "purpose": "Unified Sources approve/disapprove gate. Approve resolves a content_sources row (manual idea, proof item, or scored AI ideation candidate) into an unscheduled organic_master/story_master row via approve_content_source_to_master; reject parks it via reject_content_source. Neither writes calendar_cells -- only distribute-content-items-to-calendar ever schedules a row.",
       "system": "Ideation",
       "page": "Ideation",
       "profile": "ui_authority",

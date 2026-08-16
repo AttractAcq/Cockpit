@@ -24,7 +24,6 @@ import { PerformanceIterationPanel } from "@/components/client/PerformanceIterat
 import { ArchivePanel } from "@/components/client/ArchivePanel";
 import { PipelineMetricsPanel } from "@/components/client/PipelineMetricsPanel";
 import { ActivityPanel } from "@/components/client/ActivityPanel";
-import { IdeationPanel } from "@/components/client/IdeationPanel";
 import { ContentSupplyPanel } from "@/components/client/ContentSupplyPanel";
 import { AdStudioPanel } from "@/components/client/AdStudioPanel";
 import { AutomationPanel } from "@/components/client/AutomationPanel";
@@ -61,7 +60,6 @@ type Section =
   | "proof_upload"
   | "content_supply"
   | "content_items"
-  | "ideation"
   | "overview"
   | "client_settings"
   | "pipeline"
@@ -150,7 +148,6 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     defaultSection: "content_supply",
     tabs: [
       { label: "Content Supply", section: "content_supply" },
-      { label: "Ideation", section: "ideation" },
       { label: "Calendar", section: "calendar" },
       { label: "Content Items", section: "content_items" },
     ],
@@ -770,22 +767,12 @@ export function ClientDetailPage() {
         return <ActivityPanel key={contextFilesKey} clientId={id} />;
       case "calendar":
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase3Controls()}</div><Phase3CalendarPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} /></div>;
-      case "ideation":
-        return (
-          <IdeationPanel
-            clientId={id}
-            executionMonth={currentMonth()}
-            onOpenCalendarDate={() => navigate(ROUTES.clientSection(id, "calendar"))}
-            onOpenContentRef={(operationalRef) =>
-              navigate(`${ROUTES.clientSection(id, "content_items")}?source_ref=${encodeURIComponent(operationalRef)}`)}
-          />
-        );
       case "content_creation":
         return <ContentCreationPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} onViewAssets={() => navigate(ROUTES.clientSection(id, "assets"))} />;
       case "execution_contract":
         return <ExecutionConfigPanel clientId={id} executionMonth={currentMonth()} />;
       case "content_supply":
-        return <ContentSupplyPanel clientId={id} />;
+        return <ContentSupplyPanel clientId={id} executionMonth={currentMonth()} />;
       case "content_items":
         // Phase 1 nav consolidation: Content Items is now the Masters view
         // (organic_master/story_master/ads_master), relocated into the
@@ -793,7 +780,7 @@ export function ClientDetailPage() {
         // panel it used to render is retired.
         return <MastersPanel key={phase3Key} clientId={id} executionMonth={currentMonth()} />;
       case "proof_upload":
-        return <ContentSupplyPanel clientId={id} initialTab="proof" />;
+        return <ContentSupplyPanel clientId={id} executionMonth={currentMonth()} initialTab="proof" />;
       case "reel_studio":
         return <ReelStudioPanel clientId={id} />;
       case "assets":

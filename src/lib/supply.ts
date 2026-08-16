@@ -5,23 +5,12 @@
 // touches the Calendar or production system.
 
 import { supabase, invokeFn } from "./supabase";
-import type {
-  ContentSourceKind,
-  ContentOpportunity,
-  ContentOpportunityStatus,
-} from "@/types/content-spine";
+import type { ContentSourceKind } from "@/types/content-spine";
 import type {
   ConsentStatus,
   ProofUsageState,
   SourceProcessingStatus,
 } from "@/types/content-supply";
-import type {
-  ContentOpportunityScore,
-  GenerateContentOpportunitiesResponse,
-  ScoreContentOpportunityResponse,
-  UpdateContentOpportunityStatusResponse,
-  OpportunityStatusAction,
-} from "@/types/content-opportunity-scoring";
 
 export interface SupplySourceRow {
   id: string;
@@ -41,6 +30,12 @@ export interface SupplySourceRow {
   performance_insight_id: string | null;
   source_document_id: string | null;
   proof_item_id: string | null;
+  payload: {
+    overall_score?: number;
+    priority_band?: string;
+    rank?: number;
+    asset_type?: string;
+  } | null;
   captured_at: string;
   created_at: string;
 }
@@ -64,15 +59,6 @@ export interface SupplyProofRow {
   created_at: string;
 }
 
-export interface SupplyOpportunityRow {
-  id: string;
-  title: string;
-  status: ContentOpportunityStatus;
-  origin: string;
-  angle: string | null;
-  created_at: string;
-}
-
 export interface SourceFilters {
   kinds?: ContentSourceKind[];
   processing?: SourceProcessingStatus[];
@@ -86,7 +72,7 @@ export async function fetchSupplySources(
   let query = supabase
     .from("content_sources")
     .select(
-      "id, client_id, source_kind, title, summary, raw_content, raw_content_hash, external_ref, processing_status, attempt_count, maximum_attempts, failure_code, failure_message, ideation_candidate_id, performance_insight_id, source_document_id, proof_item_id, captured_at, created_at",
+      "id, client_id, source_kind, title, summary, raw_content, raw_content_hash, external_ref, processing_status, attempt_count, maximum_attempts, failure_code, failure_message, ideation_candidate_id, performance_insight_id, source_document_id, proof_item_id, payload, captured_at, created_at",
     )
     .eq("client_id", clientId)
     .order("captured_at", { ascending: false })
@@ -123,26 +109,6 @@ export async function fetchProofItems(clientId: string): Promise<SupplyProofRow[
     .limit(200);
   if (error) throw error;
   return (data ?? []) as SupplyProofRow[];
-}
-
-export async function fetchOpportunitiesForSource(
-  sourceId: string,
-): Promise<SupplyOpportunityRow[]> {
-  const { data, error } = await supabase
-    .from("content_opportunity_sources")
-    .select("content_opportunities(id, title, status, origin, angle, created_at)")
-    .eq("content_source_id", sourceId);
-  if (error) throw error;
-  // PostgREST types an embedded relation as an array even when it resolves to
-  // a single row, so normalise both shapes before returning.
-  const rows = (data ?? []) as unknown as Array<{
-    content_opportunities: SupplyOpportunityRow | SupplyOpportunityRow[] | null;
-  }>;
-  return rows.flatMap((r) => {
-    const value = r.content_opportunities;
-    if (value === null) return [];
-    return Array.isArray(value) ? value : [value];
-  });
 }
 
 export interface IngestResult {
@@ -188,26 +154,48 @@ export async function ingestProof(input: {
   });
 }
 
-export interface OpportunityResult {
-  duplicate: boolean;
-  content_opportunity_id: string;
-  origin?: string;
-  linked_sources?: number;
+export type SourceAssetType = "reel" | "carousel" | "static" | "story";
+
+export interface ReviewSourceApproveResult {
+  ref: string;
+  master_table: "organic_master" | "story_master";
+  master_id: string;
 }
 
-export async function createOpportunityFromSource(input: {
+export interface ReviewSourceRejectResult {
+  content_source_id: string;
+  processing_status: "skipped";
+}
+
+/**
+ * The single Sources approve/disapprove gate. Approving a manual_idea or
+ * proof_item source requires assetType (Add Idea/Add Proof never collect a
+ * format); approving an ideation_candidate source derives its asset type
+ * server-side from the scored candidate, so assetType is ignored for it.
+ */
+export async function approveContentSource(input: {
   clientId: string;
   sourceId: string;
-  title: string;
-  angle?: string;
-  rationale?: string;
-}): Promise<OpportunityResult> {
-  return await invokeFn<OpportunityResult>("create-content-opportunity", {
+  assetType?: SourceAssetType;
+}): Promise<ReviewSourceApproveResult> {
+  return await invokeFn<ReviewSourceApproveResult>("review-content-source", {
     client_id: input.clientId,
     content_source_id: input.sourceId,
-    title: input.title,
-    angle: input.angle?.trim() ? input.angle.trim() : null,
-    rationale: input.rationale?.trim() ? input.rationale.trim() : null,
+    action: "approve",
+    asset_type: input.assetType ?? null,
+  });
+}
+
+export async function rejectContentSource(input: {
+  clientId: string;
+  sourceId: string;
+  reason?: string;
+}): Promise<ReviewSourceRejectResult> {
+  return await invokeFn<ReviewSourceRejectResult>("review-content-source", {
+    client_id: input.clientId,
+    content_source_id: input.sourceId,
+    action: "reject",
+    reason: input.reason ?? null,
   });
 }
 
@@ -216,6 +204,7 @@ export const SOURCE_KIND_LABEL: Record<ContentSourceKind, string> = {
   proof_item: "Proof",
   research_candidate: "Research",
   performance_insight: "Performance",
+  ideation_candidate: "Ideation (scored)",
 };
 
 export const PROOF_KINDS = [
@@ -361,108 +350,6 @@ export async function fetchContextFileProvenance(
 export function untraceableFiles(files: readonly ContextFileProvenance[]): ContextFileProvenance[] {
   return files.filter((f) => f.citations.length === 0);
 }
-
-// ---------------------------------------------------------------------------
-// Programme Stage F — Content Opportunity Intelligence.
-// ---------------------------------------------------------------------------
-
-export interface OpportunityPoolFilters {
-  statuses?: ContentOpportunityStatus[];
-  search?: string;
-  /** When true, excludes ineligible/rejected/expired/duplicate opportunities. */
-  activeOnly?: boolean;
-}
-
-export async function fetchOpportunityPool(
-  clientId: string,
-  filters: OpportunityPoolFilters = {},
-): Promise<ContentOpportunity[]> {
-  let query = supabase
-    .from("content_opportunities")
-    .select("*")
-    .eq("client_id", clientId)
-    .order("score", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(300);
-
-  if (filters.statuses && filters.statuses.length > 0) {
-    query = query.in("status", filters.statuses);
-  } else if (filters.activeOnly) {
-    query = query.not("status", "in", "(rejected,expired)");
-  }
-  const search = (filters.search ?? "").trim();
-  if (search.length > 0) {
-    const safe = search.replace(/[(),*]/g, " ").trim();
-    if (safe.length > 0) {
-      query = query.or(`title.ilike.%${safe}%,core_claim.ilike.%${safe}%,audience.ilike.%${safe}%`);
-    }
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as ContentOpportunity[];
-}
-
-export async function fetchOpportunityScoreHistory(
-  opportunityId: string,
-): Promise<ContentOpportunityScore[]> {
-  const { data, error } = await supabase
-    .from("content_opportunity_scores")
-    .select("*")
-    .eq("content_opportunity_id", opportunityId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as ContentOpportunityScore[];
-}
-
-export async function generateOpportunitiesFromSource(input: {
-  clientId: string;
-  sourceId: string;
-}): Promise<GenerateContentOpportunitiesResponse> {
-  return await invokeFn<GenerateContentOpportunitiesResponse>("generate-content-opportunities", {
-    client_id: input.clientId,
-    content_source_id: input.sourceId,
-  });
-}
-
-export async function scoreOpportunity(input: {
-  clientId: string;
-  opportunityId: string;
-}): Promise<ScoreContentOpportunityResponse> {
-  return await invokeFn<ScoreContentOpportunityResponse>("score-content-opportunity", {
-    client_id: input.clientId,
-    content_opportunity_id: input.opportunityId,
-  });
-}
-
-export async function updateOpportunityStatus(input: {
-  clientId: string;
-  opportunityId: string;
-  action: OpportunityStatusAction;
-  reason?: string;
-  mergeIntoOpportunityId?: string;
-  newExpiresAt?: string;
-}): Promise<UpdateContentOpportunityStatusResponse> {
-  return await invokeFn<UpdateContentOpportunityStatusResponse>("update-content-opportunity-status", {
-    client_id: input.clientId,
-    content_opportunity_id: input.opportunityId,
-    action: input.action,
-    reason: input.reason,
-    merge_into_opportunity_id: input.mergeIntoOpportunityId,
-    new_expires_at: input.newExpiresAt,
-  });
-}
-
-export const OPPORTUNITY_STATUS_LABEL: Record<ContentOpportunityStatus, string> = {
-  draft: "Draft",
-  needs_review: "Needs review",
-  shortlisted: "Shortlisted",
-  selected: "Selected",
-  scheduled: "Scheduled",
-  produced: "Produced",
-  rejected: "Rejected",
-  expired: "Expired",
-};
 
 /** Where a source came from, for the provenance view. */
 export function provenanceOf(source: SupplySourceRow): string {

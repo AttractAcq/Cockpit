@@ -12,24 +12,6 @@
 //   automations  : status/last_run_at → Automation shape
 import { EdgeFunctionInvocationError, supabase, invokeFn } from "./supabase";
 import { decodeIdeationScoringFailureBody } from "./ideation-scoring-failure";
-import { decodeIdeationProposalFailureBody } from "./ideation-proposal-failure";
-import { decodeIdeationCommitFailureBody } from "./ideation-commit-failure";
-import type {
-  IdeationCommitFailure,
-  IdeationCommitItem,
-  IdeationCommitOverview,
-  IdeationCommitRequest,
-  IdeationCommitResponse,
-  IdeationCommitRun,
-} from "../types/ideation-commit";
-import type {
-  IdeationCalendarProposal,
-  IdeationProposalInvocationFailure,
-  IdeationProposalOverview,
-  IdeationProposalRequest,
-  IdeationProposalResponse,
-  IdeationProposalSlot,
-} from "../types/ideation-proposal";
 import type {
   IdeationCandidateScore,
   IdeationScoringInvocationFailure,
@@ -48,7 +30,6 @@ import type { PulseMetric } from "@/types";
 import type { AiBackgroundGenerationRow, ClientDistributionAccount, ProductionMode } from "@/types/phase";
 import type { BrandPromptBlockRow, HiggsfieldMotion, PendingVideoShotInput, ReelContinuityPlan, ReelStoryStrategy, VideoProjectDeliverableRow, VideoProjectRow, VideoShotRow } from "@/types/reel-studio";
 import type {
-  IdeationAssetType,
   IdeationCandidate,
   IdeationAuthorityInput,
   IdeationOverview,
@@ -1187,49 +1168,6 @@ export async function runIdeation(input: RunIdeationInput): Promise<RunIdeationR
     month: input.month,
     idempotency_key: input.idempotency_key,
     strategic_input_sources: input.strategic_input_sources,
-  });
-}
-
-export interface CommitManualContentInput {
-  client_id: string;
-  asset_type: IdeationAssetType;
-  working_title: string;
-  hook: string;
-  core_message: string;
-  cta: string;
-  psychological_angle?: string | null;
-  distribution_date: string;
-  origin: "manual" | "proof_led";
-  content_source_id?: string | null;
-}
-
-export interface CommitManualContentResponse {
-  ref: string;
-  master_table: "organic_master" | "story_master";
-  master_id: string;
-  calendar_cell_id: string;
-}
-
-/**
- * Commits a manually-typed or proof-led idea straight to the Calendar,
- * alongside — not through — the AI-generation candidate/scoring/proposal
- * pipeline (client_ideation_candidates is provenance-locked to real AI
- * runs). Owned by the Ideation tab, not Content Supply.
- */
-export async function commitManualContent(
-  input: CommitManualContentInput,
-): Promise<CommitManualContentResponse> {
-  return await invokeFn<CommitManualContentResponse>("commit-manual-content", {
-    client_id: input.client_id,
-    asset_type: input.asset_type,
-    working_title: input.working_title,
-    hook: input.hook,
-    core_message: input.core_message,
-    cta: input.cta,
-    psychological_angle: input.psychological_angle ?? null,
-    distribution_date: input.distribution_date,
-    origin: input.origin,
-    content_source_id: input.content_source_id ?? null,
   });
 }
 
@@ -3824,115 +3762,9 @@ export function decodeIdeationScoringInvocationFailure(
   return decodeIdeationScoringFailureBody(error.responseBody, error.message);
 }
 
-export async function fetchIdeationProposalOverview(
-  clientId: string,
-  cycleIds: string[],
-  signal?: AbortSignal,
-): Promise<IdeationProposalOverview> {
-  if (cycleIds.length === 0) return { proposals: [], slots: [] };
-  const proposalsQuery = supabase
-    .from("client_ideation_calendar_proposals")
-    .select("*")
-    .eq("client_id", clientId)
-    .in("ideation_cycle_id", cycleIds)
-    .order("created_at", { ascending: false });
-  const { data: proposalData, error: proposalError } =
-    await (signal ? proposalsQuery.abortSignal(signal) : proposalsQuery);
-  if (proposalError) throw proposalError;
-  const proposals = (proposalData ?? []) as IdeationCalendarProposal[];
-  if (!proposals.length) return { proposals: [], slots: [] };
-
-  const slotsQuery = supabase
-    .from("client_ideation_calendar_proposal_slots")
-    .select("*")
-    .in("proposal_id", proposals.map((proposal) => proposal.id))
-    .order("proposed_date", { ascending: true })
-    .order("date_slot_ordinal", { ascending: true });
-  const { data: slotData, error: slotError } =
-    await (signal ? slotsQuery.abortSignal(signal) : slotsQuery);
-  if (slotError) throw slotError;
-  return { proposals, slots: (slotData ?? []) as IdeationProposalSlot[] };
-}
-
-export async function invokeIdeationProposal(
-  input: IdeationProposalRequest,
-): Promise<IdeationProposalResponse> {
-  // invokeFn throws EdgeFunctionInvocationError for every non-2xx response, so
-  // this returns only the successful discriminated shape.
-  return await invokeFn<IdeationProposalResponse>("create-ideation-calendar-proposal", {
-    action: input.action,
-    client_id: input.client_id,
-    ideation_cycle_id: input.ideation_cycle_id,
-    scoring_run_id: input.scoring_run_id,
-    proposal_id: input.proposal_id,
-    regenerate_from_proposal_id: input.regenerate_from_proposal_id,
-    expected_edit_revision: input.expected_edit_revision,
-    from_slot_key: input.from_slot_key,
-    to_slot_key: input.to_slot_key,
-    candidate_id: input.candidate_id,
-  });
-}
-
-export function decodeIdeationProposalInvocationFailure(
-  error: unknown,
-): IdeationProposalInvocationFailure | null {
-  if (!(error instanceof EdgeFunctionInvocationError)) return null;
-  if (error.functionName !== "create-ideation-calendar-proposal") return null;
-  return decodeIdeationProposalFailureBody(error.responseBody, error.message);
-}
-
-/* -------------------------------------------------------------------------
- * Ideation Stage 4 — Commit Content
- *
- * Reads come straight from the commit tables under RLS; the commit itself is
- * one Edge Function call that runs one atomic database transaction.
- * ---------------------------------------------------------------------- */
-
-export async function fetchIdeationCommitOverview(
-  clientId: string,
-  proposalIds: string[],
-  signal?: AbortSignal,
-): Promise<IdeationCommitOverview> {
-  if (proposalIds.length === 0) return { runs: [], items: [] };
-  const runsQuery = supabase
-    .from("client_ideation_commit_runs")
-    .select("*")
-    .eq("client_id", clientId)
-    .in("proposal_id", proposalIds)
-    .order("created_at", { ascending: false });
-  const { data: runData, error: runError } =
-    await (signal ? runsQuery.abortSignal(signal) : runsQuery);
-  if (runError) throw runError;
-  const runs = (runData ?? []) as IdeationCommitRun[];
-  if (!runs.length) return { runs: [], items: [] };
-
-  const itemsQuery = supabase
-    .from("client_ideation_commit_items")
-    .select("*")
-    .in("commit_run_id", runs.map((run) => run.id))
-    .order("committed_date", { ascending: true })
-    .order("operational_ref", { ascending: true });
-  const { data: itemData, error: itemError } =
-    await (signal ? itemsQuery.abortSignal(signal) : itemsQuery);
-  if (itemError) throw itemError;
-  return { runs, items: (itemData ?? []) as IdeationCommitItem[] };
-}
-
-export async function invokeIdeationCommit(
-  input: IdeationCommitRequest,
-): Promise<IdeationCommitResponse> {
-  return await invokeFn<IdeationCommitResponse>("commit-ideation-content", {
-    client_id: input.client_id,
-    proposal_id: input.proposal_id,
-    expected_edit_revision: input.expected_edit_revision,
-    confirm_commit: true,
-  });
-}
-
-export function decodeIdeationCommitInvocationFailure(
-  error: unknown,
-): IdeationCommitFailure | null {
-  if (!(error instanceof EdgeFunctionInvocationError)) return null;
-  if (error.functionName !== "commit-ideation-content") return null;
-  return decodeIdeationCommitFailureBody(error.responseBody, error.message);
-}
+// Ideation Stage 3 (Proposal) and Stage 4 (Commit) were retired 2026-08-16
+// (Ideation Phase 6): scoring is now the last AI-side stage. Scored
+// candidates land in Sources (content_sources, kind ideation_candidate) and
+// are approved via approveContentSource in @/lib/supply, same as any manual
+// or proof-led idea. Scheduling happens once, uniformly, at Content Items
+// via distributeContentItemsToCalendar below.

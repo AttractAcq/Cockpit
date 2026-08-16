@@ -1,36 +1,39 @@
-// Programme Stage E — operator surface for the content supply side.
-//
-// Three tabs: Manual Idea entry, Proof Vault, and the canonical Source list
-// with search, filtering and provenance. Conversion to a Content Opportunity
-// happens here; nothing on this surface can reach the Calendar or production.
+// Ideation nav consolidation, Phase 6 — Content Supply is now the single
+// entry surface for the whole Ideation group: Add Idea, Add Proof, and
+// Ideation (the AI run/score cycle) are three intake methods that all
+// converge on Sources, the one approve/disapprove gate before content
+// becomes a real, unscheduled Content Items row. Conflicts and Provenance
+// are no longer separate tabs — their checks still run, surfaced as compact
+// banners here instead.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/primitives";
 import {
   PROOF_KINDS,
   SOURCE_KIND_LABEL,
-  createOpportunityFromSource,
+  approveContentSource,
   fetchContextFileProvenance,
   fetchInputConflicts,
-  fetchOpportunitiesForSource,
   fetchProofItems,
   fetchSupplySources,
   ingestManualIdea,
   ingestProof,
   provenanceOf,
+  rejectContentSource,
   reviewConflict,
   runConflictDetection,
   unresolvedBlocking,
   untraceableFiles,
   type ContextFileProvenance,
   type InputConflictRow,
-  type SupplyOpportunityRow,
+  type SourceAssetType,
   type SupplyProofRow,
   type SupplySourceRow,
 } from "@/lib/supply";
 import type { ContentSourceKind } from "@/types/content-spine";
+import { IdeationPanel } from "./IdeationPanel";
 
-type Tab = "idea" | "proof" | "sources" | "conflicts" | "provenance";
+type Tab = "idea" | "proof" | "ideation" | "sources";
 type Notice = { kind: "success" | "error" | "info"; text: string } | null;
 
 function errorMessage(error: unknown): string {
@@ -44,16 +47,25 @@ function errorMessage(error: unknown): string {
 const ALL_KINDS: ContentSourceKind[] = [
   "manual_idea",
   "proof_item",
+  "ideation_candidate",
   "research_candidate",
   "performance_insight",
 ];
 
+const ASSET_TYPES: Array<{ value: SourceAssetType; label: string }> = [
+  { value: "reel", label: "Reel" },
+  { value: "carousel", label: "Carousel" },
+  { value: "static", label: "Static" },
+  { value: "story", label: "Story" },
+];
+
 interface Props {
   clientId: string;
+  executionMonth: string;
   initialTab?: Tab;
 }
 
-export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) {
+export function ContentSupplyPanel({ clientId, executionMonth, initialTab = "sources" }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
@@ -64,9 +76,12 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   const [provenance, setProvenance] = useState<ContextFileProvenance[]>([]);
   const [conflictNote, setConflictNote] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
 
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<ContentSourceKind[]>([]);
+  const [showReviewed, setShowReviewed] = useState(false);
 
   const [ideaTitle, setIdeaTitle] = useState("");
   const [ideaBody, setIdeaBody] = useState("");
@@ -79,15 +94,18 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   const [proofUrl, setProofUrl] = useState("");
 
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [opportunities, setOpportunities] = useState<Record<string, SupplyOpportunityRow[]>>({});
-  const [convertTitle, setConvertTitle] = useState("");
-  const [convertAngle, setConvertAngle] = useState("");
+  const [assetTypeChoice, setAssetTypeChoice] = useState<Record<string, SourceAssetType>>({});
+  const [rejectReason, setRejectReason] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [s, p, c, prov] = await Promise.all([
-        fetchSupplySources(clientId, { search, kinds: kindFilter }),
+        fetchSupplySources(clientId, {
+          search,
+          kinds: kindFilter,
+          processing: showReviewed ? undefined : ["pending", "processing", "failed"],
+        }),
         fetchProofItems(clientId),
         fetchInputConflicts(clientId),
         fetchContextFileProvenance(clientId),
@@ -101,7 +119,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
     } finally {
       setLoading(false);
     }
-  }, [clientId, search, kindFilter]);
+  }, [clientId, search, kindFilter, showReviewed]);
 
   useEffect(() => {
     void load();
@@ -125,7 +143,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
       setNotice(
         result.duplicate
           ? { kind: "info", text: "An identical idea already exists for this client — no duplicate was created." }
-          : { kind: "success", text: "Idea saved as a canonical source." },
+          : { kind: "success", text: "Idea saved. It's waiting for approval in Sources." },
       );
       if (!result.duplicate) {
         setIdeaTitle("");
@@ -161,7 +179,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
           ? { kind: "info", text: "Identical proof already exists — no duplicate was created." }
           : {
               kind: "success",
-              text: "Proof saved. It enters unverified with no consent recorded and cannot be published until both are set.",
+              text: "Proof saved. It enters unverified with no consent recorded and cannot be approved until both are set.",
             },
       );
       if (!result.duplicate) {
@@ -172,50 +190,6 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
       await load();
     } catch (e) {
       setNotice({ kind: "error", text: `Could not save proof: ${errorMessage(e)}` });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const openSource = async (source: SupplySourceRow) => {
-    const next = expanded === source.id ? null : source.id;
-    setExpanded(next);
-    setConvertTitle(source.title);
-    setConvertAngle("");
-    if (next && !opportunities[source.id]) {
-      try {
-        const rows = await fetchOpportunitiesForSource(source.id);
-        setOpportunities((prev) => ({ ...prev, [source.id]: rows }));
-      } catch (e) {
-        setNotice({ kind: "error", text: `Could not load opportunities: ${errorMessage(e)}` });
-      }
-    }
-  };
-
-  const convert = async (source: SupplySourceRow) => {
-    if (convertTitle.trim().length === 0) {
-      setNotice({ kind: "error", text: "An opportunity title is required." });
-      return;
-    }
-    setBusy(true);
-    setNotice(null);
-    try {
-      const result = await createOpportunityFromSource({
-        clientId,
-        sourceId: source.id,
-        title: convertTitle.trim(),
-        angle: convertAngle,
-      });
-      setNotice(
-        result.duplicate
-          ? { kind: "info", text: "That opportunity already exists for this source." }
-          : { kind: "success", text: "Content Opportunity created in draft. It is not scheduled." },
-      );
-      const rows = await fetchOpportunitiesForSource(source.id);
-      setOpportunities((prev) => ({ ...prev, [source.id]: rows }));
-      setConvertAngle("");
-    } catch (e) {
-      setNotice({ kind: "error", text: `Could not create opportunity: ${errorMessage(e)}` });
     } finally {
       setBusy(false);
     }
@@ -271,6 +245,42 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
     }
   };
 
+  const approve = async (source: SupplySourceRow) => {
+    const needsAssetType = source.source_kind !== "ideation_candidate";
+    const assetType = assetTypeChoice[source.id];
+    if (needsAssetType && !assetType) {
+      setNotice({ kind: "error", text: "Choose a format before approving." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await approveContentSource({ clientId, sourceId: source.id, assetType });
+      setNotice({ kind: "success", text: `Approved into Content Items as ${result.ref}. It is unscheduled.` });
+      setExpanded(null);
+      await load();
+    } catch (e) {
+      setNotice({ kind: "error", text: `Could not approve: ${errorMessage(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disapprove = async (source: SupplySourceRow) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await rejectContentSource({ clientId, sourceId: source.id, reason: rejectReason[source.id] });
+      setNotice({ kind: "info", text: "Source disapproved. It will not enter Content Items." });
+      setExpanded(null);
+      await load();
+    } catch (e) {
+      setNotice({ kind: "error", text: `Could not disapprove: ${errorMessage(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggleKind = (kind: ContentSourceKind) => {
     setKindFilter((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
   };
@@ -282,7 +292,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2">
-        {(["idea", "proof", "sources", "conflicts", "provenance"] as Tab[]).map((t) => (
+        {(["idea", "proof", "ideation", "sources"] as Tab[]).map((t) => (
           <Button
             key={t}
             size="sm"
@@ -293,15 +303,13 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
               ? "Add Idea"
               : t === "proof"
                 ? "Add Proof"
-                : t === "sources"
-                  ? `Sources (${sources.length})`
-                  : t === "conflicts"
-                    ? `Conflicts (${blockingCount})`
-                    : `Provenance (${untraceableCount})`}
+                : t === "ideation"
+                  ? "Ideation"
+                  : `Sources (${sources.length})`}
           </Button>
         ))}
         <span className="ml-auto text-2xs text-paper-3">
-          Supply only — nothing here writes to the Calendar or production.
+          Approving a Source lands it, unscheduled, in Content Items.
         </span>
       </div>
 
@@ -315,6 +323,9 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
         </div>
       )}
 
+      {tab === "ideation" ? (
+        <IdeationPanel clientId={clientId} executionMonth={executionMonth} />
+      ) : (
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {tab === "idea" && (
           <div className="max-w-2xl space-y-3">
@@ -343,7 +354,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
               <Button size="sm" disabled={busy} onClick={() => void submitIdea()}>
                 {busy ? "Saving…" : "Save idea"}
               </Button>
-              <span className="text-2xs text-paper-3">Saved without generating anything.</span>
+              <span className="text-2xs text-paper-3">Saved to Sources; nothing is generated yet.</span>
             </div>
           </div>
         )}
@@ -379,7 +390,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                 {busy ? "Saving…" : "Save proof"}
               </Button>
               <span className="text-2xs text-paper-3">
-                Enters unverified, consent not obtained. Both are required before it can be published.
+                Enters unverified, consent not obtained. Both are required before it can be approved.
               </span>
             </div>
 
@@ -406,149 +417,120 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
           </div>
         )}
 
-        {tab === "provenance" && (
-          <div>
-            <p className="mb-3 text-2xs text-paper-3">
-              Every material claim must trace to client input, an uploaded source, research, or a
-              human-approved inference. A file with no citations cannot be approved as authority.
-            </p>
-            {untraceableCount > 0 && (
-              <p className="mb-3 text-2xs text-warn">
-                {untraceableCount} of {provenance.length} context files have no citations recorded.
-              </p>
-            )}
-
-            {provenance.length === 0 && !loading && (
-              <p className="text-xs text-paper-3">No context files generated yet.</p>
-            )}
-
-            {provenance.map((f) => (
-              <div key={f.id} className="border-b border-line py-3 last:border-b-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-2xs font-mono text-teal">{String(f.file_number).padStart(2, "0")}</span>
-                  <span className="text-xs text-paper">{f.file_name}</span>
-                  <span className="text-2xs text-paper-3">{f.status}</span>
-                  <span className="text-2xs text-paper-3">v{f.version}</span>
-                  <span className={`text-2xs ${f.citations.length === 0 ? "text-warn" : "text-paper-3"}`}>
-                    {f.citations.length} citation{f.citations.length === 1 ? "" : "s"}
-                  </span>
-                  <span className={`text-2xs ${f.playbooks.length === 0 ? "text-warn" : "text-paper-3"}`}>
-                    {f.playbooks.length === 0 ? "no playbook authority" : `${f.playbooks.length} playbook version(s)`}
-                  </span>
-                  {f.classification && (
-                    <span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">
-                      {f.classification.replace(/_/g, " ")}
-                    </span>
-                  )}
-                </div>
-
-                {f.citations.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {f.citations.slice(0, 8).map((c) => (
-                      <div key={c.id} className="flex flex-wrap items-baseline gap-2">
-                        <span className="text-2xs font-mono text-paper-3">
-                          {c.source_type === "client_input" ? c.client_input_field : c.source_type}
-                        </span>
-                        <span className="min-w-0 flex-1 break-words text-2xs text-paper-3">{c.claim_excerpt}</span>
-                      </div>
-                    ))}
-                    {f.citations.length > 8 && (
-                      <p className="text-2xs text-paper-3">…and {f.citations.length - 8} more</p>
-                    )}
-                  </div>
-                )}
-
-                {f.playbooks.length > 0 && (
-                  <p className="mt-1 text-2xs font-mono text-paper-3">
-                    playbook v{f.playbooks[0].playbook_version} · {f.playbooks[0].playbook_content_hash.slice(0, 12)}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "conflicts" && (
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" disabled={busy} onClick={() => void scanConflicts()}>
-                {busy ? "Scanning…" : "Scan inputs for conflicts"}
-              </Button>
-              {blockingCount > 0 && (
-                <span className="text-2xs text-neg">
-                  {blockingCount} unresolved blocking conflict{blockingCount === 1 ? "" : "s"} — these should hold Phase 1 approval.
-                </span>
-              )}
-            </div>
-
-            {conflicts.length === 0 && !loading && (
-              <p className="text-xs text-paper-3">
-                No conflicts recorded. Run a scan to check inputs for legacy currency, deprecated offers and unsupported claims.
-              </p>
-            )}
-
-            {conflicts.map((c) => {
-              const decided = c.status === "resolved" || c.status === "dismissed";
-              return (
-                <div key={c.id} className="border-b border-line py-3 last:border-b-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded border px-1.5 py-0.5 text-2xs ${
-                        c.severity === "blocking"
-                          ? "border-neg/20 text-neg"
-                          : c.severity === "warning"
-                            ? "border-warn/20 text-warn"
-                            : "border-line text-paper-3"
-                      }`}
-                    >
-                      {c.severity}
-                    </span>
-                    <span className="text-2xs font-mono text-paper-3">{c.conflict_type}</span>
-                    <span className="text-2xs text-paper-3">{c.status}</span>
-                    <span className="text-2xs font-mono text-paper-3">{c.left_source_ref}</span>
-                  </div>
-                  <h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{c.title}</h3>
-                  <p className="mt-0.5 break-words text-2xs leading-5 text-paper-3">{c.detail}</p>
-
-                  {decided ? (
-                    <p className="mt-1 text-2xs text-paper-3">
-                      {c.status} — {c.resolution_note}
-                    </p>
-                  ) : (
-                    <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                      <input
-                        aria-label={`Reason for ${c.title}`}
-                        className={field}
-                        value={conflictNote[c.id] ?? ""}
-                        onChange={(e) =>
-                          setConflictNote((prev) => ({ ...prev, [c.id]: e.target.value }))
-                        }
-                        placeholder="Reason (required to resolve or dismiss)"
-                      />
-                      {c.status === "open" && (
-                        <Button size="sm" variant="ghost" disabled={busy}
-                          onClick={() => void decide(c, "acknowledged")}>
-                          Acknowledge
-                        </Button>
-                      )}
-                      <Button size="sm" variant="secondary" disabled={busy}
-                        onClick={() => void decide(c, "resolved")}>
-                        Resolve
-                      </Button>
-                      <Button size="sm" variant="ghost" disabled={busy}
-                        onClick={() => void decide(c, "dismissed")}>
-                        Dismiss
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {tab === "sources" && (
           <div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-ink-200 px-3 py-2">
+              <button type="button" className="text-2xs text-paper-2" onClick={() => setConflictsOpen((v) => !v)}>
+                {blockingCount > 0 ? (
+                  <span className="text-neg">{blockingCount} unresolved blocking conflict{blockingCount === 1 ? "" : "s"}</span>
+                ) : (
+                  <span className="text-paper-3">No blocking conflicts</span>
+                )}
+                {" "}· {conflictsOpen ? "hide" : "show"}
+              </button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void scanConflicts()}>
+                {busy ? "Scanning…" : "Scan inputs for conflicts"}
+              </Button>
+              <button type="button" className="text-2xs text-paper-2" onClick={() => setProvenanceOpen((v) => !v)}>
+                {untraceableCount > 0 ? (
+                  <span className="text-warn">{untraceableCount} context file{untraceableCount === 1 ? "" : "s"} without citations</span>
+                ) : (
+                  <span className="text-paper-3">All context files traceable</span>
+                )}
+                {" "}· {provenanceOpen ? "hide" : "show"}
+              </button>
+            </div>
+
+            {conflictsOpen && (
+              <div className="mb-4 rounded border border-line p-3">
+                {conflicts.length === 0 && <p className="text-xs text-paper-3">No conflicts recorded.</p>}
+                {conflicts.map((c) => {
+                  const decided = c.status === "resolved" || c.status === "dismissed";
+                  return (
+                    <div key={c.id} className="border-b border-line py-3 last:border-b-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-2xs ${
+                            c.severity === "blocking"
+                              ? "border-neg/20 text-neg"
+                              : c.severity === "warning"
+                                ? "border-warn/20 text-warn"
+                                : "border-line text-paper-3"
+                          }`}
+                        >
+                          {c.severity}
+                        </span>
+                        <span className="text-2xs font-mono text-paper-3">{c.conflict_type}</span>
+                        <span className="text-2xs text-paper-3">{c.status}</span>
+                        <span className="text-2xs font-mono text-paper-3">{c.left_source_ref}</span>
+                      </div>
+                      <h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{c.title}</h3>
+                      <p className="mt-0.5 break-words text-2xs leading-5 text-paper-3">{c.detail}</p>
+                      {decided ? (
+                        <p className="mt-1 text-2xs text-paper-3">{c.status} — {c.resolution_note}</p>
+                      ) : (
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                          <input
+                            aria-label={`Reason for ${c.title}`}
+                            className={field}
+                            value={conflictNote[c.id] ?? ""}
+                            onChange={(e) => setConflictNote((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                            placeholder="Reason (required to resolve or dismiss)"
+                          />
+                          {c.status === "open" && (
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide(c, "acknowledged")}>
+                              Acknowledge
+                            </Button>
+                          )}
+                          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide(c, "resolved")}>
+                            Resolve
+                          </Button>
+                          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide(c, "dismissed")}>
+                            Dismiss
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {provenanceOpen && (
+              <div className="mb-4 rounded border border-line p-3">
+                {provenance.length === 0 && <p className="text-xs text-paper-3">No context files generated yet.</p>}
+                {provenance.map((f) => (
+                  <div key={f.id} className="border-b border-line py-3 last:border-b-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-2xs font-mono text-teal">{String(f.file_number).padStart(2, "0")}</span>
+                      <span className="text-xs text-paper">{f.file_name}</span>
+                      <span className="text-2xs text-paper-3">{f.status}</span>
+                      <span className="text-2xs text-paper-3">v{f.version}</span>
+                      <span className={`text-2xs ${f.citations.length === 0 ? "text-warn" : "text-paper-3"}`}>
+                        {f.citations.length} citation{f.citations.length === 1 ? "" : "s"}
+                      </span>
+                      <span className={`text-2xs ${f.playbooks.length === 0 ? "text-warn" : "text-paper-3"}`}>
+                        {f.playbooks.length === 0 ? "no playbook authority" : `${f.playbooks.length} playbook version(s)`}
+                      </span>
+                    </div>
+                    {f.citations.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {f.citations.slice(0, 8).map((c) => (
+                          <div key={c.id} className="flex flex-wrap items-baseline gap-2">
+                            <span className="text-2xs font-mono text-paper-3">
+                              {c.source_type === "client_input" ? c.client_input_field : c.source_type}
+                            </span>
+                            <span className="min-w-0 flex-1 break-words text-2xs text-paper-3">{c.claim_excerpt}</span>
+                          </div>
+                        ))}
+                        {f.citations.length > 8 && <p className="text-2xs text-paper-3">…and {f.citations.length - 8} more</p>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <input
                 aria-label="Search sources"
@@ -563,6 +545,9 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                   {SOURCE_KIND_LABEL[k]}
                 </Button>
               ))}
+              <Button size="sm" variant={showReviewed ? "secondary" : "ghost"} onClick={() => setShowReviewed((v) => !v)}>
+                {showReviewed ? "Showing all" : "Show approved/disapproved"}
+              </Button>
               <Button size="sm" variant="ghost" onClick={() => void load()}>Refresh</Button>
             </div>
 
@@ -570,13 +555,14 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
 
             {!loading && sources.length === 0 && (
               <p className="text-xs text-paper-3">
-                No sources yet. Add an idea or proof, or run Ideation to create research candidates.
+                No sources waiting for review. Add an idea, add proof, or run Ideation to create scored candidates.
               </p>
             )}
 
             {!loading && sources.map((s) => {
               const proof = s.proof_item_id ? proofBySource[s.id] : undefined;
-              const opps = opportunities[s.id] ?? [];
+              const decided = s.processing_status === "processed" || s.processing_status === "skipped";
+              const needsAssetType = s.source_kind !== "ideation_candidate";
               return (
                 <div key={s.id} className="border-b border-line py-3 last:border-b-0">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -585,15 +571,23 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                         <span className="rounded border border-line px-1.5 py-0.5 text-2xs text-paper-3">
                           {SOURCE_KIND_LABEL[s.source_kind]}
                         </span>
-                        <span className={`text-2xs ${s.processing_status === "failed" ? "text-neg" : "text-paper-3"}`}>
+                        <span
+                          className={`text-2xs ${
+                            s.processing_status === "failed"
+                              ? "text-neg"
+                              : s.processing_status === "processed"
+                                ? "text-teal"
+                                : "text-paper-3"
+                          }`}
+                        >
                           {s.processing_status}
                           {s.processing_status === "failed" && s.attempt_count < s.maximum_attempts && " · retryable"}
                         </span>
-                        <span className="text-2xs font-mono text-paper-3">
-                          {s.raw_content_hash ? s.raw_content_hash.slice(0, 8) : "no hash"}
-                        </span>
-                        {opps.length > 0 && (
-                          <span className="text-2xs text-teal">{opps.length} opportunit{opps.length === 1 ? "y" : "ies"}</span>
+                        {s.payload?.overall_score !== undefined && (
+                          <span className="text-2xs font-mono text-paper-3">
+                            {s.payload.overall_score}/100 {s.payload.priority_band}
+                            {s.payload.rank !== undefined ? ` · rank ${s.payload.rank}` : ""}
+                          </span>
                         )}
                       </div>
                       <h3 className="mt-1.5 break-words text-xs font-medium leading-5 text-paper">{s.title}</h3>
@@ -602,7 +596,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                         <p className="mt-0.5 text-2xs text-neg">{s.failure_code}: {s.failure_message}</p>
                       )}
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => void openSource(s)}>
+                    <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === s.id ? null : s.id)}>
                       {expanded === s.id ? "Close" : "Open"}
                     </Button>
                   </div>
@@ -623,31 +617,50 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
                         </p>
                       )}
 
-                      {opps.length > 0 && (
-                        <div className="mb-3">
-                          <h4 className={label}>Existing opportunities</h4>
-                          {opps.map((o) => (
-                            <div key={o.id} className="flex flex-wrap items-center gap-2 py-0.5">
-                              <span className="text-2xs text-paper-3">{o.status}</span>
-                              <span className="text-xs text-paper">{o.title}</span>
+                      {decided ? (
+                        <p className="text-2xs text-paper-3">
+                          Already {s.processing_status === "processed" ? "approved" : "disapproved"}
+                          {s.processing_status === "processed" ? " — see Content Items." : s.failure_message ? `: ${s.failure_message}` : "."}
+                        </p>
+                      ) : (
+                        <>
+                          {needsAssetType && (
+                            <div className="mb-2">
+                              <h4 className={label}>Approve as</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {ASSET_TYPES.map((t) => (
+                                  <Button
+                                    key={t.value}
+                                    size="sm"
+                                    variant={assetTypeChoice[s.id] === t.value ? "secondary" : "ghost"}
+                                    onClick={() => setAssetTypeChoice((prev) => ({ ...prev, [s.id]: t.value }))}
+                                  >
+                                    {t.label}
+                                  </Button>
+                                ))}
+                              </div>
                             </div>
-                          ))}
-                        </div>
+                          )}
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Button size="sm" disabled={busy} onClick={() => void approve(s)}>
+                              {busy ? "Approving…" : "Approve"}
+                            </Button>
+                            <input
+                              aria-label="Disapproval reason (optional)"
+                              className={field}
+                              value={rejectReason[s.id] ?? ""}
+                              onChange={(e) => setRejectReason((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                              placeholder="Reason (optional)"
+                            />
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void disapprove(s)}>
+                              Disapprove
+                            </Button>
+                          </div>
+                          <p className="mt-1 text-2xs text-paper-3">
+                            Approving lands this in Content Items, unscheduled. It is placed on the Calendar separately.
+                          </p>
+                        </>
                       )}
-
-                      <h4 className={label}>Create a Content Opportunity</h4>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <input aria-label="Opportunity title" className={field} value={convertTitle}
-                          onChange={(e) => setConvertTitle(e.target.value)} placeholder="Opportunity title" />
-                        <input aria-label="Angle" className={field} value={convertAngle}
-                          onChange={(e) => setConvertAngle(e.target.value)} placeholder="Angle (optional)" />
-                        <Button size="sm" disabled={busy} onClick={() => void convert(s)}>
-                          {busy ? "Creating…" : "Create"}
-                        </Button>
-                      </div>
-                      <p className="mt-1 text-2xs text-paper-3">
-                        Created in draft. One source may produce several opportunities.
-                      </p>
                     </div>
                   )}
                 </div>
@@ -656,6 +669,7 @@ export function ContentSupplyPanel({ clientId, initialTab = "sources" }: Props) 
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

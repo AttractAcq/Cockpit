@@ -1,31 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Modal, Tag } from "@/components/primitives";
 import {
   decodeIdeationInvocationFailure,
   decodeIdeationScoringInvocationFailure,
   fetchIdeationOverview,
   fetchIdeationScoringOverview,
-  fetchIdeationProposalOverview,
-  invokeIdeationProposal,
-  decodeIdeationProposalInvocationFailure,
-  fetchIdeationCommitOverview,
-  invokeIdeationCommit,
-  decodeIdeationCommitInvocationFailure,
   runIdeation,
   scoreIdeationCandidates,
 } from "@/lib/api";
-import { IdeationCommitConfirmation } from "./IdeationCommitConfirmation";
-import { IdeationManualCommitPanel } from "./IdeationManualCommitPanel";
-import { COMMIT_RECOVERY_LABELS, commitRecoveryAction } from "@/lib/ideation-commit-view";
-import type { IdeationCommitFailure, IdeationCommitOverview } from "@/types/ideation-commit";
-import {
-  activeProposal,
-  canCreateProposal,
-  canRetryProposal,
-  canReviewProposal,
-  proposalProgressLabel,
-} from "@/lib/ideation-proposal-view";
-import { IdeationProposalReview, type ProposalEditRequest } from "./IdeationProposalReview";
 import {
   activeScoringRun,
   bandDescription,
@@ -53,9 +35,6 @@ import type {
   IdeationStrategicSourceKind,
   RunIdeationResponse,
 } from "@/types/ideation";
-import type {
-  IdeationProposalOverview,
-} from "@/types/ideation-proposal";
 import {
   IDEATION_SCORE_DIMENSIONS,
   type IdeationCandidateScore,
@@ -131,13 +110,6 @@ function periodLabel(run: IdeationRun): string {
   return run.period_start === run.period_end
     ? run.period_start
     : `${run.period_start} → ${run.period_end}`;
-}
-
-function _sourceDomain(candidate: IdeationCandidate): string {
-  const url = candidate.research_result?.source_url ?? "";
-  if (url.startsWith("aa-authority://")) return "Approved authority";
-  try { return new URL(url).hostname.replace(/^www\./, ""); }
-  catch { return "Source unavailable"; }
 }
 
 function strategicKindsForCandidate(candidate: IdeationCandidate): IdeationStrategicSourceKind[] {
@@ -454,44 +426,6 @@ function CandidateScoreDetail({
   );
 }
 
-function ProposalConfirmModal({
-  title,
-  description,
-  confirmLabel,
-  body,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  body: ReactNode;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Modal
-      title={title}
-      description={description}
-      onClose={onCancel}
-      closeDisabled={busy}
-      widthClass="max-w-lg"
-      footer={
-        <>
-          <Button variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button>
-          <Button variant="primary" disabled={busy} onClick={onConfirm}>
-            {busy ? "Working…" : confirmLabel}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3 text-xs text-paper">{body}</div>
-    </Modal>
-  );
-}
-
 function RescoreConfirmModal({
   expectedCandidates,
   previousRunId,
@@ -716,17 +650,21 @@ function GenerationModal({
   );
 }
 
+/**
+ * Run → Candidates → Score. This is the AI intake method inside Content
+ * Supply's Ideation subtab, alongside Add Idea and Add Proof. Scoring is
+ * the last AI-side stage: on completion, every scored candidate lands in
+ * Sources (content_sources, kind ideation_candidate) automatically, for the
+ * same approve/disapprove gate a manual idea or proof item goes through.
+ * There is no calendar pre-assignment here — scheduling happens once,
+ * uniformly, at Content Items.
+ */
 export function IdeationPanel({
   clientId,
   executionMonth,
-  onOpenCalendarDate,
-  onOpenContentRef,
 }: {
   clientId: string;
   executionMonth: string;
-  /** Stage 4 navigation into the operational records a commit created. */
-  onOpenCalendarDate?: (date: string) => void;
-  onOpenContentRef?: (operationalRef: string) => void;
 }) {
   const [overview, setOverview] = useState<IdeationOverview>({ runs: [], technique_runs: [], research_results: [], candidates: [], authority_inputs: [] });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -741,17 +679,6 @@ export function IdeationPanel({
   const [scoringBusy, setScoringBusy] = useState(false);
   const [rescoreOpen, setRescoreOpen] = useState(false);
   const [orderMode, setOrderMode] = useState<"ranked" | "original">("ranked");
-  const [proposals, setProposals] = useState<IdeationProposalOverview>({ proposals: [], slots: [] });
-  const [proposalBusy, setProposalBusy] = useState(false);
-  const [proposalOpen, setProposalOpen] = useState(false);
-  const [regenerateOpen, setRegenerateOpen] = useState(false);
-  const [approveOpen, setApproveOpen] = useState(false);
-  const [commits, setCommits] = useState<IdeationCommitOverview>({ runs: [], items: [] });
-  const [commitBusy, setCommitBusy] = useState(false);
-  const [commitOpen, setCommitOpen] = useState(false);
-  const [commitFailure, setCommitFailure] = useState<IdeationCommitFailure | null>(null);
-  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
-  const [manualCommitOpen, setManualCommitOpen] = useState(false);
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const clientIdRef = useRef(clientId);
@@ -780,12 +707,6 @@ export function IdeationPanel({
       const next = await fetchIdeationOverview(clientId, controller.signal);
       const cycleIds = next.runs.map((run) => run.id);
       const nextScoring = await fetchIdeationScoringOverview(clientId, cycleIds, controller.signal);
-      const nextProposals = await fetchIdeationProposalOverview(clientId, cycleIds, controller.signal);
-      const nextCommits = await fetchIdeationCommitOverview(
-        clientId,
-        nextProposals.proposals.map((proposal) => proposal.id),
-        controller.signal,
-      );
       if (
         requestId !== requestSequence.current
         || controller.signal.aborted
@@ -794,8 +715,6 @@ export function IdeationPanel({
       ) return;
       setOverview(next);
       setScoring(nextScoring);
-      setProposals(nextProposals);
-      setCommits(nextCommits);
       setSelectedRunId((current) => preferredRunId ?? current ?? next.runs[0]?.id ?? null);
     } catch (value) {
       if (
@@ -822,11 +741,6 @@ export function IdeationPanel({
     requestSequence.current += 1;
     setOverview({ runs: [], technique_runs: [], research_results: [], candidates: [], authority_inputs: [] });
     setScoring({ scoring_runs: [], scores: [] });
-    setProposals({ proposals: [], slots: [] });
-    setProposalBusy(false);
-    setProposalOpen(false);
-    setRegenerateOpen(false);
-    setApproveOpen(false);
     setScoringBusy(false);
     setRescoreOpen(false);
     setOrderMode("ranked");
@@ -915,7 +829,7 @@ export function IdeationPanel({
       setNotice(result.idempotent_replay
         ? "Existing scoring result returned; no duplicate scoring run was created."
         : result.scoring_run.status === "completed"
-          ? "Candidates scored and ranked."
+          ? "Candidates scored and ranked. They now appear in Sources for approval."
           : `Scoring retained ${result.scoring_run.scored_candidate_count} scores; some candidates remain unscored.`);
       await load(originatingRunId, token);
     } catch (value) {
@@ -940,167 +854,6 @@ export function IdeationPanel({
       }
       coordinator.finish(token);
     }
-  }
-
-  const selectedProposal = useMemo(
-    () => activeProposal(proposals.proposals, selectedRun?.id ?? null),
-    [proposals.proposals, selectedRun],
-  );
-  const selectedProposalSlots = useMemo(
-    () => selectedProposal
-      ? proposals.slots.filter((slot) => slot.proposal_id === selectedProposal.id)
-      : [],
-    [proposals.slots, selectedProposal],
-  );
-  // Stage 4. Only a completed run counts as committed: a failed attempt left an
-  // audit record but created nothing, so the proposal is still committable.
-  const selectedCommitRun = useMemo(
-    () => selectedProposal
-      ? commits.runs.find((run) => run.proposal_id === selectedProposal.id && run.status === "completed") ?? null
-      : null,
-    [commits.runs, selectedProposal],
-  );
-  const selectedCommitItems = useMemo(
-    () => selectedCommitRun
-      ? commits.items.filter((item) => item.commit_run_id === selectedCommitRun.id)
-      : [],
-    [commits.items, selectedCommitRun],
-  );
-  const candidatesById = useMemo(
-    () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
-    [candidates],
-  );
-  const proposalCandidateSnapshot = useMemo(() => {
-    const snapshot = (selectedProposal as unknown as { candidate_snapshot?: unknown })?.candidate_snapshot;
-    return Array.isArray(snapshot) ? snapshot as Array<Record<string, unknown>> : [];
-  }, [selectedProposal]);
-
-  // One entry point for every proposal mutation. Each captures the originating
-  // client, cycle, scoring run, proposal, and edit revision, so a client change,
-  // an unmount, a duplicate click, or a stale revision can never apply.
-  async function runProposal(
-    kind: "propose" | "retry-proposal" | "regenerate-proposal" | "edit-proposal"
-      | "refresh-conflicts" | "approve-proposal",
-    request: Partial<Parameters<typeof invokeIdeationProposal>[0]>,
-  ) {
-    if (!selectedRun || proposalBusy) return;
-    const originatingClientId = clientId;
-    const originatingRunId = selectedRun.id;
-    const token = coordinator.begin(kind, originatingClientId);
-    if (!token) return;
-    setProposalBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await invokeIdeationProposal({
-        action: request.action ?? "create",
-        client_id: originatingClientId,
-        ...request,
-      });
-      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
-      setRegenerateOpen(false);
-      setApproveOpen(false);
-      setNotice(
-        result.action === "approve"
-          ? "Proposed Calendar approved. Nothing was committed to the operational Calendar."
-          : result.idempotent_replay
-            ? "Existing proposal returned; no duplicate proposal was created."
-            : result.proposal.status === "draft"
-              ? "Proposed Calendar ready for review."
-              : `Proposal ${result.proposal.status.replaceAll("_", " ")}.`,
-      );
-      if (result.proposal.status === "draft" || result.proposal.status === "approved") {
-        setProposalOpen(true);
-      }
-      await load(originatingRunId, token);
-    } catch (value) {
-      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
-      const failure = decodeIdeationProposalInvocationFailure(value);
-      setRegenerateOpen(false);
-      setApproveOpen(false);
-      if (failure) {
-        setError(failure.message);
-        await load(originatingRunId, token);
-      } else {
-        setError(errorText(value));
-      }
-    } finally {
-      if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
-        setProposalBusy(false);
-      }
-      coordinator.finish(token);
-    }
-  }
-
-  // Stage 4. One commit action, captured against the originating client and the
-  // exact proposal revision the operator confirmed. A completed commit replays
-  // as a success; a refresh failure afterwards never relabels it as failed.
-  async function commitContent(expectedEditRevision: number) {
-    if (!selectedProposal || commitBusy) return;
-    const originatingClientId = clientId;
-    const originatingRunId = selectedRun?.id;
-    const originatingProposalId = selectedProposal.id;
-    const token = coordinator.begin("commit-content", originatingClientId);
-    if (!token) return;
-    setCommitBusy(true);
-    setCommitFailure(null);
-    setRefreshWarning(null);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await invokeIdeationCommit({
-        client_id: originatingClientId,
-        proposal_id: originatingProposalId,
-        expected_edit_revision: expectedEditRevision,
-        confirm_commit: true,
-      });
-      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
-      setCommitOpen(false);
-      setNotice(
-        result.replayed
-          ? "This proposal was already committed; the existing result was returned and nothing new was created."
-          : `Content committed: ${result.commit?.committed_item_count ?? 0} Content records and the matching Calendar records were created.`,
-      );
-      try {
-        await load(originatingRunId, token);
-      } catch {
-        // The commit itself succeeded. A failed refresh is a display problem,
-        // never a reason to report the commit as failed or to retry it.
-        if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
-          setRefreshWarning(
-            "Content was committed successfully, but this view could not be refreshed. Reload to see the created records.",
-          );
-        }
-      }
-    } catch (value) {
-      if (!coordinator.isCurrent(token) || clientIdRef.current !== originatingClientId) return;
-      setCommitOpen(false);
-      const failure = decodeIdeationCommitInvocationFailure(value);
-      if (failure) {
-        setCommitFailure(failure);
-        setError(failure.message);
-        await load(originatingRunId, token).catch(() => undefined);
-      } else {
-        setError(errorText(value));
-      }
-    } finally {
-      if (coordinator.isCurrent(token) && clientIdRef.current === originatingClientId) {
-        setCommitBusy(false);
-      }
-      coordinator.finish(token);
-    }
-  }
-
-  function editProposal(request: ProposalEditRequest) {
-    if (!selectedProposal) return;
-    void runProposal("edit-proposal", {
-      action: request.action,
-      proposal_id: selectedProposal.id,
-      expected_edit_revision: selectedProposal.edit_revision,
-      from_slot_key: request.from_slot_key,
-      to_slot_key: request.to_slot_key,
-      candidate_id: request.candidate_id,
-    });
   }
 
   async function retrySelectedRun() {
@@ -1152,42 +905,13 @@ export function IdeationPanel({
       <header className="flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-ink-200 px-4 py-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-medium text-paper">Generate Content</h1>
-          <p className="mt-1 text-2xs text-paper-3">Generate upstream ideas from approved Context and Execution Files.</p>
+          <p className="mt-1 text-2xs text-paper-3">Generate upstream ideas from approved Context and Execution Files. Scored candidates enter Sources automatically.</p>
         </div>
-        <Button variant="secondary" onClick={() => { setNotice(null); setManualCommitOpen(true); }}>Add Manual / Proof Item</Button>
         <Button variant="primary" onClick={() => { setNotice(null); setGenerationWarnings([]); setGenerateOpen(true); }}>Generate Content</Button>
       </header>
 
       {error && <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">{error}</div>}
       {notice && <div className="mt-3 rounded border border-teal/20 bg-teal/5 px-3 py-2 text-xs text-teal">{notice}</div>}
-
-      {/* Stage 4. The commit succeeded; only the refresh did not. It is never
-          reported as a failed commit, and the commit is never re-sent. */}
-      {refreshWarning && (
-        <div role="status" className="mt-3 rounded border border-warn/30 bg-warn/5 px-3 py-2 text-xs text-warn">
-          {refreshWarning}
-          <Button className="ml-2" size="sm" variant="secondary" onClick={() => void load(selectedRun?.id)}>
-            Reload
-          </Button>
-        </div>
-      )}
-
-      {/* A non-retryable integrity failure never offers a blind Retry: only the
-          one correct recovery action for that specific typed reason. */}
-      {commitFailure && (
-        <div role="alert" className="mt-3 rounded border border-neg/20 bg-neg/5 px-3 py-2 text-xs text-neg">
-          <div>Content was not committed. No Content or Calendar records were created.</div>
-          <div className="mt-1 text-2xs text-paper-3">
-            {commitFailure.code}: {commitFailure.message}
-            {commitFailure.failed_proposal_slot_key && ` (slot ${commitFailure.failed_proposal_slot_key})`}
-          </div>
-          {commitRecoveryAction(commitFailure.code) !== "none" && (
-            <div className="mt-2 text-2xs text-paper-3">
-              Recommended next step: {COMMIT_RECOVERY_LABELS[commitRecoveryAction(commitFailure.code)]}.
-            </div>
-          )}
-        </div>
-      )}
 
       {loading ? (
         <div className="mt-4"><EmptyState icon="clock" title="Loading Ideation" body="Loading runs and generated candidates." /></div>
@@ -1218,9 +942,6 @@ export function IdeationPanel({
                     setOpenCandidate(null);
                     setRescoreOpen(false);
                     setOrderMode("ranked");
-                    setProposalOpen(false);
-                    setRegenerateOpen(false);
-                    setApproveOpen(false);
                     setNotice(null);
                   }}
                 >
@@ -1334,85 +1055,10 @@ export function IdeationPanel({
                   >
                     Original order (audit)
                   </Button>
+                  <span className="ml-auto text-2xs text-teal">Scored candidates are in Sources for review.</span>
                 </div>
               )}
             </div>
-            {selectedScoringRun?.status === "completed" && (
-              <div className="mt-4 rounded border border-line bg-ink p-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Proposed Calendar</h2>
-                    <p className="mt-1 text-2xs text-paper-3" id="ideation-proposal-status" role="status">
-                      {selectedProposal
-                        ? `${selectedProposal.status.replaceAll("_", " ")} · version ${selectedProposal.proposal_version} · ${proposalProgressLabel(selectedProposal)}`
-                        : "This scored run is eligible for a proposed Calendar."}
-                    </p>
-                  </div>
-                  {canCreateProposal(selectedScoringRun.status, selectedProposal) && (
-                    <Button
-                      variant="primary"
-                      disabled={proposalBusy}
-                      aria-busy={proposalBusy}
-                      aria-describedby="ideation-proposal-status"
-                      onClick={() => void runProposal("propose", {
-                        action: "create",
-                        ideation_cycle_id: selectedRun.id,
-                        scoring_run_id: selectedScoringRun.id,
-                      })}
-                    >
-                      {proposalBusy ? "Proposing…" : "Create Proposed Calendar"}
-                    </Button>
-                  )}
-                  {canRetryProposal(selectedProposal) && (
-                    <Button
-                      variant="secondary"
-                      disabled={proposalBusy}
-                      aria-busy={proposalBusy}
-                      aria-describedby="ideation-proposal-status"
-                      onClick={() => void runProposal("retry-proposal", {
-                        action: "retry",
-                        ideation_cycle_id: selectedRun.id,
-                        scoring_run_id: selectedScoringRun.id,
-                      })}
-                    >
-                      {proposalBusy ? "Retrying…" : "Retry Proposal"}
-                    </Button>
-                  )}
-                  {canReviewProposal(selectedProposal) && (
-                    <Button
-                      variant={selectedProposal?.status === "approved" ? "secondary" : "primary"}
-                      disabled={proposalBusy}
-                      aria-describedby="ideation-proposal-status"
-                      onClick={() => setProposalOpen(true)}
-                    >
-                      {selectedProposal?.status === "approved"
-                        ? "Approved Proposed Calendar"
-                        : "Review Proposed Calendar"}
-                    </Button>
-                  )}
-                </div>
-                {selectedProposal && selectedProposal.status !== "running" && (
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-2xs text-paper-3">
-                    <span>slots {selectedProposal.assigned_slot_count}/{selectedProposal.expected_slot_count}</span>
-                    <span>unassigned {selectedProposal.unassigned_candidate_count}</span>
-                    <span>conflicts {selectedProposal.conflict_count} ({selectedProposal.unresolved_conflict_count} unresolved)</span>
-                    <span>revision {selectedProposal.edit_revision}</span>
-                    <span className="break-all">planner {selectedProposal.slot_planner_version}</span>
-                  </div>
-                )}
-                {selectedProposal?.status === "running" && (
-                  <p className="mt-2 text-2xs text-teal">
-                    A proposed Calendar is generating. Attempt {selectedProposal.attempt_count} of {selectedProposal.maximum_attempts}.
-                  </p>
-                )}
-                {selectedProposal?.failure_message && (
-                  <p className="mt-2 text-2xs text-warn">
-                    {selectedProposal.failure_message}
-                    {selectedProposal.failure_code ? ` (${selectedProposal.failure_code})` : ""}
-                  </p>
-                )}
-              </div>
-            )}
             <div className="mt-4">
               <div className="flex items-center justify-between border-b border-line pb-2">
                 <h2 className="text-2xs font-medium uppercase tracking-wide text-paper-2">Technique Runs</h2>
@@ -1504,17 +1150,6 @@ export function IdeationPanel({
         </div>
       )}
 
-      {manualCommitOpen && (
-        <IdeationManualCommitPanel
-          clientId={clientId}
-          onClose={() => setManualCommitOpen(false)}
-          onCommitted={({ ref, distributionDate }) => {
-            setManualCommitOpen(false);
-            setNotice(`${ref} was committed to the Calendar for ${distributionDate}. It enters the normal review workflow.`);
-          }}
-        />
-      )}
-
       {generateOpen && (
         <GenerationModal
           clientId={clientId}
@@ -1545,91 +1180,6 @@ export function IdeationPanel({
             await load(failure.cycle_id, token);
             return true;
           }}
-        />
-      )}
-      {proposalOpen && selectedProposal && (
-        <IdeationProposalReview
-          proposal={selectedProposal}
-          proposals={proposals.proposals}
-          slots={selectedProposalSlots}
-          candidatesById={candidatesById}
-          candidateSnapshot={proposalCandidateSnapshot}
-          busy={proposalBusy}
-          onClose={() => setProposalOpen(false)}
-          onEdit={editProposal}
-          onRefreshConflicts={() => void runProposal("refresh-conflicts", {
-            action: "refresh_conflicts",
-            proposal_id: selectedProposal.id,
-            expected_edit_revision: selectedProposal.edit_revision,
-          })}
-          onRegenerate={() => setRegenerateOpen(true)}
-          onApprove={() => setApproveOpen(true)}
-          onOpenCandidate={(candidate) => { setProposalOpen(false); setOpenCandidate(candidate); }}
-          commitRun={selectedCommitRun}
-          commitItems={selectedCommitItems}
-          onCommit={() => setCommitOpen(true)}
-          onOpenCalendarDate={(date) => { setProposalOpen(false); onOpenCalendarDate?.(date); }}
-          onOpenCommittedContent={(item) => { setProposalOpen(false); onOpenContentRef?.(item.operational_ref); }}
-        />
-      )}
-      {commitOpen && selectedProposal && (
-        <IdeationCommitConfirmation
-          proposal={selectedProposal}
-          slots={selectedProposalSlots}
-          busy={commitBusy}
-          onCancel={() => setCommitOpen(false)}
-          onConfirm={(expectedEditRevision) => void commitContent(expectedEditRevision)}
-        />
-      )}
-      {regenerateOpen && selectedProposal && selectedScoringRun && (
-        <ProposalConfirmModal
-          title="Regenerate proposed Calendar"
-          description="This starts a new proposal. The current proposal and its placements are preserved."
-          confirmLabel="Regenerate Proposal"
-          busy={proposalBusy}
-          body={
-            <>
-              <p>
-                A new proposal will be generated from scoring run{" "}
-                <span className="font-mono text-2xs">{selectedScoringRun.id}</span> using current Calendar state.
-              </p>
-              <p className="text-paper-3">
-                The current proposal stays in history and remains readable. An approved proposal is never modified.
-              </p>
-            </>
-          }
-          onCancel={() => setRegenerateOpen(false)}
-          onConfirm={() => void runProposal("regenerate-proposal", {
-            action: "regenerate",
-            ideation_cycle_id: selectedRun!.id,
-            scoring_run_id: selectedScoringRun.id,
-            regenerate_from_proposal_id: selectedProposal.id,
-          })}
-        />
-      )}
-      {approveOpen && selectedProposal && (
-        <ProposalConfirmModal
-          title="Approve proposed Calendar"
-          description="Approval records the plan inside Ideation. It does not commit anything."
-          confirmLabel="Approve Proposed Calendar"
-          busy={proposalBusy}
-          body={
-            <>
-              <p>
-                All {selectedProposal.expected_slot_count} placements will be approved as an Ideation plan.
-              </p>
-              <p className="text-paper-3">
-                No operational Calendar row, content master row, production brief, or asset is created. Committing
-                content is a later, separate step.
-              </p>
-            </>
-          }
-          onCancel={() => setApproveOpen(false)}
-          onConfirm={() => void runProposal("approve-proposal", {
-            action: "approve",
-            proposal_id: selectedProposal.id,
-            expected_edit_revision: selectedProposal.edit_revision,
-          })}
         />
       )}
       {rescoreOpen && selectedScoringRun && (

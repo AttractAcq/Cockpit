@@ -17,7 +17,8 @@ export type ContentSourceKind =
   | "manual_idea"
   | "proof_item"
   | "research_candidate"
-  | "performance_insight";
+  | "performance_insight"
+  | "ideation_candidate";
 
 export type ProofKind =
   | "testimonial"
