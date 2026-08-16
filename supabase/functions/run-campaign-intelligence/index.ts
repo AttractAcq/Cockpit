@@ -43,21 +43,6 @@ const PERIOD_BLUEPRINTS = [
   },
 ] as const;
 
-interface CampaignReleaseRow {
-  id: string;
-  client_id: string;
-  version: number;
-  status: string;
-  research_run_id: string | null;
-  title: string;
-  summary: string;
-  authority_snapshot: Record<string, unknown>;
-  generated_at: string | null;
-  submitted_at: string | null;
-  approved_at: string | null;
-  created_at: string;
-}
-
 interface ResearchStepRow {
   id: string;
   client_id: string;
