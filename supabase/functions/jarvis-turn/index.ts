@@ -11,8 +11,17 @@
 // distribution) ALWAYS create a pending action and stop the run —
 // autonomous_mode has no path to skip this check; the gate list is a
 // hardcoded import, never read from client_jarvis_settings. 'toggle' tools
-// execute immediately only when the RUN's autonomous_mode snapshot (captured
-// once, at run creation) is true.
+// execute immediately only when the RUN's autonomous_mode snapshot is true.
+// That snapshot is re-read from client_jarvis_settings on every send_message
+// (not just at run creation) so a mid-thread toggle flip takes effect on the
+// very next turn of the same conversation.
+//
+// A run's status going completed/failed/cancelled means its last turn ended,
+// not that the conversation is over: send_message resumes the SAME run (same
+// message history) unless the operator explicitly starts a new chat. Only
+// waiting_human blocks a new message — the dangling tool_use must be
+// resolved (approve/reject) or the run cancelled first, since the Anthropic
+// API requires a tool_result immediately after a tool_use.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { svc, cors, json, audit, SUPABASE_URL } from "../_shared/aa.ts";
@@ -24,7 +33,12 @@ import { executeJarvisTool } from "../_shared/jarvis/dispatcher.ts";
 const MODEL = "claude-sonnet-5";
 const TURN_TIME_BUDGET_MS = 100_000;
 
-const SYSTEM_PROMPT = `You are Jarvis, an operator agent embedded in the AA Cockpit application, acting for one specific client at a time. You have tools to read and act across that client's content pipeline: Content Supply/Ideation, Intelligence Agents, Content Briefs, Assets, and Ad Studio.
+function systemPrompt(): string {
+  const now = new Date();
+  const todayLabel = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+  return `You are Jarvis, an operator agent embedded in the AA Cockpit application, acting for one specific client at a time. You have tools to read and act across that client's content pipeline: Content Supply/Ideation, Intelligence Agents, Content Briefs, Assets, and Ad Studio.
+
+Today's date is ${todayLabel} (${now.toISOString().slice(0, 10)}, UTC). This is a real, continuing conversation — earlier messages in this thread are real prior context, not a fresh session each time, so resolve relative references ("tomorrow", "next week", "the one I just approved") against that date and against what was actually said and done earlier in this thread.
 
 Rules:
 - Call at most one tool per response, then wait for its result before deciding the next action. Never call more than one tool in a single turn.
@@ -32,6 +46,7 @@ Rules:
 - Never invent business facts, results, metrics, or claims. If a tool requires information you don't have (e.g. an Ad Brief's landing_page or a CTA with no real source), use the literal string "needs_client_input" rather than making something up.
 - Be concise. State what you did or are about to do, then act — don't narrate at length before calling a tool.
 - When a task is genuinely finished, say so clearly instead of continuing to call tools.`;
+}
 
 interface RunRow {
   id: string;
@@ -127,7 +142,7 @@ async function runAgentLoop(
     if (historyError) return { status: "failed", error: historyError.message };
 
     const result = await callAnthropicWithTools({
-      system: SYSTEM_PROMPT,
+      system: systemPrompt(),
       messages: toAnthropicMessages((history ?? []) as MessageRow[]),
       tools: JARVIS_TOOLS,
       model: MODEL,
@@ -208,8 +223,25 @@ Deno.serve(async (req) => {
   if (action === "cancel") {
     const runId = (body.run_id ?? "").trim();
     if (!runId) return json({ code: "RUN_ID_REQUIRED" }, 400);
+    const { data: run } = await sb.from("client_agent_runs").select("id, status").eq("id", runId).eq("client_id", clientId).maybeSingle();
     // A no-op cancel on an already-terminal run isn't an error worth surfacing.
-    await sb.from("client_agent_runs").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("id", runId).eq("client_id", clientId).eq("status", "running");
+    if (run && (run.status === "running" || run.status === "waiting_human")) {
+      if (run.status === "waiting_human") {
+        // Close out the dangling tool_use so this run's history stays valid
+        // for the Anthropic API if the operator resumes this same thread later.
+        const { data: pending } = await sb.from("client_agent_pending_actions").select("*").eq("run_id", runId).eq("status", "pending").maybeSingle();
+        if (pending) {
+          await sb.from("client_agent_pending_actions").update({
+            status: "rejected", resolved_at: new Date().toISOString(), resolved_by: access.userId, resolution_note: "Run cancelled by operator.",
+          }).eq("id", pending.id);
+          await insertMessage(sb, clientId, runId, {
+            role: "tool", tool_use_id: pending.tool_use_id, tool_name: pending.tool_name, tool_input: pending.tool_input,
+            tool_output: { error: "Cancelled by operator before this action was resolved." },
+          });
+        }
+      }
+      await sb.from("client_agent_runs").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("id", runId);
+    }
     return json({ ok: true, run_id: runId, status: "cancelled" }, 200);
   }
 
@@ -252,17 +284,39 @@ Deno.serve(async (req) => {
 
     if (runId) {
       const { data: existing } = await sb.from("client_agent_runs").select("id, status").eq("id", runId).eq("client_id", clientId).maybeSingle();
-      if (!existing || existing.status !== "running") runId = null; // fall through to create a fresh run
+      if (!existing) {
+        runId = null; // fall through to create a fresh run
+      } else if (existing.status === "waiting_human") {
+        return json({ code: "RUN_WAITING_ON_PENDING_ACTION", message: "This chat has a pending action waiting for approval or rejection — resolve it before sending a new message." }, 409);
+      } else if (existing.status !== "running") {
+        // Resume this same thread rather than starting fresh — a run going
+        // completed/failed/cancelled just means its last turn ended; the
+        // conversation and its history are still live until the operator
+        // explicitly starts a new chat. completed_at must be cleared in the
+        // same update: client_agent_runs_completed_check requires
+        // (status IN (completed,failed,cancelled)) = (completed_at IS NOT NULL),
+        // so leaving completed_at set while flipping status to running trips
+        // that constraint and the update is rejected outright.
+        const { error: resumeError } = await sb.from("client_agent_runs")
+          .update({ status: "running", completed_at: null, failure_message: null })
+          .eq("id", runId);
+        if (resumeError) return json({ code: "RUN_RESUME_FAILED", message: resumeError.message }, 500);
+      }
     }
+    // Read the current toggle fresh on every message (not just at run
+    // creation) so a mid-thread flip takes effect on the very next turn.
+    const { data: settings } = await sb.from("client_jarvis_settings").select("autonomous_mode").eq("client_id", clientId).maybeSingle();
+    const autonomousMode = settings?.autonomous_mode === true;
     if (!runId) {
-      const { data: settings } = await sb.from("client_jarvis_settings").select("autonomous_mode").eq("client_id", clientId).maybeSingle();
       const { data: created, error: createError } = await sb.from("client_agent_runs").insert({
         client_id: clientId, title: message.slice(0, 120), status: "running",
-        autonomous_mode: settings?.autonomous_mode === true, created_by: access.userId,
+        autonomous_mode: autonomousMode, created_by: access.userId,
       }).select("id").single();
       if (createError) return json({ code: "RUN_CREATE_FAILED", message: createError.message }, 500);
       runId = created.id;
       await audit(sb, "jarvis.run.created", "client_agent_runs", runId, { client_id: clientId });
+    } else {
+      await sb.from("client_agent_runs").update({ autonomous_mode: autonomousMode }).eq("id", runId);
     }
     await insertMessage(sb, clientId, runId, { role: "user", content: message });
   } else {

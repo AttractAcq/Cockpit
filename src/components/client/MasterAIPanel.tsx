@@ -206,6 +206,7 @@ export function MasterAIPanel({ clientId }: { clientId: string }) {
   }
 
   const isRunOpen = activeRun && (activeRun.status === "running" || activeRun.status === "waiting_human");
+  const isWaitingOnPendingAction = activeRun?.status === "waiting_human";
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -270,12 +271,12 @@ export function MasterAIPanel({ clientId }: { clientId: string }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
-              placeholder="Message Jarvis…"
+              placeholder={isWaitingOnPendingAction ? "Resolve the pending action above before continuing…" : "Message Jarvis…"}
               rows={2}
-              disabled={busy}
+              disabled={busy || isWaitingOnPendingAction}
               className="flex-1 resize-none rounded-lg border border-line bg-ink-200 px-3 py-2 text-sm text-paper placeholder:text-paper-3 outline-none focus:border-teal/50 disabled:opacity-60"
             />
-            <Button variant="primary" disabled={busy || !draft.trim()} onClick={() => void send()}>
+            <Button variant="primary" disabled={busy || isWaitingOnPendingAction || !draft.trim()} onClick={() => void send()}>
               {busy ? "Working…" : "Send"}
             </Button>
           </div>
