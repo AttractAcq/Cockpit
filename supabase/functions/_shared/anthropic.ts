@@ -81,6 +81,8 @@ export interface AnthropicToolCallOpts {
   timeoutMs?: number;
   /** Passed through verbatim, e.g. {type: "adaptive"} or {type: "disabled"}. Omitted = provider default. */
   thinking?: Record<string, unknown>;
+  /** Passed through verbatim, e.g. {type: "auto", disable_parallel_tool_use: true}. Omitted = provider default (may emit multiple tool_use blocks per turn). */
+  toolChoice?: Record<string, unknown>;
 }
 
 export type AnthropicToolCallResult =
@@ -115,6 +117,7 @@ export async function callAnthropicWithTools(opts: AnthropicToolCallOpts): Promi
     maxTokens = 16000,
     timeoutMs = 300_000,
     thinking,
+    toolChoice,
   } = opts;
 
   const controller = new AbortController();
@@ -135,6 +138,7 @@ export async function callAnthropicWithTools(opts: AnthropicToolCallOpts): Promi
         messages,
         tools,
         ...(thinking ? { thinking } : {}),
+        ...(toolChoice ? { tool_choice: toolChoice } : {}),
       }),
       signal: controller.signal,
     });

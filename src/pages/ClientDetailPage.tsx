@@ -36,10 +36,12 @@ import { BrandStrategistPanel } from "@/components/client/BrandStrategistPanel";
 import { CampaignIntelligencePanel } from "@/components/client/CampaignIntelligencePanel";
 import { OffersPanel } from "@/components/client/OffersPanel";
 import { AvatarsPanel } from "@/components/client/AvatarsPanel";
+import { MasterAIPanel } from "@/components/client/MasterAIPanel";
 import { contextLabel, getContextReadiness } from "@/lib/contextInputs";
 import { EXECUTION_FILE_COUNT, EXECUTION_FILE_MANIFEST } from "../../supabase/functions/_shared/execution-manifest";
 
 type Section =
+  | "master_ai"
   | "avatar"
   | "competitor_os"
   | "association_os"
@@ -92,6 +94,13 @@ interface DeliveryPage {
 // keys preserve existing deep links while Context holds source authority and
 // Intelligence groups the derived, approved operating systems.
 const DELIVERY_PAGES: DeliveryPage[] = [
+  {
+    label: "Master AI",
+    defaultSection: "master_ai",
+    tabs: [
+      { label: "Master AI", section: "master_ai" },
+    ],
+  },
   {
     label: "Overview",
     defaultSection: "overview",
@@ -755,6 +764,8 @@ export function ClientDetailPage() {
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "execution_files":
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
+      case "master_ai":
+        return <MasterAIPanel clientId={id} />;
       case "overview":
         return <div className="flex min-h-0 flex-1 flex-col"><div className="shrink-0 px-4 pt-4">{renderPhase12Controls()}</div><ClientOverviewPanel key={`${contextFilesKey}-${phase3Key}`} clientId={id} executionMonth={currentMonth()} /></div>;
       case "client_settings":

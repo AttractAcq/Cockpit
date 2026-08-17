@@ -9,8 +9,8 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 101,
-    "uiCalled": 79,
+    "localFunctions": 103,
+    "uiCalled": 81,
     "nonUiCalled": 22,
     "retired": 13
   },
@@ -1399,6 +1399,35 @@
       "internalCallers": []
     },
     {
+      "name": "jarvis-turn",
+      "purpose": "Master AI (Jarvis) agent loop: send_message/continue/cancel/resolve_pending_action. Drives a bounded Claude tool-calling loop across the client's content pipeline, gating every tool call as free/toggle/floor before execution -- floor tools (real ad spend, real publish/schedule) always create a pending action regardless of the client's autonomy setting.",
+      "system": "Master AI",
+      "page": "Master AI",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation",
+        "content_supply",
+        "production",
+        "assets",
+        "paid",
+        "distribution",
+        "intelligence"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "anthropic"
+      ],
+      "requiredEnvironment": [
+        "AA_AI_GENERATION_ENABLED",
+        "ANTHROPIC_API_KEY",
+        "SUPABASE_ANON_KEY"
+      ],
+      "auditPhases": [],
+      "remediationIds": [],
+      "testCoverage": [],
+      "internalCallers": []
+    },
+    {
       "name": "launch-ad-campaign",
       "purpose": "Perform the existing launch ad campaign operation for the Distribution and Paid system without expanding its product responsibility.",
       "system": "Distribution and Paid",
@@ -2652,6 +2681,23 @@
         "tests/distribution-policy.test.ts",
         "tests/ad-studio.test.ts"
       ],
+      "internalCallers": []
+    },
+    {
+      "name": "set-jarvis-settings",
+      "purpose": "Upsert a client's Master AI (Jarvis) autonomy toggle. Governs internal review gates only -- has no effect on the hardcoded floor tools in jarvis-turn.",
+      "system": "Master AI",
+      "page": "Master AI",
+      "profile": "ui_authority",
+      "databaseDomains": [
+        "ideation"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [],
+      "requiredEnvironment": [],
+      "auditPhases": [],
+      "remediationIds": [],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
