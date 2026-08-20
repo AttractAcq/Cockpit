@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** not started. This document is the locked reference for the plan and its execution steps — start work from Phase 00.
+**Status:** Phase 00 complete (2026-08-20) — see `docs/STAGE_2_PHASE_00_GROUND_TRUTH.md` for the full audit, retirement history, and all 5 Open Decisions answered with a named owner. The audit table and Open Decisions section below are updated to match its findings. Phase 01 is next.
 
 ---
 
@@ -24,7 +24,7 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 
 | Target department | Current equivalent | Status | Note |
 |---|---|---|---|
-| Overview | Per-client Overview tab — Overview / Pipeline / Client Settings / Automations / Activity Log | partial | Automations and Activity already have a home. Command Center and Bottlenecks are the real net-new views, and only cross-business. |
+| Overview | Per-client Overview tab (Overview/Pipeline/Client Settings/Automations/Activity Log) **plus** `CockpitPage.tsx`'s existing cross-client tile band + activity feed | partial, materially further along | `CockpitPage.tsx` is already a real cross-client command center (client counts, stage-not-run counts, recent activity). Phase 01 builds on it, not from scratch. |
 | Intelligence | Intelligence page — Market OS, Avatar OS, Competitor OS, Association OS, Brand Strategist, Campaign Intelligence | exists | Already a top-level page, already separate from Marketing. The Blueprint's "pull it out of Marketing" premise is largely already true. |
 | Marketing → Strategy | Brand Strategist / Campaign Intelligence, currently under Intelligence | partial | The agents exist; a dedicated Strategy surface (positioning, channel plan) doesn't yet. |
 | Marketing → Offers | Offer page — Main Offers, Seasonal Offers | exists | Already a distinct top-level page. |
@@ -33,13 +33,13 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 | Marketing → Distribution | Distribution page — Organic, Paid | exists | — |
 | Marketing → Campaigns | none | net-new | The one substantive new object inside Marketing. Empty shell until Finance and Distribution have real linkage to populate it. |
 | Marketing → Iteration | Iteration page — Analytics, Performance & Iteration | exists | — |
-| Sales | none | net-new | Greenfield. First department with no existing surface to build from. |
-| Delivery / Operations | App-level Operations page | unaudited | Not explored as of this document — needs a real content audit in Phase 00 before assuming greenfield. |
-| Finance | none | net-new | Greenfield. |
-| Team | `users` table — admin / account_manager / editor roles | partial | Humans only. No agent modeling, no capacity or performance data attached. |
-| Automations | Edge-function registry + per-client Automations subtab | partial | The governance data already exists. No cross-business observability UI over it yet. |
+| Sales | none | net-new | Greenfield, but not schema-greenfield: Phase 06 reuses Stage O's `client_work_items` polymorphic work-allocation pattern rather than inventing a bespoke pipeline (Decision 2). |
+| Delivery / Operations | App-level Operations page — Activity Log **plus** a real "Operational Control" tab (Metrics, Intelligence, Team & Roles, Work Items, Cost & Margin, Onboarding), backed by Programme Stage O | partial | Audited in full in Phase 00 — see `STAGE_2_PHASE_00_GROUND_TRUTH.md` §1. Work Items, Metrics, and Onboarding are real and live; a full Clients→Onboarding→Projects→Tasks→Deliverables→SOPs→Quality→Reporting pipeline is not. |
+| Finance | `client_cost_ledger` + `client_margin_summary` view + `clients.monthly_revenue_estimate`, manual-entry only (Stage O) | partial | Not greenfield. Phase 08 extends this real backbone (CSV import, then integrations) rather than building cost/margin tables from scratch. |
+| Team | `team_members` assignment (all 9 Stage O roles, real client-scoped read visibility) + `users` role vocabulary | partial, materially further along | Stage O's real fix: `auth_client_ids()` now correctly routes every staff role through `team_members`, not just admin/account_manager. Fine-grained per-role *write* permissions and agent-capacity modeling are still not built. |
+| Automations | Edge-function registry + per-client Automations subtab + Operational Control's Metrics/Work Items sub-tabs | partial | Cross-business observability now half-exists (Metrics/Work Items), just not framed as an agent/workflow/trigger registry view yet. |
 | Knowledge | Context Files / Execution Files / Context Inputs, per client | partial | Real substrate, no cross-referencing layer, and AA itself isn't yet a knowledge instance. |
-| Business Selector | Delivery page client list | partial | Client-switching exists. Persistent "business" context — with AA as a selectable instance — does not. |
+| Business Selector | `clients.is_internal_client` (AA is already seeded as a `clients` row, `is_internal_client = true`, since the very first migration) + Delivery page client list | partial | AA is not *becoming* a business-instance row in Phase 02 — it already is one, informally. Phase 02 adds the real `businesses` table and links it to this existing row (Decision 1). |
 
 ## Why this order
 
@@ -56,9 +56,11 @@ Four judgments determine the sequence below, ahead of any individual phase.
 
 Each phase below has: what it builds on, what it deliberately defers, its deliverables, its concrete ordered execution steps, and its exit gate. **Nothing here is a calendar date** — convert to real timing only once real engineering capacity is known (see Open Decisions). Several phases end in a genuine *wait* (real usage, a real sales/accounting cycle) rather than a build task — don't grind past that step early.
 
-### Phase 00 — Ground Truth & Decisions
+### Phase 00 — Ground Truth & Decisions — **complete (2026-08-20)**
 
 **Goal:** establish the factual and decision baseline every later phase depends on. No schema, no UI — this phase produces documents and answers, not code.
+
+**Result:** all deliverables below produced; full detail in `docs/STAGE_2_PHASE_00_GROUND_TRUTH.md`. Headline findings: the app-level Operations page and `CockpitPage.tsx` are materially more built than assumed (Programme Stage O already shipped a real Team/Work-Items/Cost-Margin/Onboarding backbone); `clients.is_internal_client` already exists and AA is already seeded as a `clients` row, which resolved Decision 1 concretely rather than abstractly. All 5 Open Decisions answered and owned (Alex Thomas). See the updated audit table above and Open Decisions section below.
 
 - **Builds on:** nothing. First phase.
 - **Deliverables:** fresh page-by-page audit of the current IA against the target taxonomy (including the app-level Operations page); written summary of the retired 7-workspace/`entities`/`campaigns` architecture and why it was abandoned; Business Object schema decision, recorded; a one-page "thin" spec per new department with an explicit numeric acceptance bar; the human-approval gate list, concrete, with an enforcement layer named per gate.
@@ -288,15 +290,15 @@ Not phase-specific — every phase above is held to all seven, without exception
 6. **Hide before you delete.** A nav change or a deprecated table goes hidden-but-routable first, and stays that way until the replacement has real usage behind it.
 7. **Read the file before you delete it.** "Nothing else references this" from a grep is a hypothesis, not a fact, until the actual content of every match has been read.
 
-## Open decisions
+## Open decisions — answered in Phase 00
 
-Phase 00 doesn't start meaningfully until these have real answers — not because process demands it, but because every phase past 00 assumes one.
+All five answered and owned (Alex Thomas, 2026-08-20). Full reasoning for each in `docs/STAGE_2_PHASE_00_GROUND_TRUTH.md` §3 — summarized here so this document stays self-contained.
 
-1. **How does the Business Object relate to the existing `clients` table?** *Recommendation: additive only — a new `businesses` table, AA becomes a row. Do not migrate or repurpose `clients`.*
-2. **Sales: build a thin CRM, or integrate an existing one and layer agents on top?** *Recommendation: decide before Phase 06 starts, not during it — this single choice resizes the whole phase.*
-3. **Which channel does Communications Hub v1 actually cover, and who owns the external platform verification process?** *Recommendation: pick one channel now, and start Meta/WhatsApp business verification in Phase 00 regardless of when the engineering work is scheduled — that clock is external.*
-4. **What does "thin enough" mean, per department, in numbers?** *Recommendation: one written line per department in Phase 00 — a table count, a page count, a feature list with an explicit cutoff. Not inferred later from what got built.*
-5. **What engineering and AI-assisted-dev capacity actually exists?** *Recommendation: this is the one input that turns the relative sequencing above into real dates. Nothing in this document should be read as a schedule until this is known.*
+1. **How does the Business Object relate to the existing `clients` table?** **Answered: additive `businesses` table, optionally linked to `clients`.** Concrete finding that resolved this: `clients.is_internal_client` already exists, and the first schema migration already seeded Attract Acquisition itself as a `clients` row (`is_internal_client = true`) — AA is not becoming row #1 of a new table in Phase 02, it already is a `clients` row today. The new `businesses` table links to it via a nullable FK rather than repurposing `clients`' agency-service-delivery columns (`package_tier`, `account_manager_id`).
+2. **Sales: build a thin CRM, or integrate an existing one and layer agents on top?** **Answered: build thin**, reusing Stage O's `client_work_items` polymorphic work-allocation pattern (real, live, already the exact right shape) rather than inventing a bespoke pipeline schema.
+3. **Which channel does Communications Hub v1 actually cover, and who owns the external platform verification process?** **Answered: Instagram/Meta DMs**, owner Alex Thomas. Meta Business verification should start now (Phase 00), not when Phase 10 engineering begins — that clock is external and slow.
+4. **What does "thin enough" mean, per department, in numbers?** **Answered, adopted as the default bar**: ≤ 3 new tables, ≤ 2 new UI tabs/sections, 0 new edge functions where a direct RPC suffices — per department, per v1. Grounded in Stage O's own real precedent (its entire backbone shipped inside exactly this bar). Alex may override per-department before that phase starts.
+5. **What engineering and AI-assisted-dev capacity actually exists?** **Answered: near-full-time build track** — Alex + Claude Code sessions, at a cadence similar to the sessions that produced the Ideation/Creation nav consolidation, Reel Studio Phases A–D, and Stage O. The ~5–6 month engineering-effort estimate below is the operative one; the calendar-time gates (real usage/sales/accounting periods, external verification) still apply regardless of capacity.
 
 ## What "Stage 2" actually means
 
