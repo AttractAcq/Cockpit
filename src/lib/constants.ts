@@ -11,6 +11,7 @@ export const ROUTES = {
   commsIdentity: (id: string) => `/comms/${id}`,
   opportunities: "/opportunities",
   automations: "/automations",
+  team: "/team",
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -36,6 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Comms",         path: ROUTES.comms,         shortcut: "⌘5", icon: "chat" },
   { label: "Opportunities", path: ROUTES.opportunities, shortcut: "⌘6", icon: "alert-circle" },
   { label: "Automations",   path: ROUTES.automations,   shortcut: "⌘8", icon: "library" },
+  { label: "Team",          path: ROUTES.team,          shortcut: "⌘9", icon: "users" },
   { label: "Operations",    path: ROUTES.operations,    shortcut: "⌘7", icon: "ops" },
 ];
 
@@ -49,6 +51,7 @@ export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "6"], label: "Opportunities" },
   { keys: ["⌘", "7"], label: "Operations" },
   { keys: ["⌘", "8"], label: "Automations" },
+  { keys: ["⌘", "9"], label: "Team" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 

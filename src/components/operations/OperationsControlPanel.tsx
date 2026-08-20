@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/primitives";
 import { fetchClients } from "@/lib/api";
 import {
-  fetchTeamMembers, assignTeamMember, removeTeamMember, fetchStaffUsers,
+  fetchStaffUsers,
   fetchWorkItems, createWorkItem, updateWorkItemStatus,
   fetchMarginSummary, recordCostEntry, setClientRevenueEstimate,
   fetchOnboardingTemplates, createOnboardingTemplate, onboardClient,
@@ -20,14 +20,14 @@ import {
 import { parseCostEntriesCsv } from "@/lib/finance-csv";
 import { supabase } from "@/lib/supabase";
 import { computePublishSuccessRate, summariseExceptions, summariseQueueAge, summariseApprovalDelays, type PublishAttemptLike, type ExceptionLike } from "@/lib/observability";
-import { fetchWorkflows } from "@/lib/workflows";
 import { WorkflowsSection } from "@/components/automations/WorkflowsSection";
 import { TriggersSection } from "@/components/automations/TriggersSection";
-import { ALL_ROLES, ROLE_LABEL, COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/types/operations";
+import { TeamRolesSection } from "@/components/team/TeamRolesSection";
+import { COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/types/operations";
 import { AUTOMATION_AREAS } from "@/types/automation";
 import type { Client } from "@/types/client";
 import type {
-  TeamMemberRow, ClientWorkItemRow, WorkItemStatus, ClientMarginSummaryRow, ClientOnboardingTemplateRow, CostCategory,
+  ClientWorkItemRow, WorkItemStatus, ClientMarginSummaryRow, ClientOnboardingTemplateRow, CostCategory,
   ClientProjectRow, ProjectStatus, ClientDeliverableRow, DeliverableStatus, ClientFinancePeriodRow, FinancePeriodStatus,
 } from "@/types/operations";
 import { IntelligenceOperationsPanel } from "./IntelligenceOperationsPanel";
@@ -95,80 +95,10 @@ function MetricsSection({ clients }: { clients: Client[] }) {
 // Cockpit v3 Step 2 so the new top-level Automations page and this tab share
 // the exact same code -- imported above, not duplicated.
 
-function TeamRolesSection({ clients }: { clients: Client[] }) {
-  const [members, setMembers] = useState<TeamMemberRow[]>([]);
-  const [staff, setStaff] = useState<StaffUserRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<Notice>(null);
-  const [form, setForm] = useState({ userId: "", clientId: "" });
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { const [m, s] = await Promise.all([fetchTeamMembers(), fetchStaffUsers()]); setMembers(m); setStaff(s); }
-    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  async function assign() {
-    if (!form.userId || !form.clientId) return;
-    setBusy(true); setNotice(null);
-    try { await assignTeamMember(form.userId, form.clientId); setNotice({ kind: "success", text: "Team member assigned." }); await load(); }
-    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
-    finally { setBusy(false); }
-  }
-  async function remove(id: string) {
-    setBusy(true); setNotice(null);
-    try { await removeTeamMember(id); await load(); }
-    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
-    finally { setBusy(false); }
-  }
-
-  const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
-  const userLabel = (id: string) => { const u = staff.find((s) => s.id === id); return u ? `${u.full_name ?? u.email ?? id} (${ROLE_LABEL[u.role as keyof typeof ROLE_LABEL] ?? u.role})` : id; };
-
-  // Stage 2 Phase 09 — Team. Every current human role (from the real users
-  // table, staff.length below) and every current live automation (Phase
-  // 03's already-real, CI-governed edge-function registry) in one
-  // directory -- zero new schema, zero new RPCs. "Agent roles" excludes
-  // retired functions deliberately: the exit gate is every *current* role,
-  // and a retired function isn't one. Capacity is honestly stated as not
-  // tracked yet rather than fabricated -- Phase 00's own audit already
-  // found capacity/performance data isn't real, and the phase card itself
-  // defers capacity-based auto-allocation to Executive AI (12).
-  const agentRoles = useMemo(() => fetchWorkflows().filter((w) => w.profile !== "retired"), []);
-
-  return <div className="space-y-3">
-    <p className="text-2xs text-paper-3">All 9 Stage O roles ({ALL_ROLES.map((r) => ROLE_LABEL[r]).join(", ")}) now resolve real client-scoped visibility via this assignment table, not just Admin/Account Manager. Fine-grained per-role write permissions are not split yet — see Stage_O_Status.md. Visible users are whatever RLS permits (Admin sees all; others see only themselves).</p>
-    {notice && <p className={`text-2xs ${notice.kind === "error" ? "text-neg" : "text-teal"}`}>{notice.text}</p>}
-    <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-ink-200 p-3">
-      <label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Staff user</span><select className={field} value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}><option value="">Select…</option>{staff.map((u) => <option key={u.id} value={u.id}>{u.full_name ?? u.email ?? u.id} — {ROLE_LABEL[u.role as keyof typeof ROLE_LABEL] ?? u.role}</option>)}</select></label>
-      <label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Client</span><select className={field} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}><option value="">Select…</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      <Button size="sm" variant="primary" disabled={busy || !form.userId || !form.clientId} onClick={() => void assign()}>Assign</Button>
-    </div>
-    {loading ? <p className="text-2xs text-paper-3">Loading…</p> : members.length === 0 ? <p className="text-2xs text-paper-3">No team assignments yet.</p> : <div className="space-y-1">
-      {members.map((m) => <div key={m.id} className="flex items-center justify-between rounded border border-line bg-ink p-2 text-2xs"><span className="text-paper">{userLabel(m.user_id)} → {clientName(m.client_id)}</span><Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(m.id)}>Remove</Button></div>)}
-    </div>}
-
-    <div className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-xs font-medium text-paper">Team Directory — humans and agents</h4>
-      <p className="text-2xs text-paper-3">Every current human role visible to you (from the real users table above) and every current live automation (Phase 03's governed edge-function registry, {agentRoles.length} active) in one directory — nothing invented. Capacity is not tracked yet; see Stage_O_Status.md and Phase 09's own card (deferred to Executive AI, Phase 12).</p>
-      <div className="space-y-1">
-        {staff.map((s) => <div key={s.id} className="flex flex-wrap items-center gap-2 rounded border border-line bg-ink p-2 text-2xs">
-          <span className="font-mono uppercase text-teal">Human</span>
-          <span className="text-paper">{s.full_name ?? s.email ?? s.id}</span>
-          <span className="text-paper-3">{ROLE_LABEL[s.role as keyof typeof ROLE_LABEL] ?? s.role}</span>
-        </div>)}
-        {agentRoles.map((w) => <div key={w.name} className="flex flex-wrap items-center gap-2 rounded border border-line bg-ink p-2 text-2xs">
-          <span className="font-mono uppercase text-info">Agent</span>
-          <span className="text-paper">{w.name}</span>
-          <span className="text-paper-3">{w.purpose}</span>
-        </div>)}
-      </div>
-    </div>
-  </div>;
-}
+// TeamRolesSection moved to src/components/team/ in Cockpit v3 Step 2 so the
+// new top-level Team page and this tab share the exact same code, imported
+// above -- not duplicated, and no longer takes a `clients` prop (fetches
+// its own, matching the Workflows/Triggers precedent of taking none at all).
 
 function WorkItemsSection({ clients }: { clients: Client[] }) {
   const [items, setItems] = useState<ClientWorkItemRow[]>([]);
@@ -673,7 +603,7 @@ export function OperationsControlPanel() {
     {tab === "intelligence" && <IntelligenceOperationsPanel clients={clients} />}
     {tab === "workflows" && <WorkflowsSection />}
     {tab === "triggers" && <TriggersSection />}
-    {tab === "team" && <TeamRolesSection clients={clients} />}
+    {tab === "team" && <TeamRolesSection />}
     {tab === "work" && <WorkItemsSection clients={clients} />}
     {tab === "projects" && <ProjectsSection clients={clients} />}
     {tab === "cost" && <CostMarginSection clients={clients} />}
