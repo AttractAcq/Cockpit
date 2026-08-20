@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, EmptyState, Panel, Tag } from "@/components/primitives";
 import { fetchOpportunityFindings, runOpportunityDetection, reviewOpportunityFinding } from "@/lib/opportunity";
 import { fetchClients } from "@/lib/api";
+import { useBusinessContext } from "@/lib/business-context";
 import type { OpportunityFindingRow, OpportunityFindingStatus, OpportunityFindingType } from "@/types/opportunity";
 import type { Client } from "@/types/client";
 import { fmtRelative } from "@/lib/format";
@@ -26,6 +27,11 @@ const STATUS_TAG: Record<OpportunityFindingStatus, "decision" | "approve" | "mut
 };
 
 export function OpportunitiesPage() {
+  // Opportunity OS is still legacy client_id-scoped (Cockpit v3 §3 — Finance
+  // and Sales-via-client both read through clients.id, not businesses.id
+  // directly), so the shared BusinessContext selection reaches this page
+  // through its resolved linked client, not the business id itself.
+  const { selectedClientId } = useBusinessContext();
   const [findings, setFindings] = useState<OpportunityFindingRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +41,12 @@ export function OpportunitiesPage() {
   const [statusFilter, setStatusFilter] = useState<OpportunityFindingStatus | "">("pending_review");
   const [detectClientId, setDetectClientId] = useState("");
   const [notesByFinding, setNotesByFinding] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!selectedClientId) return;
+    setClientFilter(selectedClientId);
+    setDetectClientId(selectedClientId);
+  }, [selectedClientId]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);

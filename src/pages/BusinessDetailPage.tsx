@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Panel } from "@/components/primitives";
 import { fetchBusiness, fetchBusinesses } from "@/lib/business";
 import { fetchClients } from "@/lib/api";
+import { useBusinessContext } from "@/lib/business-context";
 import type { BusinessRow } from "@/types/business";
 import type { Client } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
@@ -17,6 +18,7 @@ import { fmtDateLong } from "@/lib/format";
 export function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { setSelectedBusinessId } = useBusinessContext();
   const [business, setBusiness] = useState<BusinessRow | null>(null);
   const [allBusinesses, setAllBusinesses] = useState<BusinessRow[]>([]);
   const [linkedClient, setLinkedClient] = useState<Client | null>(null);
@@ -32,12 +34,15 @@ export function BusinessDetailPage() {
       setBusiness(current);
       setAllBusinesses(all);
       setLinkedClient(current.client_id ? clients.find((c) => c.id === current.client_id) ?? null : null);
+      // Visiting a business's own page is a deliberate selection — carry it
+      // into the shared BusinessContext so every other page defaults to it too.
+      setSelectedBusinessId(current.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, setSelectedBusinessId]);
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-paper-3 text-xs">Loading…</div>;

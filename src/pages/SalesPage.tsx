@@ -7,9 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, EmptyState, Panel } from "@/components/primitives";
 import { fetchSalesLeads, createSalesLead } from "@/lib/sales";
-import { fetchBusinesses } from "@/lib/business";
+import { useBusinessContext } from "@/lib/business-context";
 import type { SalesLeadRow, SalesLeadStage } from "@/types/sales";
-import type { BusinessRow } from "@/types/business";
 import { ROUTES } from "@/lib/constants";
 import { fmtRelative } from "@/lib/format";
 
@@ -31,21 +30,18 @@ function fmtValue(cents: number | null): string {
 
 export function SalesPage() {
   const navigate = useNavigate();
+  const { businesses, selectedBusinessId, setSelectedBusinessId } = useBusinessContext();
   const [leads, setLeads] = useState<SalesLeadRow[]>([]);
-  const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [businessFilter, setBusinessFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [form, setForm] = useState({ businessId: "", name: "", contactEmail: "", contactPhone: "", source: "", estimatedValue: "" });
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [leadRows, businessRows] = await Promise.all([fetchSalesLeads(), fetchBusinesses()]);
-      setLeads(leadRows);
-      setBusinesses(businessRows);
+      setLeads(await fetchSalesLeads());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -54,11 +50,17 @@ export function SalesPage() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
+  // Sales is business-native (Cockpit v3 §3) -- the pipeline filter is the
+  // shared BusinessContext selection directly, not a page-local copy of it.
+  useEffect(() => {
+    if (selectedBusinessId && !form.businessId) setForm((f) => ({ ...f, businessId: selectedBusinessId }));
+  }, [selectedBusinessId, form.businessId]);
+
   const businessName = (id: string) => businesses.find((b) => b.id === id)?.name ?? id;
 
   const visibleLeads = useMemo(() => leads.filter((l) =>
-    (!businessFilter || l.business_id === businessFilter) && (!stageFilter || l.stage === stageFilter)
-  ), [leads, businessFilter, stageFilter]);
+    (!selectedBusinessId || l.business_id === selectedBusinessId) && (!stageFilter || l.stage === stageFilter)
+  ), [leads, selectedBusinessId, stageFilter]);
 
   async function submit() {
     if (!form.businessId || !form.name.trim()) return;
@@ -120,7 +122,7 @@ export function SalesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <select className={field} value={businessFilter} onChange={(e) => setBusinessFilter(e.target.value)}>
+        <select className={field} value={selectedBusinessId ?? ""} onChange={(e) => setSelectedBusinessId(e.target.value || null)}>
           <option value="">All businesses</option>
           {businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
