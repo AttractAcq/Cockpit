@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 (Business Selector) is next, but should not start before Phase 01's exit gate is confirmed met.
+**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 (Automations, surfaced) is next.
 
 ---
 
@@ -39,7 +39,7 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 | Team | `team_members` assignment (all 9 Stage O roles, real client-scoped read visibility) + `users` role vocabulary | partial, materially further along | Stage O's real fix: `auth_client_ids()` now correctly routes every staff role through `team_members`, not just admin/account_manager. Fine-grained per-role *write* permissions and agent-capacity modeling are still not built. |
 | Automations | Edge-function registry + per-client Automations subtab + Operational Control's Metrics/Work Items sub-tabs | partial | Cross-business observability now half-exists (Metrics/Work Items), just not framed as an agent/workflow/trigger registry view yet. |
 | Knowledge | Context Files / Execution Files / Context Inputs, per client | partial | Real substrate, no cross-referencing layer, and AA itself isn't yet a knowledge instance. |
-| Business Selector | `clients.is_internal_client` (AA is already seeded as a `clients` row, `is_internal_client = true`, since the very first migration) + Delivery page client list | partial | AA is not *becoming* a business-instance row in Phase 02 — it already is one, informally. Phase 02 adds the real `businesses` table and links it to this existing row (Decision 1). |
+| Business Selector | `businesses` table + `/businesses` list/detail pages + nav item (Phase 02, complete) | exists | AA is business row #1, linked to its existing internal `clients` row. Thin by design — no Sales/Finance/Team ownership yet; those attach in later phases. |
 
 ## Why this order
 
@@ -95,7 +95,7 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 
 **Exit gate:** AA leadership actually uses it for real decisions for two consecutive weeks before it's called done.
 
-### Phase 02 — Business Selector
+### Phase 02 — Business Selector — **complete (2026-08-20)**
 
 **Goal:** make "business" a persistent, addressable concept — without touching anything already live.
 
@@ -110,6 +110,14 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 4. Add a dummy test business fixture.
 5. Verify switching between AA and the dummy breaks nothing already live (full regression pass: typecheck/lint/build/registry check/test suite).
 6. Delete the dummy fixture.
+
+**Result:** new `businesses` table (migration `20260820150000_stage2_phase02_businesses.sql`) — name, slug, a nullable `client_id` FK, nothing else; no column added to `clients`, no existing RLS policy touched. AA seeded as business row #1, linked to its existing internal `clients` row. One admin-only RPC (`create_business`), following the same direct-RPC convention as Phase 01. Routes mirror the `client`/`clients` pattern exactly: `ROUTES.businesses` (`/businesses`) and `ROUTES.business(id)` (`/businesses/:id`), wired the same way in `App.tsx`; a new "Businesses" nav item sits between Delivery and Operations. `BusinessesPage.tsx` (list + admin-only create form) and `BusinessDetailPage.tsx` (name/slug/linked-client + a "switch business" selector — the exit gate's actual interaction) are both new, deliberately thin — no department content, since none exists yet.
+
+**Verification:** live-tested against `xivewedajschthjlblfb` inside rolled-back transactions before any frontend code was written (happy path standalone + linked, duplicate-slug rejection, unknown-client rejection, invalid-slug-format rejection, unauthorized-caller rejection). The dummy-fixture step (4–6) was run for real (committed, not rolled back): created `ZZ-TEST Dummy Business`, confirmed zero inbound foreign keys reference `businesses` from anywhere else in the schema (so nothing else *could* break by construction), confirmed `clients`/`activity_log` row counts unaffected, confirmed both businesses list correctly in creation order, then deleted the dummy — table back to exactly 1 row. `get_advisors`: one new finding, the same already-accepted "SECURITY DEFINER callable by authenticated" class every other admin RPC in this codebase carries. Full suite: typecheck, lint (0 errors), `check:edge-functions` (unchanged — 0 new functions), 922/922 tests (11 new), build, `git diff --check` all clean.
+
+**One honest gap:** a real browser click-through of the new pages was not completed. Creating a disposable test login was blocked by the session's own permission classifier as a sensitive action; flagged to Alex, who chose to accept SQL- and code-level verification as sufficient rather than authorize one. Worth a real click-through next time someone is in the app.
+
+**Exit gate:** met — switching between AA and one dummy test business broke nothing already live, verified directly against the real database and schema, not assumed.
 
 **Exit gate:** switching between AA and one dummy test business breaks nothing that was already live.
 
