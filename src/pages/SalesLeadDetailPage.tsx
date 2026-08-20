@@ -8,6 +8,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Button, Panel } from "@/components/primitives";
 import { fetchSalesLeads, fetchSalesConversations, updateSalesLeadStage, assignSalesLead, logSalesConversation } from "@/lib/sales";
 import { fetchBusiness } from "@/lib/business";
+import { useBusinessContext } from "@/lib/business-context";
 import { fetchStaffUsers, type StaffUserRow } from "@/lib/operations-admin";
 import type { SalesLeadRow, SalesConversationRow, SalesLeadStage } from "@/types/sales";
 import type { BusinessRow } from "@/types/business";
@@ -28,6 +29,7 @@ const NEXT_STAGE: Record<SalesLeadStage, SalesLeadStage | null> = {
 export function SalesLeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { setSelectedBusinessId } = useBusinessContext();
   const [lead, setLead] = useState<SalesLeadRow | null>(null);
   const [business, setBusiness] = useState<BusinessRow | null>(null);
   const [conversations, setConversations] = useState<SalesConversationRow[]>([]);
@@ -50,12 +52,16 @@ export function SalesLeadDetailPage() {
       setConversations(convs);
       setStaff(staffRows);
       setBusiness(await fetchBusiness(current.business_id));
+      // Opening a lead directly by URL is a deliberate selection too -- carry
+      // its business into the shared BusinessContext, same as BusinessDetailPage
+      // and ClientDetailPage.
+      setSelectedBusinessId(current.business_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, setSelectedBusinessId]);
   useEffect(() => { void load(); }, [load]);
 
   async function advance() {

@@ -11,7 +11,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveSelectedClientId, isStaleSelection } from "../src/lib/business-context-resolve.ts";
+import { readFileSync } from "node:fs";
+import { resolveSelectedClientId, isStaleSelection, findBusinessForClient } from "../src/lib/business-context-resolve.ts";
 import type { BusinessRow } from "../src/types/business.ts";
 
 function business(overrides: Partial<BusinessRow> = {}): BusinessRow {
@@ -60,4 +61,31 @@ test("isStaleSelection is true for a stored id that no longer resolves -- e.g. a
 
 test("isStaleSelection is true against an empty (not-yet-loaded or genuinely empty) business list", () => {
   assert.equal(isStaleSelection([], "biz-1"), true);
+});
+
+test("findBusinessForClient returns null when no client id is given", () => {
+  assert.equal(findBusinessForClient([business()], null), null);
+});
+
+test("findBusinessForClient returns the business linked to the given client", () => {
+  const businesses = [business({ id: "biz-1", client_id: "client-1" }), business({ id: "biz-2", client_id: "client-2" })];
+  assert.deepEqual(findBusinessForClient(businesses, "client-2"), businesses[1]);
+});
+
+test("findBusinessForClient returns null for a client with no linked business -- still the common case", () => {
+  const businesses = [business({ id: "biz-1", client_id: "client-1" })];
+  assert.equal(findBusinessForClient(businesses, "client-does-not-have-a-business"), null);
+});
+
+test("ClientDetailPage carries a client's linked business into the shared selection the same way BusinessDetailPage does for a business opened directly", () => {
+  const src = readFileSync(new URL("../src/pages/ClientDetailPage.tsx", import.meta.url), "utf-8");
+  assert.match(src, /import\s*\{\s*useBusinessContext\s*\}\s*from\s*"@\/lib\/business-context"/);
+  assert.match(src, /findBusinessForClient\(businesses,\s*id\)/);
+  assert.match(src, /setSelectedBusinessId\(linked\.id\)/);
+});
+
+test("SalesLeadDetailPage carries a lead's business into the shared selection the same way, closing the last Step 1 gap", () => {
+  const src = readFileSync(new URL("../src/pages/SalesLeadDetailPage.tsx", import.meta.url), "utf-8");
+  assert.match(src, /import\s*\{\s*useBusinessContext\s*\}\s*from\s*"@\/lib\/business-context"/);
+  assert.match(src, /setSelectedBusinessId\(current\.business_id\)/);
 });
