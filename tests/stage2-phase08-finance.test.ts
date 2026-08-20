@@ -21,6 +21,13 @@ const groundTruthPath = new URL("../docs/STAGE_2_PHASE_00_GROUND_TRUTH.md", impo
 const typesPath = new URL("../src/types/operations.ts", import.meta.url);
 const libPath = new URL("../src/lib/operations-admin.ts", import.meta.url);
 const panelPath = new URL("../src/components/operations/OperationsControlPanel.tsx", import.meta.url);
+// Cockpit v3 Step 2 moved CostMarginSection (+ CsvImportSection,
+// FinancePeriodsSection) out of OperationsControlPanel.tsx into
+// src/components/finance/ so the new top-level Finance page and the
+// original Cost & Margin tab can share the exact same code -- the content
+// checks below moved with it; OperationsControlPanel.tsx now only needs to
+// still render it in the same place, checked separately.
+const costMarginSectionPath = new URL("../src/components/finance/CostMarginSection.tsx", import.meta.url);
 
 test("built to Phase 00's own narrower acceptance bar, not the phase card's full wishlist", async () => {
   const migration = await readFile(migrationPath, "utf8");
@@ -88,10 +95,13 @@ test("operations-admin.ts reads client_finance_periods directly and calls all th
   assert.match(lib, /supabase\.rpc\("import_cost_entries"/);
 });
 
-test("the Cost & Margin tab gets the CSV import and Finance periods UI, not a new top-level tab -- within Decision 4's UI budget", async () => {
+test("the Cost & Margin tab gets the CSV import and Finance periods UI -- moved into CostMarginSection.tsx, shared with the top-level Finance page, not a new top-level tab of its own", async () => {
+  const section = await readFile(costMarginSectionPath, "utf8");
+  assert.match(section, /<CsvImportSection clients=\{clients\} onImported=\{\(\) => void load\(\)\} \/>/);
+  assert.match(section, /<FinancePeriodsSection clients=\{clients\} \/>/);
+
   const panel = await readFile(panelPath, "utf8");
-  assert.match(panel, /<CsvImportSection clients=\{clients\} onImported=\{\(\) => void load\(\)\} \/>/);
-  assert.match(panel, /<FinancePeriodsSection clients=\{clients\} \/>/);
+  assert.match(panel, /tab === "cost" && <CostMarginSection \/>/);
   assert.doesNotMatch(panel, /"metrics", "intelligence", "workflows", "triggers", "team", "work", "projects", "finance", "cost", "onboarding"/, "Finance must not become an 9th/10th top-level sub-tab of its own");
 });
 
