@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 (Automations, surfaced) is next.
+**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 complete (2026-08-20) — surfaced a real, unreviewed live subsystem (see Phase 03's own card: the unmerged Facebook branch stack, deployed to production, invisible until now). Phase 04 (Knowledge, thin) is next.
 
 ---
 
@@ -37,7 +37,7 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 | Delivery / Operations | App-level Operations page — Activity Log **plus** a real "Operational Control" tab (Metrics, Intelligence, Team & Roles, Work Items, Cost & Margin, Onboarding), backed by Programme Stage O | partial | Audited in full in Phase 00 — see `STAGE_2_PHASE_00_GROUND_TRUTH.md` §1. Work Items, Metrics, and Onboarding are real and live; a full Clients→Onboarding→Projects→Tasks→Deliverables→SOPs→Quality→Reporting pipeline is not. |
 | Finance | `client_cost_ledger` + `client_margin_summary` view + `clients.monthly_revenue_estimate`, manual-entry only (Stage O) | partial | Not greenfield. Phase 08 extends this real backbone (CSV import, then integrations) rather than building cost/margin tables from scratch. |
 | Team | `team_members` assignment (all 9 Stage O roles, real client-scoped read visibility) + `users` role vocabulary | partial, materially further along | Stage O's real fix: `auth_client_ids()` now correctly routes every staff role through `team_members`, not just admin/account_manager. Fine-grained per-role *write* permissions and agent-capacity modeling are still not built. |
-| Automations | Edge-function registry + per-client Automations subtab + Operational Control's Metrics/Work Items sub-tabs | partial | Cross-business observability now half-exists (Metrics/Work Items), just not framed as an agent/workflow/trigger registry view yet. |
+| Automations | Edge-function registry + per-client Automations subtab + Operational Control's Metrics/Work Items/**Workflows/Triggers** sub-tabs (Phase 03, complete) | exists | Workflows renders the real registry; Triggers reads `cron.job` live. Surfaced a real gap: 21 functions deployed but unregistered, 10 of them from an unmerged Facebook branch stack — see Phase 03's card. |
 | Knowledge | Context Files / Execution Files / Context Inputs, per client | partial | Real substrate, no cross-referencing layer, and AA itself isn't yet a knowledge instance. |
 | Business Selector | `businesses` table + `/businesses` list/detail pages + nav item (Phase 02, complete) | exists | AA is business row #1, linked to its existing internal `clients` row. Thin by design — no Sales/Finance/Team ownership yet; those attach in later phases. |
 
@@ -121,7 +121,7 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 
 **Exit gate:** switching between AA and one dummy test business breaks nothing that was already live.
 
-### Phase 03 — Automations, surfaced
+### Phase 03 — Automations, surfaced — **complete (2026-08-20)**
 
 **Goal:** an observability layer over the agent and edge-function runtime that already exists — not new execution infrastructure.
 
@@ -135,7 +135,17 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 3. Build Workflows / Agents / Runs / Triggers / Approvals / Logs views as read-mostly UI.
 4. Cross-check the UI's inventory against the audit from step 1.
 
-**Exit gate:** every currently-running scheduled or triggered process is visible and correctly attributed — none missing, none miscategorized.
+**Result — a major finding, not just a registry cleanup:** Step 1's audit (real `cron.job` rows + diffing all 115 functions actually deployed on `xivewedajschthjlblfb` against this repo's 103-function registry) surfaced a live, unreviewed production subsystem: a full "Programme Stage 1B: Facebook Distribution" build (10 edge functions, one — `collect-facebook-insights` — cron-triggered hourly against real Meta accounts) exists only on 5 remote branches (`stage-1b-a` through `-e`, pushed 2026-08-09/10) that were **deployed directly to Supabase but never merged**. `main` has since moved 43 commits past that stack's base. Alex's explicit call: document this gap in Phase 03 rather than absorb reconciling a stale, unrelated feature stack into this phase — flagged as a standalone, high-priority item for him to schedule separately (see "Open items" below), not resolved here.
+
+Scoped the build to two new sub-tabs inside the already-real Operational Control surface (extending it, not building a parallel system), matching Decision 4's thin bar (0 new tables — one view-returning RPC; 2 new UI sections):
+- **Workflows** — renders the governed registry itself (`registry.json`, statically imported, the exact source `npm run check:edge-functions` already enforces in CI — zero duplicated data), filterable by profile. Below it, a prominent "Deployed but not in this registry" panel listing all 21 functions found deployed-but-unregistered: the 10 unmerged Facebook functions, plus 11 already-known retired-Pipeline-B functions that were deleted from the repo but never actually undeployed (a previously-documented gap, now finally visible in-product instead of only in a session transcript).
+- **Triggers** — a new staff-only RPC (`list_scheduled_triggers`) reads `cron.job` live and returns jobname/schedule/active/target-function, deliberately never the raw command text (which embeds a vault secret reference). The UI cross-references each trigger's target against the undocumented-deployment list and flags it directly (`⚠ target not in main`) when it resolves to one — `facebook-insights-worker` shows this warning live.
+
+**Verification:** live-tested `list_scheduled_triggers()` against `xivewedajschthjlblfb` (correctly returns all 3 real jobs with parsed target functions and no leaked secret reference; correctly rejected for an anon/unauthenticated caller). `get_advisors`: one new finding, the same already-accepted class every other admin RPC here carries. Full suite: typecheck, lint (0 errors), `check:edge-functions` (unchanged — 0 new functions), 928/928 tests (6 new, including a cross-check that every function named in the UI's undocumented-deployment list is genuinely absent from the local registry — Phase 03's own step 4, enforced in CI rather than a one-time claim), build, `git diff --check` all clean.
+
+**Exit gate:** met for what's addressable from this repo — every real scheduled/triggered process (all 3 `cron.job` rows, all 103 registered functions, and all 21 deployed-but-unregistered functions found in the audit) is now visible and correctly attributed, including the ones nobody had surfaced before. What remains genuinely open is not a Phase 03 gap: whether/how to reconcile the Facebook branch stack is Alex's call, tracked below, not blocking this phase or Phase 04.
+
+**Open item, not part of Phase 03's own scope:** decide the fate of `stage-1b-a` through `stage-1b-e` (merge after a real review, or explicitly retire/undeploy) — flagged, not resolved.
 
 ### Phase 04 — Knowledge (thin)
 
