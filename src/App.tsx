@@ -12,6 +12,7 @@ import { SalesPage } from "@/pages/SalesPage";
 import { SalesLeadDetailPage } from "@/pages/SalesLeadDetailPage";
 import { CommsPage } from "@/pages/CommsPage";
 import { CommsConversationPage } from "@/pages/CommsConversationPage";
+import { OpportunitiesPage } from "@/pages/OpportunitiesPage";
 import { OperationsPage } from "@/pages/OperationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ROUTES } from "@/lib/constants";
@@ -40,6 +41,7 @@ export function App() {
             <Route path="/sales/:id" element={<SalesLeadDetailPage />} />
             <Route path={ROUTES.comms} element={<CommsPage />} />
             <Route path="/comms/:id" element={<CommsConversationPage />} />
+            <Route path={ROUTES.opportunities} element={<OpportunitiesPage />} />
             <Route path={ROUTES.operations} element={<OperationsPage />} />
             <Route path={ROUTES.settings} element={<SettingsPage />} />
             <Route path="*" element={<Navigate to={ROUTES.cockpit} replace />} />

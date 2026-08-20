@@ -9,6 +9,7 @@ export const ROUTES = {
   salesLead: (id: string) => `/sales/${id}`,
   comms: "/comms",
   commsIdentity: (id: string) => `/comms/${id}`,
+  opportunities: "/opportunities",
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -23,16 +24,17 @@ export interface NavItem {
   label: string;
   path: string;
   shortcut: string;
-  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up" | "chat";
+  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up" | "chat" | "alert-circle";
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Cockpit",    path: ROUTES.cockpit,    shortcut: "⌘1", icon: "home" },
-  { label: "Delivery",   path: ROUTES.clients,    shortcut: "⌘2", icon: "users" },
-  { label: "Businesses", path: ROUTES.businesses, shortcut: "⌘3", icon: "board" },
-  { label: "Sales",      path: ROUTES.sales,      shortcut: "⌘4", icon: "trending-up" },
-  { label: "Comms",      path: ROUTES.comms,      shortcut: "⌘5", icon: "chat" },
-  { label: "Operations", path: ROUTES.operations, shortcut: "⌘6", icon: "ops" },
+  { label: "Cockpit",       path: ROUTES.cockpit,       shortcut: "⌘1", icon: "home" },
+  { label: "Delivery",      path: ROUTES.clients,       shortcut: "⌘2", icon: "users" },
+  { label: "Businesses",    path: ROUTES.businesses,    shortcut: "⌘3", icon: "board" },
+  { label: "Sales",         path: ROUTES.sales,         shortcut: "⌘4", icon: "trending-up" },
+  { label: "Comms",         path: ROUTES.comms,         shortcut: "⌘5", icon: "chat" },
+  { label: "Opportunities", path: ROUTES.opportunities, shortcut: "⌘6", icon: "alert-circle" },
+  { label: "Operations",    path: ROUTES.operations,    shortcut: "⌘7", icon: "ops" },
 ];
 
 export const KEYBOARD_SHORTCUTS = [
@@ -42,7 +44,8 @@ export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "3"], label: "Businesses" },
   { keys: ["⌘", "4"], label: "Sales" },
   { keys: ["⌘", "5"], label: "Comms" },
-  { keys: ["⌘", "6"], label: "Operations" },
+  { keys: ["⌘", "6"], label: "Opportunities" },
+  { keys: ["⌘", "7"], label: "Operations" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 
