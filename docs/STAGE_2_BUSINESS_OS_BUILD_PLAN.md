@@ -1,5 +1,7 @@
 # Stage 2 Build Plan — Attract Acquisition Business OS
 
+> **DEPRECATED 2026-08-20.** This document is retired as the locked reference. **See `docs/COCKPIT_V3_TRANSFORMATION_PLAN.md`**, which supersedes it. Phases 00–11 below shipped real, live-tested work (12 new tables, 15 new RPCs, 2 new edge functions) — none of that is undone or discarded; the new document recomposes it into the actual target architecture rather than re-doing it. This file is kept intact below as the historical record of exactly what each phase built, found, and verified. Phase 12 ("Executive AI + Instance #2") is superseded by the new document's Steps 5–6.
+
 A dependency-gated route from Cockpit as it exists today to a generalized, multi-business operating architecture — sequenced so nothing generalizes before it's proven once, concretely, on Attract Acquisition itself.
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
