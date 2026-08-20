@@ -8,6 +8,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { callAnthropic } from "../supabase/functions/_shared/anthropic.ts";
 import {
   approximatePromptTokens,
@@ -569,10 +570,19 @@ test("the correction is skipped when the technique deadline cannot absorb it", a
   let calls = 0;
   const result = await withProvider({
     // A deadline smaller than the minimum correction budget leaves no room.
+    // Coherence clamping in provider-runtime.ts's resolveIdeationProviderRuntimeDetailed
+    // (`minimum_correction_budget_ms = Math.min(correction.value, techniqueDeadlineMs)`)
+    // caps the resolved minimum_correction_budget_ms at technique_deadline_ms, so the two
+    // resolve to the identical 45000 here -- the gate at model.ts's `remainingBudgetMs <
+    // runtime.minimum_correction_budget_ms` then degenerates to `elapsed > 0`, a genuine
+    // millisecond-resolution race against Date.now() when the mocked attempt-0 call is
+    // purely synchronous (this was flaky in CI for exactly that reason). The tiny real
+    // await below guarantees measurable elapsed time so the gate is deterministic.
     AA_IDEATION_TECHNIQUE_DEADLINE_MS: "45000",
     AA_IDEATION_MIN_CORRECTION_BUDGET_MS: "150000",
-  }, () => {
+  }, async () => {
     calls += 1;
+    await delay(5);
     return providerResponse({ structured_findings: FINDINGS, candidates: [groundedCandidate()] }, "max_tokens");
   }, () => generateTechniqueCandidates(promptInput()));
 
