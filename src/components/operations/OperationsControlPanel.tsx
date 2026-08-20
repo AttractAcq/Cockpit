@@ -218,6 +218,17 @@ function TeamRolesSection({ clients }: { clients: Client[] }) {
   const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
   const userLabel = (id: string) => { const u = staff.find((s) => s.id === id); return u ? `${u.full_name ?? u.email ?? id} (${ROLE_LABEL[u.role as keyof typeof ROLE_LABEL] ?? u.role})` : id; };
 
+  // Stage 2 Phase 09 — Team. Every current human role (from the real users
+  // table, staff.length below) and every current live automation (Phase
+  // 03's already-real, CI-governed edge-function registry) in one
+  // directory -- zero new schema, zero new RPCs. "Agent roles" excludes
+  // retired functions deliberately: the exit gate is every *current* role,
+  // and a retired function isn't one. Capacity is honestly stated as not
+  // tracked yet rather than fabricated -- Phase 00's own audit already
+  // found capacity/performance data isn't real, and the phase card itself
+  // defers capacity-based auto-allocation to Executive AI (12).
+  const agentRoles = useMemo(() => fetchWorkflows().filter((w) => w.profile !== "retired"), []);
+
   return <div className="space-y-3">
     <p className="text-2xs text-paper-3">All 9 Stage O roles ({ALL_ROLES.map((r) => ROLE_LABEL[r]).join(", ")}) now resolve real client-scoped visibility via this assignment table, not just Admin/Account Manager. Fine-grained per-role write permissions are not split yet — see Stage_O_Status.md. Visible users are whatever RLS permits (Admin sees all; others see only themselves).</p>
     {notice && <p className={`text-2xs ${notice.kind === "error" ? "text-neg" : "text-teal"}`}>{notice.text}</p>}
@@ -229,6 +240,23 @@ function TeamRolesSection({ clients }: { clients: Client[] }) {
     {loading ? <p className="text-2xs text-paper-3">Loading…</p> : members.length === 0 ? <p className="text-2xs text-paper-3">No team assignments yet.</p> : <div className="space-y-1">
       {members.map((m) => <div key={m.id} className="flex items-center justify-between rounded border border-line bg-ink p-2 text-2xs"><span className="text-paper">{userLabel(m.user_id)} → {clientName(m.client_id)}</span><Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(m.id)}>Remove</Button></div>)}
     </div>}
+
+    <div className="space-y-2 border-t border-line pt-3">
+      <h4 className="text-xs font-medium text-paper">Team Directory — humans and agents</h4>
+      <p className="text-2xs text-paper-3">Every current human role visible to you (from the real users table above) and every current live automation (Phase 03's governed edge-function registry, {agentRoles.length} active) in one directory — nothing invented. Capacity is not tracked yet; see Stage_O_Status.md and Phase 09's own card (deferred to Executive AI, Phase 12).</p>
+      <div className="space-y-1">
+        {staff.map((s) => <div key={s.id} className="flex flex-wrap items-center gap-2 rounded border border-line bg-ink p-2 text-2xs">
+          <span className="font-mono uppercase text-teal">Human</span>
+          <span className="text-paper">{s.full_name ?? s.email ?? s.id}</span>
+          <span className="text-paper-3">{ROLE_LABEL[s.role as keyof typeof ROLE_LABEL] ?? s.role}</span>
+        </div>)}
+        {agentRoles.map((w) => <div key={w.name} className="flex flex-wrap items-center gap-2 rounded border border-line bg-ink p-2 text-2xs">
+          <span className="font-mono uppercase text-info">Agent</span>
+          <span className="text-paper">{w.name}</span>
+          <span className="text-paper-3">{w.purpose}</span>
+        </div>)}
+      </div>
+    </div>
   </div>;
 }
 
