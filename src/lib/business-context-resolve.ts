@@ -22,3 +22,14 @@ export function isStaleSelection(businesses: BusinessRow[], selectedBusinessId: 
   if (!selectedBusinessId) return false;
   return !businesses.some((b) => b.id === selectedBusinessId);
 }
+
+/** The business linked to a given client, if one exists -- the other direction
+ * of the compatibility bridge: opening a client directly by URL (most clients
+ * still have no linked business at all, since business_id is the newer
+ * concept) should carry that business into the shared selection the same way
+ * BusinessDetailPage already does when a business is opened directly. Null
+ * when no business links to this client, which is still the common case. */
+export function findBusinessForClient(businesses: BusinessRow[], clientId: string | null): BusinessRow | null {
+  if (!clientId) return null;
+  return businesses.find((b) => b.client_id === clientId) ?? null;
+}

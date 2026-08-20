@@ -7,6 +7,8 @@ import type { Client } from "@/types/client";
 import type { ClientContextFile, ClientExecutionFile, ClientInputs, Phase1Result, Phase2Result, Phase2Section, Phase3Result, Phase3Section } from "@/types/phase";
 import { CONTEXT_FILE_DEFS } from "@/types/phase";
 import { ROUTES } from "@/lib/constants";
+import { useBusinessContext } from "@/lib/business-context";
+import { findBusinessForClient } from "@/lib/business-context-resolve";
 import { TIER_LABELS as TL } from "@/types/client";
 import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
 import { ContextFilesPanel } from "@/components/client/ContextFilesPanel";
@@ -378,6 +380,7 @@ export function ClientDetailPage() {
     section?: string;
   }>();
   const navigate = useNavigate();
+  const { businesses, loading: businessesLoading, setSelectedBusinessId } = useBusinessContext();
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -418,6 +421,16 @@ export function ClientDetailPage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Opening a client directly by URL is a deliberate selection too -- carry
+  // its linked business (if one exists) into the shared BusinessContext, the
+  // same way BusinessDetailPage does when a business is opened directly. Most
+  // clients still have no linked business yet, so this is a no-op for them.
+  useEffect(() => {
+    if (!id || businessesLoading) return;
+    const linked = findBusinessForClient(businesses, id);
+    if (linked) setSelectedBusinessId(linked.id);
+  }, [id, businesses, businessesLoading, setSelectedBusinessId]);
 
   useEffect(() => {
     if (!id) return;
