@@ -12,6 +12,8 @@ import {
   fetchWorkItems, createWorkItem, updateWorkItemStatus,
   fetchMarginSummary, recordCostEntry, setClientRevenueEstimate,
   fetchOnboardingTemplates, createOnboardingTemplate, onboardClient,
+  fetchProjects, createProject, updateProjectStatus,
+  fetchDeliverables, createDeliverable, updateDeliverableStatus,
   type StaffUserRow,
 } from "@/lib/operations-admin";
 import { supabase } from "@/lib/supabase";
@@ -20,7 +22,10 @@ import { fetchWorkflows, fetchScheduledTriggers, UNDOCUMENTED_DEPLOYMENTS, type 
 import { ALL_ROLES, ROLE_LABEL, COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/types/operations";
 import { AUTOMATION_AREAS } from "@/types/automation";
 import type { Client } from "@/types/client";
-import type { TeamMemberRow, ClientWorkItemRow, WorkItemStatus, ClientMarginSummaryRow, ClientOnboardingTemplateRow, CostCategory } from "@/types/operations";
+import type {
+  TeamMemberRow, ClientWorkItemRow, WorkItemStatus, ClientMarginSummaryRow, ClientOnboardingTemplateRow, CostCategory,
+  ClientProjectRow, ProjectStatus, ClientDeliverableRow, DeliverableStatus,
+} from "@/types/operations";
 import { IntelligenceOperationsPanel } from "./IntelligenceOperationsPanel";
 
 type Notice = { kind: "success" | "error"; text: string } | null;
@@ -29,9 +34,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
-const TABS = ["metrics", "intelligence", "workflows", "triggers", "team", "work", "cost", "onboarding"] as const;
+const TABS = ["metrics", "intelligence", "workflows", "triggers", "team", "work", "projects", "cost", "onboarding"] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", intelligence: "Intelligence", workflows: "Workflows", triggers: "Triggers", team: "Team & Roles", work: "Work Items", cost: "Cost & Margin", onboarding: "Onboarding" };
+const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", intelligence: "Intelligence", workflows: "Workflows", triggers: "Triggers", team: "Team & Roles", work: "Work Items", projects: "Projects", cost: "Cost & Margin", onboarding: "Onboarding" };
 
 function MetricsSection({ clients }: { clients: Client[] }) {
   const [attempts, setAttempts] = useState<PublishAttemptLike[]>([]);
@@ -283,6 +288,185 @@ function WorkItemsSection({ clients }: { clients: Client[] }) {
   </div>;
 }
 
+const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = { planning: "text-paper-3", active: "text-teal", on_hold: "text-warn", completed: "text-pos", archived: "text-paper-3" };
+const PROJECT_NEXT_STATUS: Record<ProjectStatus, ProjectStatus | null> = { planning: "active", active: "completed", on_hold: "active", completed: null, archived: null };
+const DELIVERABLE_STATUS_COLOR: Record<DeliverableStatus, string> = { draft: "text-paper-3", in_review: "text-info", delivered: "text-teal", approved: "text-pos", rejected: "text-neg" };
+const DELIVERABLE_NEXT_STATUS: Record<DeliverableStatus, DeliverableStatus | null> = { draft: "in_review", in_review: "delivered", delivered: "approved", approved: null, rejected: null };
+
+function ProjectsSection({ clients }: { clients: Client[] }) {
+  const [projects, setProjects] = useState<ClientProjectRow[]>([]);
+  const [staff, setStaff] = useState<StaffUserRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [form, setForm] = useState({ clientId: "", name: "", description: "", ownerId: "" });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const [p, s] = await Promise.all([fetchProjects(), fetchStaffUsers()]); setProjects(p); setStaff(s); }
+    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function create() {
+    if (!form.clientId || !form.name.trim()) return;
+    setBusy("create"); setNotice(null);
+    try {
+      const id = await createProject({ clientId: form.clientId, name: form.name, description: form.description || null, ownerId: form.ownerId || null });
+      setForm({ clientId: form.clientId, name: "", description: "", ownerId: "" });
+      await load();
+      setSelectedId(id);
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+  async function advance(project: ClientProjectRow) {
+    const next = PROJECT_NEXT_STATUS[project.status];
+    if (!next) return;
+    setBusy(project.id); setNotice(null);
+    try { await updateProjectStatus(project.id, next); await load(); }
+    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+
+  const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
+  const selected = projects.find((p) => p.id === selectedId) ?? null;
+
+  return <div className="space-y-3">
+    {notice && <p className="text-2xs text-neg">{notice.text}</p>}
+    <p className="text-2xs text-paper-3">Groups client_work_items under a named engagement -- the piece missing above individual tasks. Tasks and Deliverables for the selected project are below.</p>
+    <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-ink-200 p-3">
+      <label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Client</span><select className={field} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}><option value="">Select…</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Name</span><input className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+      <label className="flex flex-col gap-1"><span className="text-2xs text-paper-3">Owner (optional)</span><select className={field} value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: e.target.value })}><option value="">Unassigned</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? s.email ?? s.id}</option>)}</select></label>
+      <Button size="sm" variant="primary" disabled={busy === "create" || !form.clientId || !form.name.trim()} onClick={() => void create()}>Create project</Button>
+    </div>
+    {loading ? <p className="text-2xs text-paper-3">Loading…</p> : projects.length === 0 ? <p className="text-2xs text-paper-3">No projects yet.</p> : <div className="space-y-1">
+      {projects.map((p) => <div key={p.id} className={`rounded border p-2 text-2xs cursor-pointer ${selectedId === p.id ? "border-teal/50 bg-ink" : "border-line bg-ink hover:bg-ink-100"}`} onClick={() => setSelectedId(p.id === selectedId ? null : p.id)}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-paper font-medium">{p.name}</span>
+          <span className="text-paper-3">{clientName(p.client_id)}</span>
+          <span className={`font-mono uppercase ${PROJECT_STATUS_COLOR[p.status]}`}>{p.status}</span>
+          {PROJECT_NEXT_STATUS[p.status] && (
+            <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={(e) => { e.stopPropagation(); void advance(p); }}>Move to {PROJECT_NEXT_STATUS[p.status]}</Button>
+          )}
+        </div>
+      </div>)}
+    </div>}
+    {selected && <ProjectDetail project={selected} staff={staff} onChanged={() => void load()} />}
+  </div>;
+}
+
+function ProjectDetail({ project, staff, onChanged }: { project: ClientProjectRow; staff: StaffUserRow[]; onChanged: () => void }) {
+  const [tasks, setTasks] = useState<ClientWorkItemRow[]>([]);
+  const [deliverables, setDeliverables] = useState<ClientDeliverableRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [taskForm, setTaskForm] = useState({ title: "", assigneeId: "" });
+  const [deliverableForm, setDeliverableForm] = useState({ name: "", ownerId: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [items, deliv] = await Promise.all([fetchWorkItems(project.client_id), fetchDeliverables(project.id)]);
+      setTasks(items.filter((i) => i.project_id === project.id));
+      setDeliverables(deliv);
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setLoading(false); }
+  }, [project.id, project.client_id]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function addTask() {
+    if (!taskForm.title.trim()) return;
+    setBusy("task"); setNotice(null);
+    try {
+      await createWorkItem({ clientId: project.client_id, title: taskForm.title, assigneeId: taskForm.assigneeId || null, projectId: project.id });
+      setTaskForm({ title: "", assigneeId: "" }); await load(); onChanged();
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+  async function moveTask(item: ClientWorkItemRow, status: WorkItemStatus) {
+    setBusy(item.id); setNotice(null);
+    try {
+      const reason = status === "blocked" ? window.prompt("Why is this blocked?") ?? "" : undefined;
+      if (status === "blocked" && !reason) { setBusy(null); return; }
+      await updateWorkItemStatus(item.id, status, reason); await load();
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+  async function addDeliverable() {
+    if (!deliverableForm.name.trim()) return;
+    setBusy("deliverable"); setNotice(null);
+    try {
+      await createDeliverable({ projectId: project.id, name: deliverableForm.name, ownerId: deliverableForm.ownerId || null });
+      setDeliverableForm({ name: "", ownerId: "" }); await load();
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+  async function advanceDeliverable(d: ClientDeliverableRow) {
+    const next = DELIVERABLE_NEXT_STATUS[d.status];
+    if (!next) return;
+    setBusy(d.id); setNotice(null);
+    try {
+      const link = next === "delivered" && !d.link ? window.prompt("Link to the delivered output (optional)") : undefined;
+      await updateDeliverableStatus(d.id, next, link ?? null); await load();
+    } catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setBusy(null); }
+  }
+
+  const staffLabel = (id: string | null) => (id ? staff.find((s) => s.id === id)?.full_name ?? id : "Unassigned");
+  const tasksDone = tasks.filter((t) => t.status === "done").length;
+  const deliverablesApproved = deliverables.filter((d) => d.status === "approved").length;
+
+  if (loading) return <p className="text-2xs text-paper-3">Loading project…</p>;
+  return <div className="space-y-3 rounded border border-teal/30 bg-ink-200 p-3">
+    {notice && <p className="text-2xs text-neg">{notice.text}</p>}
+    <p className="text-2xs text-paper-3 font-mono">{tasksDone}/{tasks.length} tasks done · {deliverablesApproved}/{deliverables.length} deliverables approved</p>
+
+    <div>
+      <h4 className="mb-1 text-xs font-medium text-paper">Tasks</h4>
+      <div className="flex flex-wrap items-end gap-2 mb-2">
+        <input className={field} placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+        <select className={field} value={taskForm.assigneeId} onChange={(e) => setTaskForm({ ...taskForm, assigneeId: e.target.value })}><option value="">Unassigned</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? s.email ?? s.id}</option>)}</select>
+        <Button size="sm" variant="secondary" disabled={busy === "task" || !taskForm.title.trim()} onClick={() => void addTask()}>Add task</Button>
+      </div>
+      {tasks.length === 0 ? <p className="text-2xs text-paper-3">No tasks yet.</p> : <div className="space-y-1">
+        {tasks.map((t) => <div key={t.id} className="rounded border border-line bg-ink p-2 text-2xs">
+          <div className="flex flex-wrap items-center gap-2"><span className="text-paper">{t.title}</span><span className="text-paper-3">{staffLabel(t.assignee_id)} · {t.status}</span></div>
+          {t.status !== "done" && <div className="mt-1 flex flex-wrap gap-1">
+            {t.status !== "in_progress" && <Button size="sm" variant="ghost" disabled={busy === t.id} onClick={() => void moveTask(t, "in_progress")}>Start</Button>}
+            <Button size="sm" variant="primary" disabled={busy === t.id} onClick={() => void moveTask(t, "done")}>Done</Button>
+          </div>}
+        </div>)}
+      </div>}
+    </div>
+
+    <div>
+      <h4 className="mb-1 text-xs font-medium text-paper">Deliverables</h4>
+      <div className="flex flex-wrap items-end gap-2 mb-2">
+        <input className={field} placeholder="Deliverable name" value={deliverableForm.name} onChange={(e) => setDeliverableForm({ ...deliverableForm, name: e.target.value })} />
+        <select className={field} value={deliverableForm.ownerId} onChange={(e) => setDeliverableForm({ ...deliverableForm, ownerId: e.target.value })}><option value="">Unassigned</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.full_name ?? s.email ?? s.id}</option>)}</select>
+        <Button size="sm" variant="secondary" disabled={busy === "deliverable" || !deliverableForm.name.trim()} onClick={() => void addDeliverable()}>Add deliverable</Button>
+      </div>
+      {deliverables.length === 0 ? <p className="text-2xs text-paper-3">No deliverables yet.</p> : <div className="space-y-1">
+        {deliverables.map((d) => <div key={d.id} className="rounded border border-line bg-ink p-2 text-2xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-paper">{d.name}</span>
+            <span className="text-paper-3">{staffLabel(d.owner_id)}</span>
+            <span className={`font-mono uppercase ${DELIVERABLE_STATUS_COLOR[d.status]}`}>{d.status}</span>
+            {d.link && <a href={d.link} target="_blank" rel="noreferrer" className="text-teal hover:underline">link</a>}
+          </div>
+          {DELIVERABLE_NEXT_STATUS[d.status] && (
+            <Button size="sm" variant="ghost" disabled={busy === d.id} onClick={() => void advanceDeliverable(d)}>Move to {DELIVERABLE_NEXT_STATUS[d.status]}</Button>
+          )}
+        </div>)}
+      </div>}
+    </div>
+  </div>;
+}
+
 function CostMarginSection({ clients }: { clients: Client[] }) {
   const [summary, setSummary] = useState<ClientMarginSummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -442,6 +626,7 @@ export function OperationsControlPanel() {
     {tab === "triggers" && <TriggersSection />}
     {tab === "team" && <TeamRolesSection clients={clients} />}
     {tab === "work" && <WorkItemsSection clients={clients} />}
+    {tab === "projects" && <ProjectsSection clients={clients} />}
     {tab === "cost" && <CostMarginSection clients={clients} />}
     {tab === "onboarding" && <OnboardingSection clients={clients} onOnboarded={() => void load()} />}
   </div>;

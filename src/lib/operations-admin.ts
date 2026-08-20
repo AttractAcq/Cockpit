@@ -7,6 +7,7 @@ import { supabase } from "./supabase";
 import type {
   ClientWorkItemRow, WorkItemStatus, WorkItemPriority, ClientCostLedgerRow, CostCategory,
   ClientMarginSummaryRow, ClientOnboardingTemplateRow, TeamMemberRow,
+  ClientProjectRow, ProjectStatus, ClientDeliverableRow, DeliverableStatus,
 } from "@/types/operations";
 
 // ── Team / roles ─────────────────────────────────────────────────────────────
@@ -52,13 +53,14 @@ export async function fetchWorkItems(clientId?: string, status?: WorkItemStatus)
 export async function createWorkItem(input: {
   clientId: string; title: string; description?: string | null; sourceSystem?: string | null; sourceTable?: string | null;
   sourceId?: string | null; assigneeId?: string | null; reviewOwnerId?: string | null; dueAt?: string | null;
-  priority?: WorkItemPriority; capacityEstimateHours?: number | null; slaHours?: number | null;
+  priority?: WorkItemPriority; capacityEstimateHours?: number | null; slaHours?: number | null; projectId?: string | null;
 }): Promise<string> {
   const { data, error } = await supabase.rpc("create_work_item", {
     p_client_id: input.clientId, p_title: input.title, p_description: input.description ?? null,
     p_source_system: input.sourceSystem ?? null, p_source_table: input.sourceTable ?? null, p_source_id: input.sourceId ?? null,
     p_assignee_id: input.assigneeId ?? null, p_review_owner_id: input.reviewOwnerId ?? null, p_due_at: input.dueAt ?? null,
     p_priority: input.priority ?? "normal", p_capacity_estimate_hours: input.capacityEstimateHours ?? null, p_sla_hours: input.slaHours ?? null,
+    p_project_id: input.projectId ?? null,
   });
   if (error) throw error;
   return data as string;
@@ -138,4 +140,55 @@ export async function onboardClient(input: {
   });
   if (error) throw error;
   return data as string;
+}
+
+// ── Projects & Deliverables ──────────────────────────────────────────────────
+// Stage 2 Phase 07. Tasks reuse client_work_items above (project_id) rather
+// than a third new table.
+
+export async function fetchProjects(clientId?: string): Promise<ClientProjectRow[]> {
+  let query = supabase.from("client_projects").select("*").order("created_at", { ascending: false });
+  if (clientId) query = query.eq("client_id", clientId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ClientProjectRow[];
+}
+
+export async function createProject(input: {
+  clientId: string; name: string; description?: string | null; ownerId?: string | null;
+  startedAt?: string | null; targetCompletionAt?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("create_project", {
+    p_client_id: input.clientId, p_name: input.name, p_description: input.description ?? null,
+    p_owner_id: input.ownerId ?? null, p_started_at: input.startedAt ?? null, p_target_completion_at: input.targetCompletionAt ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function updateProjectStatus(projectId: string, newStatus: ProjectStatus): Promise<void> {
+  const { error } = await supabase.rpc("update_project_status", { p_project_id: projectId, p_new_status: newStatus });
+  if (error) throw error;
+}
+
+export async function fetchDeliverables(projectId: string): Promise<ClientDeliverableRow[]> {
+  const { data, error } = await supabase.from("client_deliverables").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ClientDeliverableRow[];
+}
+
+export async function createDeliverable(input: {
+  projectId: string; name: string; description?: string | null; ownerId?: string | null; dueAt?: string | null; link?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("create_deliverable", {
+    p_project_id: input.projectId, p_name: input.name, p_description: input.description ?? null,
+    p_owner_id: input.ownerId ?? null, p_due_at: input.dueAt ?? null, p_link: input.link ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function updateDeliverableStatus(deliverableId: string, newStatus: DeliverableStatus, link?: string | null): Promise<void> {
+  const { error } = await supabase.rpc("update_deliverable_status", { p_deliverable_id: deliverableId, p_new_status: newStatus, p_link: link ?? null });
+  if (error) throw error;
 }
