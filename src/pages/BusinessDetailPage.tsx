@@ -81,7 +81,11 @@ export function BusinessDetailPage() {
           <div className="col-span-2 sm:col-span-3">
             <div className="text-2xs uppercase tracking-cap text-paper-3">Linked client</div>
             {linkedClient ? (
-              <Link to={ROUTES.client(linkedClient.id)} className="text-teal hover:underline">{linkedClient.name}</Link>
+              <span className="flex flex-wrap items-center gap-2">
+                <Link to={ROUTES.client(linkedClient.id)} className="text-teal hover:underline">{linkedClient.name}</Link>
+                <span className="text-paper-3">·</span>
+                <Link to={ROUTES.clientSection(linkedClient.id, "knowledge_search")} className="text-teal hover:underline">Search its knowledge base</Link>
+              </span>
             ) : (
               <span className="text-paper-3">Standalone — no linked client</span>
             )}

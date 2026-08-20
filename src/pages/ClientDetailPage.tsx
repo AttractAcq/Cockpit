@@ -10,6 +10,7 @@ import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
 import { ContextFilesPanel } from "@/components/client/ContextFilesPanel";
+import { KnowledgeSearchPanel } from "@/components/client/KnowledgeSearchPanel";
 import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
 import { MastersPanel } from "@/components/client/MastersPanel";
 import { ReelStudioPanel } from "@/components/client/ReelStudioPanel";
@@ -57,6 +58,7 @@ type Section =
   | "calendar"
   | "context_inputs"
   | "context_files"
+  | "knowledge_search"
   | "execution_files"
   | "execution_contract"
   | "proof_upload"
@@ -118,6 +120,7 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     tabs: [
       { label: "Context Inputs", section: "context_inputs" },
       { label: "Context Files", section: "context_files" },
+      { label: "Search", section: "knowledge_search" },
       { label: "Execution Files", section: "execution_files" },
       { label: "Execution Contract", section: "execution_contract" },
       { label: "Archive", section: "archive" },
@@ -762,6 +765,8 @@ export function ClientDetailPage() {
         return <CampaignIntelligencePanel clientId={id} />;
       case "context_files":
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
+      case "knowledge_search":
+        return <KnowledgeSearchPanel clientId={id} />;
       case "execution_files":
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
       case "master_ai":
