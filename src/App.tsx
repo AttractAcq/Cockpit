@@ -8,6 +8,8 @@ import { ClientsPage } from "@/pages/ClientsPage";
 import { ClientDetailPage } from "@/pages/ClientDetailPage";
 import { BusinessesPage } from "@/pages/BusinessesPage";
 import { BusinessDetailPage } from "@/pages/BusinessDetailPage";
+import { SalesPage } from "@/pages/SalesPage";
+import { SalesLeadDetailPage } from "@/pages/SalesLeadDetailPage";
 import { OperationsPage } from "@/pages/OperationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ROUTES } from "@/lib/constants";
@@ -32,6 +34,8 @@ export function App() {
             <Route path="/clients/:id/:section" element={<ClientDetailPage />} />
             <Route path={ROUTES.businesses} element={<BusinessesPage />} />
             <Route path="/businesses/:id" element={<BusinessDetailPage />} />
+            <Route path={ROUTES.sales} element={<SalesPage />} />
+            <Route path="/sales/:id" element={<SalesLeadDetailPage />} />
             <Route path={ROUTES.operations} element={<OperationsPage />} />
             <Route path={ROUTES.settings} element={<SettingsPage />} />
             <Route path="*" element={<Navigate to={ROUTES.cockpit} replace />} />
