@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
+import { BusinessProvider } from "@/lib/business-context";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { LoginPage } from "@/components/auth/LoginPage";
 import { AppShell } from "@/components/shell";
@@ -26,7 +27,9 @@ export function App() {
           <Route
             element={
               <ProtectedRoute>
-                <AppShell />
+                <BusinessProvider>
+                  <AppShell />
+                </BusinessProvider>
               </ProtectedRoute>
             }
           >

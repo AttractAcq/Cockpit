@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Icon, Kbd } from "@/components/primitives";
 import { NAV_ITEMS, ROUTES } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
+import { useBusinessContext } from "@/lib/business-context";
 import { fetchClients } from "@/lib/api";
 import { getActiveEdgeOperations, supabase } from "@/lib/supabase";
 import type { Client } from "@/types/client";
@@ -12,6 +13,7 @@ export function TopBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, role } = useAuth();
+  const { businesses, selectedBusinessId, setSelectedBusinessId } = useBusinessContext();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -144,6 +146,19 @@ export function TopBar() {
         </span>
         <b className="text-paper font-medium">{crumbLabel}</b>
       </div>
+
+      {/* Business Context — persistent across every page, Cockpit v3 Step 1 */}
+      {businesses.length > 0 && (
+        <select
+          value={selectedBusinessId ?? ""}
+          onChange={(e) => setSelectedBusinessId(e.target.value || null)}
+          title="Selected business — scopes business-native pages (Sales) and defaults client-scoped pages (Opportunities, Marketing, Finance) to its linked client"
+          className="rounded-md border border-line bg-ink-200 px-2 py-1 text-2xs text-paper outline-none focus:border-teal/50 max-w-[160px]"
+        >
+          <option value="">All businesses</option>
+          {businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      )}
 
       {/* Search */}
       <div ref={searchBoxRef} className="relative flex-1 max-w-[400px] ml-2">
