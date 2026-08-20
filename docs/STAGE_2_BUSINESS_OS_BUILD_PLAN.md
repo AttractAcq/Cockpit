@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 complete (2026-08-20) — surfaced a real, unreviewed live subsystem (see Phase 03's own card: the unmerged Facebook branch stack, deployed to production, invisible until now). Phase 04 complete (2026-08-20) — the thinnest phase yet, zero new schema. Phase 05 (Marketing IA consolidation, high-discipline) is next.
+**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 complete (2026-08-20) — surfaced a real, unreviewed live subsystem (see Phase 03's own card: the unmerged Facebook branch stack, deployed to production, invisible until now). Phase 04 complete (2026-08-20) — the thinnest phase yet, zero new schema. Phase 05 complete (2026-08-20) — full dependency trace found no landmines (nothing was dropped), a real naming collision caught before it happened, and a real UI-ordering regression caught by the test suite and fixed before merge. Phase 06 (Sales) is next.
 
 ---
 
@@ -27,12 +27,12 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 | Overview | Per-client Overview tab (Overview/Pipeline/Client Settings/Automations/Activity Log) **plus** `CockpitPage.tsx`'s existing cross-client tile band + activity feed | partial, materially further along | `CockpitPage.tsx` is already a real cross-client command center (client counts, stage-not-run counts, recent activity). Phase 01 builds on it, not from scratch. |
 | Intelligence | Intelligence page — Market OS, Avatar OS, Competitor OS, Association OS, Brand Strategist, Campaign Intelligence | exists | Already a top-level page, already separate from Marketing. The Blueprint's "pull it out of Marketing" premise is largely already true. |
 | Marketing → Strategy | Brand Strategist / Campaign Intelligence, currently under Intelligence | partial | The agents exist; a dedicated Strategy surface (positioning, channel plan) doesn't yet. |
-| Marketing → Offers | Offer page — Main Offers, Seasonal Offers | exists | Already a distinct top-level page. |
-| Marketing → Ideation | Ideation page — Content Supply, Ideation, Content Items, Calendar | exists | Consolidated from three overlapping pipelines into one (see the Ideation/Creation nav restructure work). |
-| Marketing → Creation | Creation page — Content Briefs, Reel Studio, Assets | exists | Same consolidation. Production Studio retired as dead weight. |
-| Marketing → Distribution | Distribution page — Organic, Paid | exists | — |
-| Marketing → Campaigns | none | net-new | The one substantive new object inside Marketing. Empty shell until Finance and Distribution have real linkage to populate it. |
-| Marketing → Iteration | Iteration page — Analytics, Performance & Iteration | exists | — |
+| Marketing → Offers | Offer page — Main Offers, Seasonal Offers, **visually grouped under "Marketing" (Phase 05)** | exists | Already a distinct top-level page. |
+| Marketing → Ideation | Ideation page — Content Supply, Ideation, Content Items, Calendar, **visually grouped under "Marketing" (Phase 05)** | exists | Consolidated from three overlapping pipelines into one (see the Ideation/Creation nav restructure work). |
+| Marketing → Creation | Creation page — Content Briefs, Reel Studio, Assets, **visually grouped under "Marketing" (Phase 05)** | exists | Same consolidation. Production Studio retired as dead weight. |
+| Marketing → Distribution | Distribution page — Organic, Paid, **visually grouped under "Marketing" (Phase 05)** | exists | — |
+| Marketing → Campaigns | `client_marketing_campaigns` (Phase 05, complete) — name, channel, offer, avatar, status | exists | Budget/results are real columns, structurally unreachable by any RPC until Finance and Distribution have real linkage. Asset linkage deferred entirely. |
+| Marketing → Iteration | Iteration page — Analytics, Performance & Iteration, **visually grouped under "Marketing" (Phase 05)** | exists | — |
 | Sales | none | net-new | Greenfield, but not schema-greenfield: Phase 06 reuses Stage O's `client_work_items` polymorphic work-allocation pattern rather than inventing a bespoke pipeline (Decision 2). |
 | Delivery / Operations | App-level Operations page — Activity Log **plus** a real "Operational Control" tab (Metrics, Intelligence, Team & Roles, Work Items, Cost & Margin, Onboarding), backed by Programme Stage O | partial | Audited in full in Phase 00 — see `STAGE_2_PHASE_00_GROUND_TRUTH.md` §1. Work Items, Metrics, and Onboarding are real and live; a full Clients→Onboarding→Projects→Tasks→Deliverables→SOPs→Quality→Reporting pipeline is not. |
 | Finance | `client_cost_ledger` + `client_margin_summary` view + `clients.monthly_revenue_estimate`, manual-entry only (Stage O) | partial | Not greenfield. Phase 08 extends this real backbone (CSV import, then integrations) rather than building cost/margin tables from scratch. |
@@ -169,7 +169,7 @@ The actual gap was retrieval, not storage: no way to search across files, only v
 
 **Exit gate:** met — a real AA-specific question was answered by querying this layer, verified against real content, not assumed.
 
-### Phase 05 — Marketing IA consolidation
+### Phase 05 — Marketing IA consolidation — **complete (2026-08-20)**
 
 **Goal:** decide, and only then execute, nesting Offer / Ideation / Creation / Distribution / Iteration under a Marketing parent — plus the one genuinely new object, Campaigns.
 
@@ -185,7 +185,17 @@ The actual gap was retrieval, not storage: no way to search across files, only v
 5. Live-test each affected flow against real client data with disposable fixtures.
 6. Only after real usage on the new nesting, retire old routes/tables following the hide-then-drop discipline.
 
-**Exit gate:** a complete, documented dependency trace exists before any table is touched — no exceptions, regardless of how cosmetic the change looks.
+**Result — the trace found no landmines, a real naming collision, and a real UX question.** Full dependency trace (`docs/STAGE_2_PHASE_05_DEPENDENCY_TRACE.md`) found every inbound FK into the Offer/Distribution/Iteration/Avatar table clusters resolves inside Marketing's own natural boundary — a genuinely different result from the Ideation/Creation trace, because Phase 05 drops nothing (steps 4–6's hide-then-drop discipline only applies once real usage exists; nothing was hidden or dropped this pass). The trace also caught a real naming collision before it happened: "Campaigns" is already used for two other, different concepts (`ad_campaigns`, `client_campaign_periods`/Campaign Intelligence) — the new object is named `client_marketing_campaigns`.
+
+Two real judgment calls, both confirmed with Alex before building: **nav nesting is visual grouping only, not a new 3-level nav** (this app has never had page → sub-page → tab; a literal reading would add a click to Ideation/Creation, its most-used areas, for an organizational win) — Offer/Campaigns/Ideation/Creation/Distribution/Iteration get a shared "Marketing" label in the existing pill row, same routes, same one-click reach. **Campaign asset-linkage is deferred alongside budget/results** — no workflow anywhere tags an asset to a campaign yet, so a join table now would guess at a shape (Principle 01).
+
+`client_marketing_campaigns` v1: name, channel, an approved offer, an approved avatar — all real FKs, validated server-side to belong to the same client — plus status (planning → active → completed → archived) and dates. `budget_cents`/`results` are real columns but structurally unreachable: neither RPC accepts them as input, enforced by a CI test reading the actual function bodies, not just documented as a convention. New `MarketingCampaignsPanel.tsx` states the deferral honestly in the UI rather than silently omitting the fields.
+
+**A real regression, caught and fixed before merge, not after:** the first implementation pass reordered the nav array to make the Marketing cluster fully contiguous, which moved Avatars out from between Offer and Ideation — breaking a real, pre-existing, deliberate test (`tests/avatar-os-stage5.test.ts`) asserting that exact ordering. Caught by running the full test suite, not by the dependency trace itself (a trace covers database FKs; it doesn't cover UI ordering assertions). Fixed by leaving Avatars in its original position and accepting two separate "Marketing"-labeled segments in the pill row, rather than editing a pre-existing test to fit new code.
+
+**Verification:** live-tested `create_marketing_campaign`/`update_marketing_campaign_status` against `xivewedajschthjlblfb` inside rolled-back transactions (happy path, status transition, invalid-status rejection, unknown-offer rejection, unauthorized-caller rejection); table confirmed at 0 rows afterward. `get_advisors`: two new findings, the same already-accepted class every other admin RPC here carries. Full suite: typecheck, lint (0 errors), `check:edge-functions` (unchanged — 0 new edge functions), 947/947 tests (11 new), build, `git diff --check` all clean.
+
+**Exit gate met**, and then some: the dependency trace document exists (the literal exit gate), and the additive build it authorized (Campaigns object, visual nav grouping) is live and verified, with zero tables dropped and zero existing routes changed.
 
 ### Phase 06 — Sales
 
