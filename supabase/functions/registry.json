@@ -800,7 +800,7 @@
         "EF-ERROR-002"
       ],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts"
+        "tests/conflict-detection.test.ts"
       ],
       "internalCallers": []
     },
@@ -1393,9 +1393,7 @@
         "EF-OWNERSHIP-002",
         "EF-TXN-001"
       ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2064,9 +2062,7 @@
       "remediationIds": [
         "EF-CONC-003"
       ],
-      "testCoverage": [
-        "tests/ideation-stage4.test.ts"
-      ],
+      "testCoverage": [],
       "internalCallers": []
     },
     {
@@ -2479,7 +2475,11 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts"
+        "tests/avatar-os-stage5e-ideation.test.ts",
+        "tests/ideation-pr1.test.ts",
+        "tests/ideation-stage4c.test.ts",
+        "tests/intelligence-operationalization.test.ts",
+        "tests/run-ideation-handler.test.ts"
       ],
       "internalCallers": []
     },
@@ -2571,7 +2571,8 @@
       ],
       "remediationIds": [],
       "testCoverage": [
-        "tests/ideation-stage4.test.ts"
+        "tests/ideation-stage2.test.ts",
+        "tests/score-ideation-candidates-handler.test.ts"
       ],
       "internalCallers": []
     },
