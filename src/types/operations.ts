@@ -43,6 +43,45 @@ export interface ClientWorkItemRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  project_id: string | null;
+}
+
+// Stage 2 Phase 07 — Delivery/Operations. The grouping missing above
+// individual client_work_items rows. Tasks stay on client_work_items
+// (project_id above); Deliverables get their own client-facing
+// review/approval state.
+export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "archived";
+export type DeliverableStatus = "draft" | "in_review" | "delivered" | "approved" | "rejected";
+
+export interface ClientProjectRow {
+  id: string;
+  client_id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  owner_id: string | null;
+  started_at: string | null;
+  target_completion_at: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientDeliverableRow {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  status: DeliverableStatus;
+  owner_id: string | null;
+  due_at: string | null;
+  link: string | null;
+  delivered_at: string | null;
+  approved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type CostCategory = "model_spend" | "storage" | "rendering" | "human_time" | "ad_management_time" | "revision_cost" | "fulfilment_cost";
