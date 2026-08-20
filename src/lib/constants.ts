@@ -7,6 +7,8 @@ export const ROUTES = {
   business: (id: string) => `/businesses/${id}`,
   sales: "/sales",
   salesLead: (id: string) => `/sales/${id}`,
+  comms: "/comms",
+  commsIdentity: (id: string) => `/comms/${id}`,
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -21,7 +23,7 @@ export interface NavItem {
   label: string;
   path: string;
   shortcut: string;
-  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up";
+  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up" | "chat";
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -29,7 +31,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Delivery",   path: ROUTES.clients,    shortcut: "⌘2", icon: "users" },
   { label: "Businesses", path: ROUTES.businesses, shortcut: "⌘3", icon: "board" },
   { label: "Sales",      path: ROUTES.sales,      shortcut: "⌘4", icon: "trending-up" },
-  { label: "Operations", path: ROUTES.operations, shortcut: "⌘5", icon: "ops" },
+  { label: "Comms",      path: ROUTES.comms,      shortcut: "⌘5", icon: "chat" },
+  { label: "Operations", path: ROUTES.operations, shortcut: "⌘6", icon: "ops" },
 ];
 
 export const KEYBOARD_SHORTCUTS = [
@@ -38,7 +41,8 @@ export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "2"], label: "Delivery" },
   { keys: ["⌘", "3"], label: "Businesses" },
   { keys: ["⌘", "4"], label: "Sales" },
-  { keys: ["⌘", "5"], label: "Operations" },
+  { keys: ["⌘", "5"], label: "Comms" },
+  { keys: ["⌘", "6"], label: "Operations" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 

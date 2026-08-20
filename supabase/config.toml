@@ -2,3 +2,6 @@ project_id = "cockpit"
 
 [functions.collect-instagram-insights]
 verify_jwt = false
+
+[functions.meta-instagram-webhook]
+verify_jwt = false
