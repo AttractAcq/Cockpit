@@ -24,6 +24,12 @@ import { test } from "node:test";
 const migrationPath = new URL("../supabase/migrations/20260820170000_stage2_phase03_automations_surfaced.sql", import.meta.url);
 const libPath = new URL("../src/lib/workflows.ts", import.meta.url);
 const panelPath = new URL("../src/components/operations/OperationsControlPanel.tsx", import.meta.url);
+// Cockpit v3 Step 2 moved WorkflowsSection/TriggersSection out of
+// OperationsControlPanel.tsx into shared components (src/components/
+// automations/), reused by both the original Operations tab and the new
+// top-level Automations page -- see tests/cockpit-v3-step2-automations.test.ts.
+// The fetchScheduledTriggers/flagging invariant checked below moved with it.
+const triggersSectionPath = new URL("../src/components/automations/TriggersSection.tsx", import.meta.url);
 const registryPath = new URL("../supabase/functions/registry.json", import.meta.url);
 
 test("list_scheduled_triggers is staff-only, revoked from public/anon, and never returns the raw command", async () => {
@@ -46,9 +52,9 @@ test("all 3 real pg_cron jobs found during the Phase 03 audit are accounted for 
   // The jobs themselves are fetched live via list_scheduled_triggers(), not
   // hardcoded -- this just confirms TriggersSection actually calls it and
   // flags targets that resolve to an undocumented deployment.
-  const panel = await readFile(panelPath, "utf8");
-  assert.match(panel, /fetchScheduledTriggers/);
-  assert.match(panel, /unmergedTargets\.has\(t\.target_function\)/);
+  const triggersSection = await readFile(triggersSectionPath, "utf8");
+  assert.match(triggersSection, /fetchScheduledTriggers/);
+  assert.match(triggersSection, /unmergedTargets\.has\(t\.target_function\)/);
 });
 
 test("every undocumented deployment found in the audit is represented, correctly categorised", async () => {
