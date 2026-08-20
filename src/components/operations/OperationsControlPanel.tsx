@@ -16,6 +16,7 @@ import {
 } from "@/lib/operations-admin";
 import { supabase } from "@/lib/supabase";
 import { computePublishSuccessRate, summariseExceptions, summariseQueueAge, summariseApprovalDelays, type PublishAttemptLike, type ExceptionLike } from "@/lib/observability";
+import { fetchWorkflows, fetchScheduledTriggers, UNDOCUMENTED_DEPLOYMENTS, type ScheduledTrigger } from "@/lib/workflows";
 import { ALL_ROLES, ROLE_LABEL, COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/types/operations";
 import { AUTOMATION_AREAS } from "@/types/automation";
 import type { Client } from "@/types/client";
@@ -28,9 +29,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
-const TABS = ["metrics", "intelligence", "team", "work", "cost", "onboarding"] as const;
+const TABS = ["metrics", "intelligence", "workflows", "triggers", "team", "work", "cost", "onboarding"] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", intelligence: "Intelligence", team: "Team & Roles", work: "Work Items", cost: "Cost & Margin", onboarding: "Onboarding" };
+const TAB_LABEL: Record<Tab, string> = { metrics: "Metrics", intelligence: "Intelligence", workflows: "Workflows", triggers: "Triggers", team: "Team & Roles", work: "Work Items", cost: "Cost & Margin", onboarding: "Onboarding" };
 
 function MetricsSection({ clients }: { clients: Client[] }) {
   const [attempts, setAttempts] = useState<PublishAttemptLike[]>([]);
@@ -76,6 +77,102 @@ function MetricsSection({ clients }: { clients: Client[] }) {
       <div className="rounded border border-line bg-ink-200 p-3"><div className="font-mono text-lg text-paper">{clients.length}</div><div className="text-2xs text-paper-3">Clients</div></div>
       <div className="rounded border border-line bg-ink-200 p-3"><div className="font-mono text-lg text-paper">{publishRate.published}</div><div className="text-2xs text-paper-3">Published (last 500 attempts)</div></div>
       <div className="rounded border border-line bg-ink-200 p-3"><div className="font-mono text-lg text-paper">{publishRate.permanentFailures}</div><div className="text-2xs text-paper-3">Permanent publish failures</div></div>
+    </div>
+    <Button size="sm" variant="ghost" onClick={() => void load()}>Reload</Button>
+  </div>;
+}
+
+const PROFILE_COLOR: Record<string, string> = {
+  ui_authority: "text-teal", ui_operational: "text-teal", ui_held: "text-warn",
+  operator_internal: "text-info", function_internal: "text-paper-3",
+  cron_jwt_disabled: "text-warn", cron_jwt_verified: "text-warn", retired: "text-neg",
+};
+
+function WorkflowsSection() {
+  const [filter, setFilter] = useState("all");
+  const workflows = useMemo(() => fetchWorkflows(), []);
+  const profiles = useMemo(() => ["all", ...Array.from(new Set(workflows.map((w) => w.profile))).sort()], [workflows]);
+  const visible = filter === "all" ? workflows : workflows.filter((w) => w.profile === filter);
+
+  return <div className="space-y-3">
+    <p className="text-2xs text-paper-3">
+      The governed edge-function registry itself ({workflows.length} functions) — the same source of truth <code>npm run check:edge-functions</code> enforces in CI. Nothing here is a separate, driftable list.
+    </p>
+    <div className="flex items-center gap-2">
+      <span className="text-2xs text-paper-3 uppercase tracking-cap">Profile</span>
+      <select className={field} value={filter} onChange={(e) => setFilter(e.target.value)}>
+        {profiles.map((p) => <option key={p} value={p}>{p === "all" ? "All profiles" : p}</option>)}
+      </select>
+      <span className="text-2xs text-paper-3 font-mono ml-auto">{visible.length} shown</span>
+    </div>
+    <div className="max-h-96 overflow-y-auto space-y-1">
+      {visible.map((w) => (
+        <div key={w.name} className="rounded border border-line bg-ink p-2 text-2xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-paper font-medium">{w.name}</span>
+            <span className={`font-mono uppercase ${PROFILE_COLOR[w.profile] ?? "text-paper-3"}`}>{w.profile}</span>
+            <span className="text-paper-3">· {w.page}</span>
+          </div>
+          <p className="mt-1 text-paper-2">{w.purpose}</p>
+        </div>
+      ))}
+    </div>
+
+    <div className="rounded border border-warn/40 bg-warn/5 p-3">
+      <h4 className="mb-1 text-xs font-medium text-warn">⚠ Deployed but not in this registry ({UNDOCUMENTED_DEPLOYMENTS.length})</h4>
+      <p className="mb-2 text-2xs text-paper-3">
+        Found by diffing what's actually deployed on the production project against this repo's registry (Stage 2 Phase 03 audit, 2026-08-20). This app cannot detect this list live — it needs Management API access the frontend never holds — so treat it as a dated finding, not a live feed.
+      </p>
+      <div className="space-y-1">
+        {UNDOCUMENTED_DEPLOYMENTS.map((d) => (
+          <div key={d.slug} className="rounded border border-line bg-ink p-2 text-2xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-paper font-medium">{d.slug}</span>
+              <span className={`font-mono uppercase ${d.category === "unmerged_branch" ? "text-neg" : "text-paper-3"}`}>
+                {d.category === "unmerged_branch" ? "unmerged branch" : "retired, still deployed"}
+              </span>
+            </div>
+            <p className="mt-1 text-paper-2">{d.note}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>;
+}
+
+function TriggersSection() {
+  const [triggers, setTriggers] = useState<ScheduledTrigger[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setTriggers(await fetchScheduledTriggers()); }
+    catch (e) { setNotice({ kind: "error", text: errorMessage(e) }); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const unmergedTargets = new Set(UNDOCUMENTED_DEPLOYMENTS.filter((d) => d.category === "unmerged_branch").map((d) => d.slug));
+
+  if (loading) return <p className="text-2xs text-paper-3">Loading…</p>;
+  return <div className="space-y-3">
+    {notice && <p className="text-2xs text-neg">{notice.text}</p>}
+    <p className="text-2xs text-paper-3">pg_cron's real, live job list — the ground truth for what's actually scheduled, not an aspirational or documented-only list.</p>
+    <div className="space-y-1">
+      {triggers.map((t) => (
+        <div key={t.jobname} className="rounded border border-line bg-ink p-2 text-2xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-paper font-medium">{t.jobname}</span>
+            <span className="font-mono text-paper-3">{t.schedule}</span>
+            <span className={t.active ? "text-teal" : "text-paper-3"}>{t.active ? "active" : "paused"}</span>
+            {t.target_function && unmergedTargets.has(t.target_function) && (
+              <span className="font-mono uppercase text-neg">⚠ target not in main</span>
+            )}
+          </div>
+          <p className="mt-1 text-paper-2">→ {t.target_function ?? "(could not parse target from command)"}</p>
+        </div>
+      ))}
     </div>
     <Button size="sm" variant="ghost" onClick={() => void load()}>Reload</Button>
   </div>;
@@ -341,6 +438,8 @@ export function OperationsControlPanel() {
     </div>
     {tab === "metrics" && <MetricsSection clients={clients} />}
     {tab === "intelligence" && <IntelligenceOperationsPanel clients={clients} />}
+    {tab === "workflows" && <WorkflowsSection />}
+    {tab === "triggers" && <TriggersSection />}
     {tab === "team" && <TeamRolesSection clients={clients} />}
     {tab === "work" && <WorkItemsSection clients={clients} />}
     {tab === "cost" && <CostMarginSection clients={clients} />}
