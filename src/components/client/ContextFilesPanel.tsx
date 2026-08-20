@@ -12,7 +12,7 @@ import {
   updateContextFileContent,
   updateContextFileStatus,
 } from "@/lib/api";
-import { CONTEXT_FILE_DEFS } from "@/types/phase";
+import { CONTEXT_FILE_DEFS, CONTEXT_FILE_STATUS_LABEL, CONTEXT_FILE_STATUS_COLOUR } from "@/types/phase";
 import type { ClientContextFile, ClientContextPatchDraft, ClientContextUpdateProposal, ContextFileStatus } from "@/types/phase";
 import { isContextPatchStale } from "@/lib/context-patch-application";
 import { ROUTES } from "@/lib/constants";
@@ -21,23 +21,8 @@ type ViewMode = "preview" | "edit" | "split";
 type Filter = "all" | "approved" | "needs_review" | "needs_client_input";
 type Notice = { type: "success" | "error" | "info"; message: string } | null;
 
-const STATUS_COLOUR: Record<ContextFileStatus, string> = {
-  not_started: "text-paper-3",
-  generating: "text-warn",
-  generated: "text-teal",
-  needs_review: "text-warn",
-  approved: "text-teal",
-  needs_client_input: "text-neg",
-};
-
-const STATUS_LABEL: Record<ContextFileStatus, string> = {
-  not_started: "Missing",
-  generating: "Generating…",
-  generated: "Generated",
-  needs_review: "Needs Review",
-  approved: "Approved",
-  needs_client_input: "Needs Client Input",
-};
+const STATUS_COLOUR = CONTEXT_FILE_STATUS_COLOUR;
+const STATUS_LABEL = CONTEXT_FILE_STATUS_LABEL;
 
 function formatError(error: unknown): string {
   if (error && typeof error === "object") {

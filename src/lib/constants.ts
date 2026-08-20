@@ -12,6 +12,7 @@ export const ROUTES = {
   opportunities: "/opportunities",
   automations: "/automations",
   team: "/team",
+  knowledge: "/knowledge",
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -38,6 +39,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Opportunities", path: ROUTES.opportunities, shortcut: "⌘6", icon: "alert-circle" },
   { label: "Automations",   path: ROUTES.automations,   shortcut: "⌘8", icon: "library" },
   { label: "Team",          path: ROUTES.team,          shortcut: "⌘9", icon: "users" },
+  { label: "Knowledge",     path: ROUTES.knowledge,     shortcut: "⌘0", icon: "library" },
   { label: "Operations",    path: ROUTES.operations,    shortcut: "⌘7", icon: "ops" },
 ];
 
@@ -52,6 +54,7 @@ export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "7"], label: "Operations" },
   { keys: ["⌘", "8"], label: "Automations" },
   { keys: ["⌘", "9"], label: "Team" },
+  { keys: ["⌘", "0"], label: "Knowledge" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 
