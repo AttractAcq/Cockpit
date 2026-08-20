@@ -8,7 +8,9 @@ import type {
   ClientWorkItemRow, WorkItemStatus, WorkItemPriority, ClientCostLedgerRow, CostCategory,
   ClientMarginSummaryRow, ClientOnboardingTemplateRow, TeamMemberRow,
   ClientProjectRow, ProjectStatus, ClientDeliverableRow, DeliverableStatus,
+  ClientFinancePeriodRow,
 } from "@/types/operations";
+import type { ParsedCostEntry } from "./finance-csv";
 
 // ── Team / roles ─────────────────────────────────────────────────────────────
 
@@ -191,4 +193,36 @@ export async function createDeliverable(input: {
 export async function updateDeliverableStatus(deliverableId: string, newStatus: DeliverableStatus, link?: string | null): Promise<void> {
   const { error } = await supabase.rpc("update_deliverable_status", { p_deliverable_id: deliverableId, p_new_status: newStatus, p_link: link ?? null });
   if (error) throw error;
+}
+
+// ── Finance periods & CSV import ─────────────────────────────────────────────
+// Stage 2 Phase 08. Extends Stage O's client_cost_ledger/client_margin_summary
+// -- a real accounting period with a reconciliation step, distinct from the
+// mutable clients.monthly_revenue_estimate.
+
+export async function fetchFinancePeriods(clientId?: string): Promise<ClientFinancePeriodRow[]> {
+  let query = supabase.from("client_finance_periods").select("*").order("period_start", { ascending: false });
+  if (clientId) query = query.eq("client_id", clientId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ClientFinancePeriodRow[];
+}
+
+export async function openFinancePeriod(input: { clientId: string; periodStart: string; periodEnd: string; notes?: string | null }): Promise<string> {
+  const { data, error } = await supabase.rpc("open_finance_period", {
+    p_client_id: input.clientId, p_period_start: input.periodStart, p_period_end: input.periodEnd, p_notes: input.notes ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function reconcileFinancePeriod(periodId: string, actualRevenue: number, notes?: string | null): Promise<void> {
+  const { error } = await supabase.rpc("reconcile_finance_period", { p_period_id: periodId, p_actual_revenue: actualRevenue, p_notes: notes ?? null });
+  if (error) throw error;
+}
+
+export async function importCostEntries(clientId: string, entries: ParsedCostEntry[]): Promise<number> {
+  const { data, error } = await supabase.rpc("import_cost_entries", { p_client_id: clientId, p_entries: entries });
+  if (error) throw error;
+  return data as number;
 }
