@@ -13,6 +13,13 @@ import { test } from "node:test";
 
 const panelPath = new URL("../src/components/operations/OperationsControlPanel.tsx", import.meta.url);
 const groundTruthPath = new URL("../docs/STAGE_2_PHASE_00_GROUND_TRUTH.md", import.meta.url);
+// Cockpit v3 Step 2 moved TeamRolesSection out of OperationsControlPanel.tsx
+// into its own shared component (src/components/team/), reused by both the
+// original Operations tab and the new top-level Team page -- see
+// tests/cockpit-v3-step2-team.test.ts. This phase's own invariants below
+// moved with it; the file itself is now the whole section, so no split() is
+// needed to isolate it.
+const teamRolesSectionPath = new URL("../src/components/team/TeamRolesSection.tsx", import.meta.url);
 
 test("Phase 09 introduces zero new migrations -- every building block was already real per Phase 00's audit", async () => {
   const { readdir } = await import("node:fs/promises");
@@ -22,22 +29,19 @@ test("Phase 09 introduces zero new migrations -- every building block was alread
 });
 
 test("the Team Directory is composed from fetchStaffUsers, fetchTeamMembers (already real, Phase 00) and fetchWorkflows (already real, Phase 03) -- no new data source invented", async () => {
-  const panel = await readFile(panelPath, "utf8");
-  const section = panel.split("function TeamRolesSection")[1].split("\nfunction ")[0];
-  assert.match(section, /fetchTeamMembers\(\), fetchStaffUsers\(\)/);
+  const section = await readFile(teamRolesSectionPath, "utf8");
+  assert.match(section, /fetchClients\(\), fetchTeamMembers\(\), fetchStaffUsers\(\)/);
   assert.match(section, /fetchWorkflows\(\)\.filter\(\(w\) => w\.profile !== "retired"\)/, "agent roles must exclude retired functions -- the exit gate is every *current* role");
 });
 
 test("the directory tags every row Human or Agent -- no unlabeled, ambiguous entries", async () => {
-  const panel = await readFile(panelPath, "utf8");
-  const section = panel.split("function TeamRolesSection")[1].split("\nfunction ")[0];
+  const section = await readFile(teamRolesSectionPath, "utf8");
   assert.match(section, />Human</);
   assert.match(section, />Agent</);
 });
 
 test("capacity is stated as honestly not tracked yet, not fabricated -- matching the Phase 05 Campaigns disclosure precedent", async () => {
-  const panel = await readFile(panelPath, "utf8");
-  const section = panel.split("function TeamRolesSection")[1].split("\nfunction ")[0];
+  const section = await readFile(teamRolesSectionPath, "utf8");
   assert.doesNotMatch(section, /capacity_hours|capacityHours|\.capacity\b/i, "no capacity field or binding may exist -- it isn't tracked");
   assert.match(section, /Capacity is not tracked yet/);
 });

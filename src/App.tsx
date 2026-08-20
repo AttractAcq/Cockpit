@@ -15,6 +15,7 @@ import { CommsPage } from "@/pages/CommsPage";
 import { CommsConversationPage } from "@/pages/CommsConversationPage";
 import { OpportunitiesPage } from "@/pages/OpportunitiesPage";
 import { AutomationsPage } from "@/pages/AutomationsPage";
+import { TeamPage } from "@/pages/TeamPage";
 import { OperationsPage } from "@/pages/OperationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ROUTES } from "@/lib/constants";
@@ -47,6 +48,7 @@ export function App() {
             <Route path="/comms/:id" element={<CommsConversationPage />} />
             <Route path={ROUTES.opportunities} element={<OpportunitiesPage />} />
             <Route path={ROUTES.automations} element={<AutomationsPage />} />
+            <Route path={ROUTES.team} element={<TeamPage />} />
             <Route path={ROUTES.operations} element={<OperationsPage />} />
             <Route path={ROUTES.settings} element={<SettingsPage />} />
             <Route path="*" element={<Navigate to={ROUTES.cockpit} replace />} />
