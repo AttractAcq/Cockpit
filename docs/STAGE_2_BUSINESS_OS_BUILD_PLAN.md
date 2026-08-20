@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** Phase 00 complete (2026-08-20) — see `docs/STAGE_2_PHASE_00_GROUND_TRUTH.md` for the full audit, retirement history, and all 5 Open Decisions answered with a named owner. The audit table and Open Decisions section below are updated to match its findings. Phase 01 is next.
+**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 (Business Selector) is next, but should not start before Phase 01's exit gate is confirmed met.
 
 ---
 
@@ -74,11 +74,11 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 
 **Exit gate:** every item in Open Decisions has a recorded answer, owned by a named person.
 
-### Phase 01 — Overview / Command Center
+### Phase 01 — Overview / Command Center — **shipped 2026-08-20, exit gate pending**
 
 **Goal:** the cheapest, highest-leverage phase — CEO-layer visibility built entirely on data that already exists.
 
-- **Builds on:** `activity_log`, existing pipeline-state tables, the current per-client Overview tab.
+- **Builds on:** `activity_log`, existing pipeline-state tables, the current per-client Overview tab, and — per Phase 00's finding — `CockpitPage.tsx`'s existing cross-client tile band and Operational Control's Metrics sub-tab.
 - **Deferred:** Bottlenecks and Priorities as an AI inference. Ship as a manually-authored note first — "demand isn't the constraint, conversion is" has to be earned by a human before it's trusted from a model.
 - **Deliverables:** Command Center and Activity views that aggregate existing tables. No new domain schema required.
 
@@ -88,6 +88,10 @@ Each phase below has: what it builds on, what it deliberately defers, its delive
 3. Add manually-authored Bottlenecks/Priorities notes.
 4. Live-test against real AA data.
 5. Ship to actual daily use.
+
+**Result:** `CockpitPage.tsx` (the existing landing page) now surfaces an "Operational Health" tile row — publish success rate, open exceptions, oldest exception age, overdue work items — reusing `src/lib/observability.ts`'s existing pure aggregation functions verbatim (the exact ones Operations > Operational Control > Metrics already uses), reading the same three real tables. No new schema for this part, matching the plan's own deliverable. The one genuinely new piece is a "Bottlenecks & Priorities" panel backed by an additive `command_center_notes` table (the first cross-business, non-client-scoped table in this schema) and two admin-only RPCs (`add_command_center_note`, `resolve_command_center_note`) — following the direct-RPC convention Phase 00's Decision 4 calls for, not an edge function. Live-tested against `xivewedajschthjlblfb` inside a rolled-back transaction: happy path (add → verify → resolve → verify), double-resolve correctly rejected closed, unknown-role and unauthenticated inserts both correctly rejected, table confirmed empty afterward. `get_advisors` showed two new findings, both the same already-accepted "SECURITY DEFINER callable by authenticated" class every other Stage O admin RPC (`create_work_item`, `record_cost_entry`) already carries — no new class of issue. Full local suite verified: typecheck, lint (0 errors), `check:edge-functions` (unchanged, 0 new functions), full test suite, build, `git diff --check` all clean.
+
+**Exit gate — not yet met, by design:** "AA leadership actually uses it for real decisions for two consecutive weeks before it's called done." The build is real and shipped; the phase itself cannot be marked complete until that usage period has actually elapsed. Earliest possible completion date: 2026-09-03.
 
 **Exit gate:** AA leadership actually uses it for real decisions for two consecutive weeks before it's called done.
 

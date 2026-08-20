@@ -88,3 +88,18 @@ export interface ClientOnboardingTemplateRow {
   created_at: string;
   updated_at: string;
 }
+
+// Stage 2 Phase 01 — Command Center. Manually-authored, cross-business
+// (not client-scoped) bottleneck/priority notes. AI inference for this is
+// deliberately deferred by the build plan until the manual version is trusted.
+export type CommandCenterNoteCategory = "bottleneck" | "priority";
+
+export interface CommandCenterNoteRow {
+  id: string;
+  category: CommandCenterNoteCategory;
+  body: string;
+  created_by: string | null;
+  created_at: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+}
