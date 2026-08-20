@@ -10,6 +10,7 @@ import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
 import { ContextInputsPanel } from "@/components/client/ContextInputsPanel";
 import { ContextFilesPanel } from "@/components/client/ContextFilesPanel";
+import { MarketingCampaignsPanel } from "@/components/client/MarketingCampaignsPanel";
 import { KnowledgeSearchPanel } from "@/components/client/KnowledgeSearchPanel";
 import { ExecutionFilesPanel } from "@/components/client/ExecutionFilesPanel";
 import { MastersPanel } from "@/components/client/MastersPanel";
@@ -51,6 +52,7 @@ type Section =
   | "offer"
   | "main_offers"
   | "seasonal_offers"
+  | "marketing_campaigns"
   | "avatars"
   | "market_os"
   | "lead_magnets"
@@ -90,6 +92,8 @@ interface DeliveryPage {
   label: string;
   tabs: SectionLink[];
   defaultSection?: Section;
+  /** Stage 2 Phase 05: purely visual clustering in the page-pill row — no new nav level, no route changes. */
+  group?: string;
 }
 
 // The first row follows the client delivery lifecycle. Stable internal section
@@ -139,8 +143,16 @@ const DELIVERY_PAGES: DeliveryPage[] = [
       { label: "Campaign Intelligence", section: "campaign_intelligence" },
     ],
   },
+  // Stage 2 Phase 05: Offer, plus Campaigns/Ideation/Creation/Distribution/
+  // Iteration below, are visually clustered under a "Marketing" label in
+  // the page-pill row — same routes, same one-click reach, purely
+  // organizational. Avatars keeps its exact original position between
+  // Offer and Ideation (a pre-existing, deliberate ordering asserted by
+  // tests/avatar-os-stage5.test.ts) rather than being moved to make the
+  // cluster fully contiguous — see docs/STAGE_2_PHASE_05_DEPENDENCY_TRACE.md.
   {
     label: "Offer",
+    group: "Marketing",
     defaultSection: "main_offers",
     tabs: [
       { label: "Main Offers", section: "main_offers" },
@@ -156,7 +168,16 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     ],
   },
   {
+    label: "Campaigns",
+    group: "Marketing",
+    defaultSection: "marketing_campaigns",
+    tabs: [
+      { label: "Campaigns", section: "marketing_campaigns" },
+    ],
+  },
+  {
     label: "Ideation",
+    group: "Marketing",
     defaultSection: "content_supply",
     tabs: [
       { label: "Content Supply", section: "content_supply" },
@@ -166,6 +187,7 @@ const DELIVERY_PAGES: DeliveryPage[] = [
   },
   {
     label: "Creation",
+    group: "Marketing",
     defaultSection: "content_creation",
     tabs: [
       { label: "Content", section: "masters", hidden: true },
@@ -176,10 +198,20 @@ const DELIVERY_PAGES: DeliveryPage[] = [
   },
   {
     label: "Distribution",
+    group: "Marketing",
     defaultSection: "distribution",
     tabs: [
       { label: "Organic", section: "distribution" },
       { label: "Paid", section: "paid_distribution" },
+    ],
+  },
+  {
+    label: "Iteration",
+    group: "Marketing",
+    defaultSection: "analytics",
+    tabs: [
+      { label: "Analytics", section: "analytics" },
+      { label: "Performance & Iteration", section: "performance-iteration" },
     ],
   },
   {
@@ -188,14 +220,6 @@ const DELIVERY_PAGES: DeliveryPage[] = [
     tabs: [
       { label: "Lead Magnets", section: "lead_magnets" },
       { label: "Landing Pages", section: "landing_pages" },
-    ],
-  },
-  {
-    label: "Iteration",
-    defaultSection: "analytics",
-    tabs: [
-      { label: "Analytics", section: "analytics" },
-      { label: "Performance & Iteration", section: "performance-iteration" },
     ],
   },
 ];
@@ -767,6 +791,8 @@ export function ClientDetailPage() {
         return <ContextFilesPanel key={contextFilesKey} clientId={id} onFilesLoaded={handleContextFilesLoaded} />;
       case "knowledge_search":
         return <KnowledgeSearchPanel clientId={id} />;
+      case "marketing_campaigns":
+        return <MarketingCampaignsPanel clientId={id} />;
       case "execution_files":
         return <ExecutionFilesPanel key={executionFilesKey} clientId={id} executionMonth={currentMonth()} onFilesLoaded={handleExecutionFilesLoaded} />;
       case "master_ai":
@@ -861,22 +887,25 @@ export function ClientDetailPage() {
 
         {/* Primary delivery pages */}
         <nav aria-label="Delivery pages" className="flex flex-wrap items-center gap-1">
-          {DELIVERY_PAGES.map((page) => {
+          {DELIVERY_PAGES.map((page, index) => {
             const isActive = page === activePage;
+            const inGroup = Boolean(page.group);
+            const entersGroup = inGroup && DELIVERY_PAGES[index - 1]?.group !== page.group;
+            const exitsGroup = inGroup && DELIVERY_PAGES[index + 1]?.group !== page.group;
             return (
-            <button
-              key={page.label}
-              onClick={() => {
-                if (page.defaultSection) navTo(page.defaultSection);
-              }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                isActive
-                  ? "bg-teal/15 text-teal"
-                  : "text-paper-2 hover:bg-ink-200 hover:text-paper"
-              }`}
-            >
-              {page.label}
-            </button>
+              <span key={page.label} className="flex items-center">
+                {entersGroup && <span className="mr-1 pl-1 text-2xs uppercase tracking-cap text-paper-3">{page.group}</span>}
+                <button
+                  onClick={() => {
+                    if (page.defaultSection) navTo(page.defaultSection);
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    isActive ? "bg-teal/15 text-teal" : inGroup ? "bg-ink-200/50 text-paper-2 hover:bg-ink-200 hover:text-paper" : "text-paper-2 hover:bg-ink-200 hover:text-paper"
+                  } ${entersGroup ? "rounded-l-md" : ""} ${exitsGroup ? "rounded-r-md" : !inGroup ? "rounded-md" : ""}`}
+                >
+                  {page.label}
+                </button>
+              </span>
             );
           })}
         </nav>
