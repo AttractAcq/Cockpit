@@ -14,6 +14,7 @@ export const ROUTES = {
   team: "/team",
   knowledge: "/knowledge",
   finance: "/finance",
+  marketing: "/marketing",
   operations: "/operations",
   settings: "/settings",
   // Legacy stubs — referenced by old components; preserved for typecheck compatibility
@@ -28,7 +29,7 @@ export interface NavItem {
   label: string;
   path: string;
   shortcut: string;
-  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up" | "chat" | "alert-circle" | "library" | "money";
+  icon: "home" | "users" | "ops" | "external" | "board" | "trending-up" | "chat" | "alert-circle" | "library" | "money" | "campaign";
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -42,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Team",          path: ROUTES.team,          shortcut: "⌘9", icon: "users" },
   { label: "Knowledge",     path: ROUTES.knowledge,     shortcut: "⌘0", icon: "library" },
   { label: "Finance",       path: ROUTES.finance,       shortcut: "⌘F", icon: "money" },
+  { label: "Marketing",     path: ROUTES.marketing,     shortcut: "⌘M", icon: "campaign" },
   { label: "Operations",    path: ROUTES.operations,    shortcut: "⌘7", icon: "ops" },
 ];
 
@@ -58,6 +60,7 @@ export const KEYBOARD_SHORTCUTS = [
   { keys: ["⌘", "9"], label: "Team" },
   { keys: ["⌘", "0"], label: "Knowledge" },
   { keys: ["⌘", "F"], label: "Finance" },
+  { keys: ["⌘", "M"], label: "Marketing" },
   { keys: ["?"],       label: "Show all shortcuts" },
 ];
 
