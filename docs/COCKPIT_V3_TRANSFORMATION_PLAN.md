@@ -182,6 +182,14 @@ A persistent Business Selector now lives in `TopBar.tsx` — visible on every pa
 
 **Exit gate:** every system in the bridge table renders under its target parent, every existing RPC/table/test is unchanged and passing, and old routes have been retired following the hide-then-drop discipline (not left as permanent dead weight).
 
+**Result — started 2026-08-20, exit gate not yet met.** First rehome shipped: **Automations**, chosen as the lowest-risk system in the bridge table — Workflows/Triggers were already cross-business (no `client_id` scoping to bridge through `BusinessContext` at all, unlike every other system in the table), so this slice tests the rehoming *mechanism* without also having to solve the harder client-scoping question the rest of the table raises.
+
+`WorkflowsSection`/`TriggersSection` (plus the small `PROFILE_COLOR` map) were extracted out of the 900-line `OperationsControlPanel.tsx` monolith into `src/components/automations/` as standalone, shared components — not duplicated. A new top-level `AutomationsPage.tsx` (`/automations`, 8th `NAV_ITEMS` entry) renders them directly; `OperationsControlPanel.tsx`'s original "Workflows"/"Triggers" tabs now import and render the exact same components instead of their own copies, so both entry points are backed by one source of truth. **Hide-before-delete, done literally**: the old tabs are untouched and fully functional, not hidden or redirected — full retirement is deferred to a later pass once the new top-level page has real usage behind it, per this step's own step 4.
+
+One pre-existing test (`tests/stage2-phase03-automations-surfaced.test.ts`) checked `fetchScheduledTriggers`/undocumented-deployment-flagging by reading `OperationsControlPanel.tsx`'s source text — repointed to `TriggersSection.tsx`, where that code now actually lives; the invariant itself is unchanged, only the file it's checked against. 4 new tests confirming the shared-not-duplicated wiring and the hide-before-delete state. Full suite 1043/1043 (5 new, 1 repointed), typecheck/lint (0 errors, same 6 pre-existing warnings)/build/`check:edge-functions` (unaffected — 0 new edge functions, same 105/82/23/13 split) all clean.
+
+**Not yet done, honestly:** Marketing, Finance, Team, and Knowledge — the systems that actually require solving the `client_id`/`BusinessContext` bridge (§3) for a cross-business page, not just a nav move — remain undone; Opportunity OS/Activity Log's fold into Overview/Master AI is deferred until those pages exist in more than kernel form (Step 4/5 territory in practice, even though listed here). The exit gate is not being claimed met.
+
 ### Step 3 — Build the missing collaboration surfaces
 
 **Goal:** the three genuinely new UI surfaces this plan requires — Conversations, Team-as-workspace, and Documents.
