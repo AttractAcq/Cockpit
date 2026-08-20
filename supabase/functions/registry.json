@@ -9,9 +9,9 @@
     "maintainerGuide": "docs/edge-function-remediation/EDGE_FUNCTION_REGISTRY_MAINTENANCE.md"
   },
   "expectedCounts": {
-    "localFunctions": 103,
-    "uiCalled": 81,
-    "nonUiCalled": 22,
+    "localFunctions": 105,
+    "uiCalled": 82,
+    "nonUiCalled": 23,
     "retired": 13
   },
   "profiles": {
@@ -188,6 +188,57 @@
       "deployable": false,
       "operationalOwner": "Cockpit engineering",
       "requiredEnvironment": []
+    },
+    "webhook_meta_verified": {
+      "lifecycle": "active",
+      "caller": "webhook",
+      "allowedMethods": [
+        "GET",
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "webhook_signature",
+      "allowedStaffRoles": [],
+      "clientScope": "not_applicable",
+      "jwtVerification": "disabled_with_alternate_auth",
+      "alternateSecret": "META_APP_SECRET",
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "AA_META_VERIFY_TOKEN",
+        "META_APP_SECRET"
+      ]
+    },
+    "ui_cross_business": {
+      "lifecycle": "active",
+      "caller": "ui",
+      "allowedMethods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "authMode": "staff_jwt",
+      "allowedStaffRoles": [
+        "admin",
+        "account_manager",
+        "strategist",
+        "content_operator",
+        "editor",
+        "media_buyer",
+        "analyst"
+      ],
+      "clientScope": "not_applicable",
+      "jwtVerification": "verified",
+      "alternateSecret": null,
+      "serviceRoleUsage": true,
+      "deployable": true,
+      "operationalOwner": "Cockpit engineering",
+      "requiredEnvironment": [
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
     }
   },
   "exceptions": [
@@ -3079,6 +3130,55 @@
       ],
       "remediationIds": [],
       "testCoverage": [],
+      "internalCallers": []
+    },
+    {
+      "name": "meta-instagram-webhook",
+      "purpose": "Receives Meta's Instagram DM webhook (GET verification handshake + POST message events), verifies X-Hub-Signature-256, and ingests inbound messages via record_comms_message.",
+      "system": "Communications Hub",
+      "page": "Comms",
+      "profile": "webhook_meta_verified",
+      "databaseDomains": [
+        "comms"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [
+        "AA_META_VERIFY_TOKEN",
+        "META_APP_SECRET"
+      ],
+      "auditPhases": [
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/stage2-phase10-comms-hub.test.ts"
+      ],
+      "internalCallers": []
+    },
+    {
+      "name": "send-instagram-message",
+      "purpose": "Sends a staff-composed reply to an Instagram DM conversation via the Meta Graph API, then records the outbound message once Meta confirms success.",
+      "system": "Communications Hub",
+      "page": "Comms",
+      "profile": "ui_cross_business",
+      "databaseDomains": [
+        "comms"
+      ],
+      "storageBuckets": [],
+      "externalProviders": [
+        "meta"
+      ],
+      "requiredEnvironment": [],
+      "auditPhases": [
+        10
+      ],
+      "remediationIds": [],
+      "testCoverage": [
+        "tests/stage2-phase10-comms-hub.test.ts"
+      ],
       "internalCallers": []
     }
   ]
