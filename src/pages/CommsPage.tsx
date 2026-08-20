@@ -1,6 +1,7 @@
-// Stage 2 Phase 10 — Communications Hub. The conversation list: every real
-// Instagram DM identity, filterable by linked/unlinked. Mirrors Sales'
-// list-then-detail pattern.
+// Stage 2 Phase 10 — Communications Hub, rehomed under "Conversations" naming
+// (Cockpit v3 Step 3). The conversation list: every real Instagram DM
+// identity, filterable by linked/unlinked. Mirrors Sales' list-then-detail
+// pattern.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -53,7 +54,7 @@ export function CommsPage() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-sm font-medium text-paper">Comms</h1>
+        <h1 className="text-sm font-medium text-paper">Conversations</h1>
         <span className="text-2xs text-paper-3 font-mono">{visible.length} of {identities.length}</span>
       </div>
       {error && <p className="text-2xs text-neg">{error}</p>}

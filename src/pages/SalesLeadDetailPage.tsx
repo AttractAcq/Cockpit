@@ -10,6 +10,7 @@ import { fetchSalesLeads, fetchSalesConversations, updateSalesLeadStage, assignS
 import { fetchBusiness } from "@/lib/business";
 import { useBusinessContext } from "@/lib/business-context";
 import { fetchStaffUsers, type StaffUserRow } from "@/lib/operations-admin";
+import { SALES_STAGE_LABEL } from "@/types/sales";
 import type { SalesLeadRow, SalesConversationRow, SalesLeadStage } from "@/types/sales";
 import type { BusinessRow } from "@/types/business";
 import { ROUTES } from "@/lib/constants";
@@ -17,10 +18,6 @@ import { fmtDateLong, fmtRelative } from "@/lib/format";
 
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
 
-const STAGE_LABEL: Record<SalesLeadStage, string> = {
-  lead: "Lead", conversation: "Conversation", opportunity: "Opportunity",
-  follow_up: "Follow-Up", closed_won: "Closed Won", closed_lost: "Closed Lost",
-};
 const NEXT_STAGE: Record<SalesLeadStage, SalesLeadStage | null> = {
   lead: "conversation", conversation: "opportunity", opportunity: "follow_up",
   follow_up: "closed_won", closed_won: null, closed_lost: null,
@@ -124,7 +121,7 @@ export function SalesLeadDetailPage() {
         <div className="grid grid-cols-2 gap-4 p-4 text-xs sm:grid-cols-3">
           <div>
             <div className="text-2xs uppercase tracking-cap text-paper-3">Stage</div>
-            <div className="text-paper">{STAGE_LABEL[lead.stage]}</div>
+            <div className="text-paper">{SALES_STAGE_LABEL[lead.stage]}</div>
           </div>
           <div>
             <div className="text-2xs uppercase tracking-cap text-paper-3">Contact</div>
@@ -156,7 +153,7 @@ export function SalesLeadDetailPage() {
           <div className="flex flex-wrap items-end gap-2 border-t border-line p-4">
             {NEXT_STAGE[lead.stage] && (
               <Button size="sm" variant="primary" disabled={busy} onClick={() => void advance()}>
-                Move to {STAGE_LABEL[NEXT_STAGE[lead.stage]!]}
+                Move to {SALES_STAGE_LABEL[NEXT_STAGE[lead.stage]!]}
               </Button>
             )}
             <label className="flex flex-col gap-1">
