@@ -116,6 +116,29 @@ export interface ClientMarginSummaryRow {
   cost_by_category: Partial<Record<CostCategory, number>> | null;
 }
 
+// Stage 2 Phase 08 — Finance. A real accounting period with a
+// reconciliation step, distinct from the mutable, historyless
+// clients.monthly_revenue_estimate above. total_cost/margin are
+// snapshotted at reconciliation time, not recomputed live afterward.
+export type FinancePeriodStatus = "open" | "reconciled";
+
+export interface ClientFinancePeriodRow {
+  id: string;
+  client_id: string;
+  period_start: string;
+  period_end: string;
+  status: FinancePeriodStatus;
+  actual_revenue: number | null;
+  total_cost: number | null;
+  margin: number | null;
+  reconciled_by: string | null;
+  reconciled_at: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ClientOnboardingTemplateRow {
   id: string;
   name: string;
