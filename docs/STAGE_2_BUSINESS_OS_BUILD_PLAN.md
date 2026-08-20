@@ -4,7 +4,7 @@ A dependency-gated route from Cockpit as it exists today to a generalized, multi
 
 13 phases. Gated, not scheduled. Read alongside the Business OS Blueprint.
 
-**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 complete (2026-08-20) — surfaced a real, unreviewed live subsystem (see Phase 03's own card: the unmerged Facebook branch stack, deployed to production, invisible until now). Phase 04 (Knowledge, thin) is next.
+**Status:** Phase 00 complete (2026-08-20). Phase 01 shipped and live-tested (2026-08-20); its exit gate is a genuine two-week real-usage wait, earliest completion 2026-09-03 — see Phase 01's own card below. Phase 02 complete (2026-08-20), started and finished ahead of Phase 01's exit gate on Alex's explicit instruction — safe to do because Phase 02 is genuinely additive and provably isolated (zero inbound foreign keys into `businesses` from anywhere else in the schema), so it carries no risk to Phase 01's still-running usage-gate clock. Phase 03 complete (2026-08-20) — surfaced a real, unreviewed live subsystem (see Phase 03's own card: the unmerged Facebook branch stack, deployed to production, invisible until now). Phase 04 complete (2026-08-20) — the thinnest phase yet, zero new schema. Phase 05 (Marketing IA consolidation, high-discipline) is next.
 
 ---
 
@@ -38,7 +38,7 @@ The Blueprint's target taxonomy reads as a from-scratch build. Most of Marketing
 | Finance | `client_cost_ledger` + `client_margin_summary` view + `clients.monthly_revenue_estimate`, manual-entry only (Stage O) | partial | Not greenfield. Phase 08 extends this real backbone (CSV import, then integrations) rather than building cost/margin tables from scratch. |
 | Team | `team_members` assignment (all 9 Stage O roles, real client-scoped read visibility) + `users` role vocabulary | partial, materially further along | Stage O's real fix: `auth_client_ids()` now correctly routes every staff role through `team_members`, not just admin/account_manager. Fine-grained per-role *write* permissions and agent-capacity modeling are still not built. |
 | Automations | Edge-function registry + per-client Automations subtab + Operational Control's Metrics/Work Items/**Workflows/Triggers** sub-tabs (Phase 03, complete) | exists | Workflows renders the real registry; Triggers reads `cron.job` live. Surfaced a real gap: 21 functions deployed but unregistered, 10 of them from an unmerged Facebook branch stack — see Phase 03's card. |
-| Knowledge | Context Files / Execution Files / Context Inputs, per client | partial | Real substrate, no cross-referencing layer, and AA itself isn't yet a knowledge instance. |
+| Knowledge | Context Files / Execution Files / Context Inputs, per client, **plus a Search tab (Phase 04, complete)** | exists | AA already had 21 approved Context Files + 22 Execution Files — already a full knowledge instance, nothing to instantiate. Search is a pure client-side function over already-fetched content; 0 new schema. |
 | Business Selector | `businesses` table + `/businesses` list/detail pages + nav item (Phase 02, complete) | exists | AA is business row #1, linked to its existing internal `clients` row. Thin by design — no Sales/Finance/Team ownership yet; those attach in later phases. |
 
 ## Why this order
@@ -147,7 +147,7 @@ Scoped the build to two new sub-tabs inside the already-real Operational Control
 
 **Open item, not part of Phase 03's own scope:** decide the fate of `stage-1b-a` through `stage-1b-e` (merge after a real review, or explicitly retire/undeploy) — flagged, not resolved.
 
-### Phase 04 — Knowledge (thin)
+### Phase 04 — Knowledge (thin) — **complete (2026-08-20)**
 
 **Goal:** give the existing context-file substrate a cross-referencing layer, and extend the pattern to AA itself.
 
@@ -161,7 +161,13 @@ Scoped the build to two new sub-tabs inside the already-real Operational Control
 3. Instantiate AA's own knowledge base as business #1's content.
 4. Pick one real AA-specific question and test whether the layer answers it correctly.
 
-**Exit gate:** a real AA-specific question gets answered by querying this layer instead of asking a person.
+**Result — step 3 was already done, and step 1's inventory found more than expected.** AA already has 21 approved Context Files and 22 Execution Files with real, substantial content (business context, avatar/buyer psychology, offer architecture, proof bank, positioning, brand voice, content system, and more) — "AA's own knowledge base, as business #1" already existed; nothing needed to be instantiated. The inventory also surfaced real, already-wired-but-unpopulated provenance infrastructure — `client_context_file_citations`, `client_source_documents`, `client_document_chunks`, live edge functions (`process-source-document`, `record-context-file-provenance`) — a genuine citation/provenance layer that's simply never been exercised for AA's own content. Left untouched: activating it is a real, separate piece of work, not what this phase's "no new capture mechanism yet" deferral asked for.
+
+The actual gap was retrieval, not storage: no way to search across files, only view them one at a time. Built the thinnest possible version — `src/lib/knowledge-search.ts`, a **pure function**, zero new schema, zero new RPC, zero new edge function: it splits each already-fetched file's `content_md` into its markdown sections and ranks them by term-occurrence count against a query. `KnowledgeSearchPanel.tsx` calls the exact same `fetchClientContextFiles`/`fetchClientExecutionFiles` every other Context tab already uses — no new backend surface at all, the thinnest phase in this plan so far. New "Search" tab added to the existing Context nav group, right where Context Files/Execution Files already live. Also linked Phase 02's Business Selector into it: a linked client's `BusinessDetailPage` now has a direct "Search its knowledge base" link.
+
+**Verification — the exit gate itself:** pulled AA's real, approved `07_Brand_Voice_And_Style_Guide.md` content live from `xivewedajschthjlblfb`, ran the actual `knowledge-search.ts` source against it (not a simulation) with the real question *"what words should we never use in our marketing?"* — correctly ranked the "Words & Phrases to NEVER Use" section first, with a snippet containing the real banned-term table. Reproduced as an embedded fixture in the test suite so it's enforced in CI without a live DB dependency going forward. Full local suite: typecheck, lint (0 errors), `check:edge-functions` (unchanged — 0 new functions, 0 new migrations), 936/936 tests (8 new), build, `git diff --check` all clean.
+
+**Exit gate:** met — a real AA-specific question was answered by querying this layer, verified against real content, not assumed.
 
 ### Phase 05 — Marketing IA consolidation
 
