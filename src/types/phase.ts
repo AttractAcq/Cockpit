@@ -9,6 +9,24 @@ export type ContextFileStatus =
   | "approved"
   | "needs_client_input";
 
+export const CONTEXT_FILE_STATUS_LABEL: Record<ContextFileStatus, string> = {
+  not_started: "Missing",
+  generating: "Generating…",
+  generated: "Generated",
+  needs_review: "Needs Review",
+  approved: "Approved",
+  needs_client_input: "Needs Client Input",
+};
+
+export const CONTEXT_FILE_STATUS_COLOUR: Record<ContextFileStatus, string> = {
+  not_started: "text-paper-3",
+  generating: "text-warn",
+  generated: "text-teal",
+  needs_review: "text-warn",
+  approved: "text-teal",
+  needs_client_input: "text-neg",
+};
+
 export interface ClientInputs {
   id: string;
   client_id: string;
