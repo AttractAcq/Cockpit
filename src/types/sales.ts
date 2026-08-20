@@ -4,6 +4,11 @@
 
 export type SalesLeadStage = "lead" | "conversation" | "opportunity" | "follow_up" | "closed_won" | "closed_lost";
 
+export const SALES_STAGE_LABEL: Record<SalesLeadStage, string> = {
+  lead: "Lead", conversation: "Conversation", opportunity: "Opportunity",
+  follow_up: "Follow-Up", closed_won: "Closed Won", closed_lost: "Closed Lost",
+};
+
 export interface SalesLeadRow {
   id: string;
   business_id: string;

@@ -151,11 +151,11 @@ test("comms.ts reads both tables directly, calls link_comms_identity by name, an
   assert.doesNotMatch(lib, /from\("comms_messages"\)\.insert/, "the frontend must never insert a message row directly -- only record_comms_message may");
 });
 
-test("routes and nav wiring mirror the existing Sales pattern; Comms is a new top-level page", async () => {
+test("routes and nav wiring mirror the existing Sales pattern; Conversations (formerly Comms) is a new top-level page -- Cockpit v3 Step 3 renamed the nav label, route unchanged", async () => {
   const constants = await readFile(constantsPath, "utf8");
   assert.match(constants, /comms: "\/comms"/);
   assert.match(constants, /commsIdentity: \(id: string\) => `\/comms\/\$\{id\}`/);
-  assert.match(constants, /label: "Comms",\s*path: ROUTES\.comms/);
+  assert.match(constants, /label: "Conversations",\s*path: ROUTES\.comms/);
   const app = await readFile(appPath, "utf8");
   assert.match(app, /path=\{ROUTES\.comms\} element=\{<CommsPage \/>\}/);
   assert.match(app, /path="\/comms\/:id" element=\{<CommsConversationPage \/>\}/);
