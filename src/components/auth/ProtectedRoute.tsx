@@ -49,9 +49,3 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
-
-export function RequireRole({ roles, children }: { roles: string[]; children: ReactNode }) {
-  const { role } = useAuth();
-  if (role && roles.includes(role)) return <>{children}</>;
-  return <div className="p-8 text-paper-3">You don't have access to this workspace.</div>;
-}
