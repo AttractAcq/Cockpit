@@ -19,12 +19,7 @@ import type { SalesLeadRow, SalesConversationRow } from "@/types/sales";
 import { TIER_LABELS } from "@/types/client";
 import type { Client } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
-import { fmtDateLong, fmtRelative } from "@/lib/format";
-
-function fmtValue(cents: number | null): string {
-  if (cents === null) return "—";
-  return (cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
+import { fmtDateLong, fmtRelative, fmtCents } from "@/lib/format";
 
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
 
@@ -142,7 +137,7 @@ export function CommsConversationPage() {
             </div>
             <div>
               <div className="text-2xs uppercase tracking-cap text-paper-3">Est. value</div>
-              <div className="text-paper-2 font-mono tabular-nums">{fmtValue(linkedLead.estimated_value_cents)}</div>
+              <div className="text-paper-2 font-mono tabular-nums">{fmtCents(linkedLead.estimated_value_cents)}</div>
             </div>
             <div>
               <div className="text-2xs uppercase tracking-cap text-paper-3">Assignee</div>

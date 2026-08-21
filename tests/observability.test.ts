@@ -5,8 +5,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  computePublishSuccessRate, summariseExceptions, ageInHours, summariseQueueAge, summariseApprovalDelays,
-  type PublishAttemptLike, type ExceptionLike, type AgeableItem, type WorkItemLike,
+  computePublishSuccessRate, summariseExceptions, ageInHours, summariseQueueAge, summariseApprovalDelays, summariseSalesPipeline,
+  type PublishAttemptLike, type ExceptionLike, type AgeableItem, type WorkItemLike, type SalesLeadLike,
 } from "../src/lib/observability.ts";
 
 // ── computePublishSuccessRate ────────────────────────────────────────────────
@@ -108,4 +108,32 @@ test("summariseApprovalDelays with no items reports zero, not undefined or NaN",
   const result = summariseApprovalDelays([]);
   assert.equal(result.overdueCount, 0);
   assert.equal(result.dueSoonCount, 0);
+});
+
+// ── summariseSalesPipeline (Cockpit v3 Step 4 — Overview's Business Health) ──
+
+test("summariseSalesPipeline sums open value across every non-closed stage", () => {
+  const leads: SalesLeadLike[] = [
+    { stage: "lead", estimated_value_cents: 10_000 },
+    { stage: "conversation", estimated_value_cents: 5_000 },
+    { stage: "closed_won", estimated_value_cents: 20_000 },
+    { stage: "closed_lost", estimated_value_cents: 15_000 },
+  ];
+  const result = summariseSalesPipeline(leads);
+  assert.equal(result.openCount, 2);
+  assert.equal(result.openValueCents, 15_000);
+  assert.equal(result.wonCount, 1);
+  assert.equal(result.wonValueCents, 20_000);
+});
+
+test("summariseSalesPipeline treats a null estimated_value_cents as 0, never drops the lead from the count", () => {
+  const leads: SalesLeadLike[] = [{ stage: "opportunity", estimated_value_cents: null }];
+  const result = summariseSalesPipeline(leads);
+  assert.equal(result.openCount, 1);
+  assert.equal(result.openValueCents, 0);
+});
+
+test("summariseSalesPipeline with no leads reports zero, not undefined or NaN", () => {
+  const result = summariseSalesPipeline([]);
+  assert.deepEqual(result, { openCount: 0, openValueCents: 0, wonCount: 0, wonValueCents: 0 });
 });

@@ -260,6 +260,12 @@ All three of Step 3's collaboration surfaces (Conversations, Team, Documents) ar
 
 **Exit gate:** Overview is the page AA staff actually open every morning (a real usage claim, checked the same way Phase 01's was — not assumed); Sales' new surfaces (contacts, proposals) are used on at least one real lead; Finance's dashboard is checked against one real reconciled period's numbers and confirmed accurate.
 
+**Result — started 2026-08-20, step 1 (Overview) shipped, exit gate not yet met.** `CockpitPage`'s existing tile-row pattern (Phase 01's Operational Health band) gains a new "Business Health" row above it: Open Pipeline (real `sales_leads` count + estimated value), Est. Monthly Revenue (summed `clients.monthly_revenue_estimate`, already-real Stage O data), Opportunities (real `opportunity_os_findings` awaiting review), Closed Won (real count + value). New pure function `summariseSalesPipeline` in `observability.ts`, extending Phase 01's pattern exactly as this step's own text asked, not replacing it. **Deliberately no "Cash" tile** — nothing in this schema represents actual cash on hand yet (only an estimate and a per-client margin snapshot), so it's honestly omitted rather than approximated from an unrelated number, enforced by a test.
+
+Fixed two small pre-existing duplicate-formatter gaps found while wiring this in: `SalesPage.tsx` had its own private `STAGE_LABEL`/`fmtValue`, missed when `SALES_STAGE_LABEL` was extracted during the Conversations slice (#43) — now imports the shared one. `CommsConversationPage.tsx`'s private `fmtValue` and `SalesPage.tsx`'s are now both the one new shared `fmtCents` in `src/lib/format.ts` (currency-symbol-free by design — this codebase's only currency-specific formatter, `fmtZAR`, is tied to the still-open South-Africa-vs-EUR conflict, so a plain number sidesteps guessing at a currency `estimated_value_cents` doesn't actually specify).
+
+**Not yet done:** Sales contacts/companies/proposals and Finance's dashboard (steps 2–3) haven't been started. Verified: typecheck, lint (0 errors, same 6 pre-existing warnings), build, `check:edge-functions` (unaffected), full suite 1090/1090 (9 new, 1 repointed), `git diff --check` clean.
+
 ### Step 5 — Build Executive Master AI
 
 **Goal:** expose the executive layer as a real, first-class page — not an implicit layer above the system.

@@ -118,3 +118,35 @@ export function summariseApprovalDelays(items: readonly WorkItemLike[], now: Dat
   }
   return { overdueCount, dueSoonCount };
 }
+
+export interface SalesLeadLike {
+  stage: string; // SalesLeadStage -- kept as string here so this stays a dependency-free pure function
+  estimated_value_cents: number | null;
+}
+
+export interface SalesPipelineSummary {
+  openCount: number;
+  openValueCents: number;
+  wonCount: number;
+  wonValueCents: number;
+}
+
+const CLOSED_STAGES = new Set(["closed_won", "closed_lost"]);
+
+/**
+ * Cockpit v3 Step 4 — Overview's "Business Health" pipeline tile. Sums real
+ * sales_leads estimated_value_cents (nulls count as 0, never dropped from
+ * openCount) rather than inventing a forecast figure this schema doesn't
+ * carry yet.
+ */
+export function summariseSalesPipeline(leads: readonly SalesLeadLike[]): SalesPipelineSummary {
+  const open = leads.filter((l) => !CLOSED_STAGES.has(l.stage));
+  const won = leads.filter((l) => l.stage === "closed_won");
+  const sum = (items: readonly SalesLeadLike[]) => items.reduce((total, l) => total + (l.estimated_value_cents ?? 0), 0);
+  return {
+    openCount: open.length,
+    openValueCents: sum(open),
+    wonCount: won.length,
+    wonValueCents: sum(won),
+  };
+}
