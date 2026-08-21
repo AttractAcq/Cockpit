@@ -28,7 +28,8 @@ export function SalesPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
-  const [form, setForm] = useState({ businessId: "", name: "", contactEmail: "", contactPhone: "", source: "", estimatedValue: "" });
+  const [followUpOnly, setFollowUpOnly] = useState(false);
+  const [form, setForm] = useState({ businessId: "", name: "", company: "", contactEmail: "", contactPhone: "", source: "", estimatedValue: "" });
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -51,8 +52,15 @@ export function SalesPage() {
   const businessName = (id: string) => businesses.find((b) => b.id === id)?.name ?? id;
 
   const visibleLeads = useMemo(() => leads.filter((l) =>
-    (!selectedBusinessId || l.business_id === selectedBusinessId) && (!stageFilter || l.stage === stageFilter)
-  ), [leads, selectedBusinessId, stageFilter]);
+    (!selectedBusinessId || l.business_id === selectedBusinessId)
+    && (!stageFilter || l.stage === stageFilter)
+    && (!followUpOnly || (l.follow_up_at != null && new Date(l.follow_up_at).getTime() <= Date.now()))
+  ), [leads, selectedBusinessId, stageFilter, followUpOnly]);
+
+  const dueFollowUpCount = useMemo(
+    () => leads.filter((l) => l.follow_up_at != null && new Date(l.follow_up_at).getTime() <= Date.now()).length,
+    [leads],
+  );
 
   async function submit() {
     if (!form.businessId || !form.name.trim()) return;
@@ -62,8 +70,9 @@ export function SalesPage() {
       await createSalesLead({
         businessId: form.businessId, name: form.name, contactEmail: form.contactEmail || null,
         contactPhone: form.contactPhone || null, source: form.source || null, estimatedValueCents: cents,
+        company: form.company || null,
       });
-      setForm({ businessId: form.businessId, name: "", contactEmail: "", contactPhone: "", source: "", estimatedValue: "" });
+      setForm({ businessId: form.businessId, name: "", company: "", contactEmail: "", contactPhone: "", source: "", estimatedValue: "" });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -95,6 +104,10 @@ export function SalesPage() {
           <input className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1">
+          <span className="text-2xs text-paper-3">Company (optional)</span>
+          <input className={field} value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
+        </label>
+        <label className="flex flex-col gap-1">
           <span className="text-2xs text-paper-3">Email (optional)</span>
           <input className={field} value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
         </label>
@@ -122,6 +135,12 @@ export function SalesPage() {
           <option value="">All stages</option>
           {(Object.keys(SALES_STAGE_LABEL) as SalesLeadStage[]).map((s) => <option key={s} value={s}>{SALES_STAGE_LABEL[s]}</option>)}
         </select>
+        <button
+          onClick={() => setFollowUpOnly((v) => !v)}
+          className={`rounded px-2 py-1 text-2xs uppercase tracking-cap ${followUpOnly ? "bg-warn/10 text-warn" : "text-paper-3 hover:text-paper"}`}
+        >
+          Due for follow-up ({dueFollowUpCount})
+        </button>
       </div>
 
       <Panel title="Pipeline" meta={`${visibleLeads.length}`}>
@@ -131,26 +150,31 @@ export function SalesPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-line">
-                {["Name", "Business", "Stage", "Est. Value", "Source", "Created"].map((h) => (
+                {["Name", "Company", "Business", "Stage", "Est. Value", "Follow-up", "Source", "Created"].map((h) => (
                   <th key={h} className="px-3 py-2 text-left text-2xs uppercase tracking-cap text-paper-3 font-medium">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {visibleLeads.map((l) => (
+              {visibleLeads.map((l) => {
+                const followUpDue = l.follow_up_at != null && new Date(l.follow_up_at).getTime() <= Date.now();
+                return (
                 <tr
                   key={l.id}
                   onClick={() => navigate(ROUTES.salesLead(l.id))}
                   className="border-b border-line last:border-b-0 hover:bg-ink-100 cursor-pointer transition-colors"
                 >
                   <td className="px-3 py-2.5 text-paper font-medium">{l.name}</td>
+                  <td className="px-3 py-2.5 text-paper-2">{l.company ?? "—"}</td>
                   <td className="px-3 py-2.5 text-paper-2">{businessName(l.business_id)}</td>
                   <td className={`px-3 py-2.5 font-mono uppercase ${STAGE_COLOR[l.stage]}`}>{SALES_STAGE_LABEL[l.stage]}</td>
                   <td className="px-3 py-2.5 text-paper-2 font-mono tabular-nums">{fmtCents(l.estimated_value_cents)}</td>
+                  <td className={`px-3 py-2.5 font-mono ${followUpDue ? "text-warn" : "text-paper-3"}`}>{l.follow_up_at ? fmtRelative(l.follow_up_at) : "—"}</td>
                   <td className="px-3 py-2.5 text-paper-3">{l.source ?? "—"}</td>
                   <td className="px-3 py-2.5 text-paper-3 font-mono">{fmtRelative(l.created_at)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -6,15 +6,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, Panel } from "@/components/primitives";
-import { fetchSalesLeads, fetchSalesConversations, updateSalesLeadStage, assignSalesLead, logSalesConversation } from "@/lib/sales";
+import {
+  fetchSalesLeads, fetchSalesConversations, updateSalesLeadStage, assignSalesLead, logSalesConversation,
+  setSalesLeadFollowUp, fetchSalesProposals, createSalesProposal, updateSalesProposalStatus,
+} from "@/lib/sales";
 import { fetchBusiness } from "@/lib/business";
 import { useBusinessContext } from "@/lib/business-context";
 import { fetchStaffUsers, type StaffUserRow } from "@/lib/operations-admin";
-import { SALES_STAGE_LABEL } from "@/types/sales";
-import type { SalesLeadRow, SalesConversationRow, SalesLeadStage } from "@/types/sales";
+import { SALES_STAGE_LABEL, SALES_PROPOSAL_STATUS_LABEL } from "@/types/sales";
+import type { SalesLeadRow, SalesConversationRow, SalesLeadStage, SalesProposalRow, SalesProposalStatus } from "@/types/sales";
 import type { BusinessRow } from "@/types/business";
 import { ROUTES } from "@/lib/constants";
-import { fmtDateLong, fmtRelative } from "@/lib/format";
+import { fmtDateLong, fmtRelative, fmtCents } from "@/lib/format";
 
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
 
@@ -30,6 +33,7 @@ export function SalesLeadDetailPage() {
   const [lead, setLead] = useState<SalesLeadRow | null>(null);
   const [business, setBusiness] = useState<BusinessRow | null>(null);
   const [conversations, setConversations] = useState<SalesConversationRow[]>([]);
+  const [proposals, setProposals] = useState<SalesProposalRow[]>([]);
   const [staff, setStaff] = useState<StaffUserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,17 +41,24 @@ export function SalesLeadDetailPage() {
   const [lostReason, setLostReason] = useState("");
   const [conversationSummary, setConversationSummary] = useState("");
   const [conversationChannel, setConversationChannel] = useState("manual");
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalAmount, setProposalAmount] = useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true); setError(null);
     try {
-      const [leads, convs, staffRows] = await Promise.all([fetchSalesLeads(), fetchSalesConversations(id), fetchStaffUsers()]);
+      const [leads, convs, staffRows, props] = await Promise.all([
+        fetchSalesLeads(), fetchSalesConversations(id), fetchStaffUsers(), fetchSalesProposals(id),
+      ]);
       const current = leads.find((l) => l.id === id) ?? null;
       if (!current) { setError("Lead not found."); setLead(null); return; }
       setLead(current);
       setConversations(convs);
       setStaff(staffRows);
+      setProposals(props);
+      setFollowUpDate(current.follow_up_at ? current.follow_up_at.slice(0, 10) : "");
       setBusiness(await fetchBusiness(current.business_id));
       // Opening a lead directly by URL is a deliberate selection too -- carry
       // its business into the shared BusinessContext, same as BusinessDetailPage
@@ -101,6 +112,41 @@ export function SalesLeadDetailPage() {
     }
   }
 
+  async function saveFollowUp() {
+    if (!lead) return;
+    setBusy(true); setError(null);
+    try {
+      await setSalesLeadFollowUp(lead.id, followUpDate ? new Date(followUpDate).toISOString() : null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addProposal() {
+    if (!lead || !proposalTitle.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const cents = proposalAmount.trim() ? Math.round(parseFloat(proposalAmount) * 100) : null;
+      await createSalesProposal(lead.id, proposalTitle, cents);
+      setProposalTitle(""); setProposalAmount("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveProposal(proposalId: string, newStatus: SalesProposalStatus) {
+    setBusy(true); setError(null);
+    try { await updateSalesProposalStatus(proposalId, newStatus); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
   if (loading) return <div className="flex-1 flex items-center justify-center text-paper-3 text-xs">Loading…</div>;
   if (error || !lead) return <div className="flex-1 flex items-center justify-center text-neg text-xs">{error ?? "Lead not found."}</div>;
 
@@ -124,6 +170,10 @@ export function SalesLeadDetailPage() {
             <div className="text-paper">{SALES_STAGE_LABEL[lead.stage]}</div>
           </div>
           <div>
+            <div className="text-2xs uppercase tracking-cap text-paper-3">Company</div>
+            <div className="text-paper-2">{lead.company ?? "—"}</div>
+          </div>
+          <div>
             <div className="text-2xs uppercase tracking-cap text-paper-3">Contact</div>
             <div className="text-paper-2">{lead.contact_email ?? "—"} {lead.contact_phone ? `· ${lead.contact_phone}` : ""}</div>
           </div>
@@ -134,6 +184,13 @@ export function SalesLeadDetailPage() {
           <div>
             <div className="text-2xs uppercase tracking-cap text-paper-3">Created</div>
             <div className="text-paper">{fmtDateLong(lead.created_at)}</div>
+          </div>
+          <div>
+            <div className="text-2xs uppercase tracking-cap text-paper-3">Follow-up</div>
+            <div className="flex items-center gap-1.5">
+              <input type="date" className={field} value={followUpDate} disabled={busy} onChange={(e) => setFollowUpDate(e.target.value)} />
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void saveFollowUp()}>Set</Button>
+            </div>
           </div>
           {isClosed && lead.lost_reason && (
             <div className="col-span-2 sm:col-span-3">
@@ -192,6 +249,43 @@ export function SalesLeadDetailPage() {
                   <span className="text-paper-3 font-mono ml-auto">{fmtRelative(c.occurred_at)}</span>
                 </div>
                 <p className="mt-1 text-paper-2">{c.summary}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Proposals" meta={`${proposals.length}`}>
+        <div className="flex flex-wrap items-end gap-2 border-b border-line p-3">
+          <label className="flex flex-1 min-w-[200px] flex-col gap-1">
+            <span className="text-2xs text-paper-3">Title</span>
+            <input className={field} value={proposalTitle} onChange={(e) => setProposalTitle(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-2xs text-paper-3">Amount (optional)</span>
+            <input className={field} placeholder="0.00" value={proposalAmount} onChange={(e) => setProposalAmount(e.target.value)} />
+          </label>
+          <Button size="sm" variant="primary" disabled={busy || !proposalTitle.trim()} onClick={() => void addProposal()}>Add proposal</Button>
+        </div>
+        {proposals.length === 0 ? (
+          <p className="p-4 text-2xs text-paper-3">No proposals yet.</p>
+        ) : (
+          <div className="space-y-1 p-2">
+            {proposals.map((p) => (
+              <div key={p.id} className="rounded border border-line bg-ink p-2 text-2xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-paper font-medium">{p.title}</span>
+                  <span className="font-mono uppercase text-teal">{SALES_PROPOSAL_STATUS_LABEL[p.status]}</span>
+                  <span className="text-paper-2 font-mono tabular-nums">{fmtCents(p.amount_cents)}</span>
+                  <span className="text-paper-3 font-mono ml-auto">{fmtRelative(p.created_at)}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {p.status === "draft" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void moveProposal(p.id, "sent")}>Mark sent</Button>}
+                  {p.status === "sent" && <>
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void moveProposal(p.id, "accepted")}>Mark accepted</Button>
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void moveProposal(p.id, "declined")}>Mark declined</Button>
+                  </>}
+                </div>
               </div>
             ))}
           </div>

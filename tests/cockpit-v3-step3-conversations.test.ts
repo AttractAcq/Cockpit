@@ -25,7 +25,7 @@ test("SALES_STAGE_LABEL is a single shared export, not duplicated between SalesL
   assert.match(types, /export const SALES_STAGE_LABEL: Record<SalesLeadStage, string> = \{/);
 
   const leadDetail = await readFile(salesLeadDetailPath, "utf8");
-  assert.match(leadDetail, /import \{ SALES_STAGE_LABEL \} from "@\/types\/sales"/);
+  assert.match(leadDetail, /import \{ SALES_STAGE_LABEL(, SALES_PROPOSAL_STATUS_LABEL)? \} from "@\/types\/sales"/);
   assert.doesNotMatch(leadDetail, /const STAGE_LABEL: Record<SalesLeadStage, string>/, "the local duplicate must be removed, not left alongside the shared export");
 
   const conversation = await readFile(detailPagePath, "utf8");

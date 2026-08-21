@@ -24,6 +24,11 @@ export interface SalesLeadRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** Cockpit v3 Step 4: folded onto the lead rather than a separate
+   * sales_companies table -- see that migration's header for the trace. */
+  company: string | null;
+  /** Cockpit v3 Step 4: presentational only, no reminder/notification infra. */
+  follow_up_at: string | null;
 }
 
 export interface SalesConversationRow {
@@ -34,4 +39,26 @@ export interface SalesConversationRow {
   occurred_at: string;
   logged_by: string | null;
   created_at: string;
+}
+
+// Cockpit v3 Step 4 — Sales proposals. A lead may have zero, one, or several
+// over its lifetime, which is why this is its own table rather than columns
+// on sales_leads.
+export type SalesProposalStatus = "draft" | "sent" | "accepted" | "declined";
+
+export const SALES_PROPOSAL_STATUS_LABEL: Record<SalesProposalStatus, string> = {
+  draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined",
+};
+
+export interface SalesProposalRow {
+  id: string;
+  lead_id: string;
+  title: string;
+  amount_cents: number | null;
+  status: SalesProposalStatus;
+  sent_at: string | null;
+  responded_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
