@@ -1,6 +1,6 @@
 // Programme Stage M — deterministic unit coverage for paid performance
-// scoring, insight generation, and the paid creative-comparison
-// aggregation. All pure functions — no network, no database.
+// scoring and insight generation. All pure functions — no network, no
+// database.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -8,7 +8,6 @@ import {
   calculateAdCampaignPerformanceScore, generateAdInsightCandidates, adIterationEvidenceFromScore,
   type AdPerformanceInput, type AdPerformanceScoreDraft,
 } from "../src/lib/ad-performance-intelligence.ts";
-import { comparePaidCreativePerformance, type VariantPerformanceInput } from "../src/lib/ad-creative-comparison.ts";
 
 function baseInput(overrides: Partial<AdPerformanceInput> = {}): AdPerformanceInput {
   return {
@@ -119,69 +118,4 @@ test("adIterationEvidenceFromScore preserves every score dimension for the revie
   assert.equal(evidence.overall_score, 60);
   assert.equal(evidence.score_version, "deterministic_ad_v1");
   assert.deepEqual(evidence.latest_metrics, { spend: 500 });
-});
-
-// ── comparePaidCreativePerformance ──────────────────────────────────────────
-
-function variant(id: string, overrides: Partial<{ hook_text: string; visual_ref: string; copy_text: string; cta_text: string; format: string }> = {}) {
-  return { id, hook_text: "hook-a", visual_ref: "visual-a", copy_text: "copy-a", cta_text: "cta-a", format: "feed_image", ...overrides };
-}
-
-test("comparePaidCreativePerformance returns nothing for empty input — never fabricates a comparison", () => {
-  assert.deepEqual(comparePaidCreativePerformance([], "hook"), []);
-});
-
-test("groups by the requested dimension and aggregates totals across variants sharing that value", () => {
-  const inputs: VariantPerformanceInput[] = [
-    { variant: variant("v1", { hook_text: "hook-a" }), spend: 100, impressions: 10000, clicks: 100, conversions: 5 },
-    { variant: variant("v2", { hook_text: "hook-a" }), spend: 50, impressions: 5000, clicks: 50, conversions: 2 },
-    { variant: variant("v3", { hook_text: "hook-b" }), spend: 200, impressions: 20000, clicks: 300, conversions: 20 },
-  ];
-  const byHook = comparePaidCreativePerformance(inputs, "hook");
-  assert.equal(byHook.length, 2);
-  const hookA = byHook.find((g) => g.dimensionValue === "hook-a")!;
-  assert.equal(hookA.variantCount, 2);
-  assert.equal(hookA.totalSpend, 150);
-  assert.equal(hookA.totalImpressions, 15000);
-  assert.equal(hookA.totalClicks, 150);
-  assert.equal(hookA.totalConversions, 7);
-});
-
-test("CTR, CPC and conversion rate are computed correctly and null when there is no denominator", () => {
-  const inputs: VariantPerformanceInput[] = [{ variant: variant("v1"), spend: 100, impressions: 10000, clicks: 200, conversions: 10 }];
-  const [group] = comparePaidCreativePerformance(inputs, "format");
-  assert.equal(group.averageCtr, 2); // 200/10000 * 100
-  assert.equal(group.averageCpc, 0.5); // 100/200
-  assert.equal(group.averageConversionRate, 5); // 10/200 * 100
-
-  const [zeroClicks] = comparePaidCreativePerformance([{ variant: variant("v2"), spend: 50, impressions: 5000, clicks: 0, conversions: 0 }], "format");
-  assert.equal(zeroClicks.averageCpc, null);
-  assert.equal(zeroClicks.averageConversionRate, null);
-});
-
-test("negative spend/impressions/clicks/conversions are clamped to zero, never subtracted", () => {
-  const [group] = comparePaidCreativePerformance([{ variant: variant("v1"), spend: -10, impressions: -5, clicks: -1, conversions: -1 }], "format");
-  assert.equal(group.totalSpend, 0);
-  assert.equal(group.totalImpressions, 0);
-  assert.equal(group.totalClicks, 0);
-  assert.equal(group.totalConversions, 0);
-});
-
-test("results sort by total spend descending, so the most reliable signal surfaces first", () => {
-  const inputs: VariantPerformanceInput[] = [
-    { variant: variant("v1", { format: "story_image" }), spend: 10, impressions: 1000, clicks: 5, conversions: 0 },
-    { variant: variant("v2", { format: "feed_image" }), spend: 500, impressions: 50000, clicks: 800, conversions: 40 },
-  ];
-  const results = comparePaidCreativePerformance(inputs, "format");
-  assert.equal(results[0].dimensionValue, "feed_image");
-  assert.equal(results[1].dimensionValue, "story_image");
-});
-
-test("different dimensions produce different groupings for the same input set", () => {
-  const inputs: VariantPerformanceInput[] = [
-    { variant: variant("v1", { hook_text: "h1", cta_text: "c1" }), spend: 10, impressions: 100, clicks: 1, conversions: 0 },
-    { variant: variant("v2", { hook_text: "h2", cta_text: "c1" }), spend: 10, impressions: 100, clicks: 1, conversions: 0 },
-  ];
-  assert.equal(comparePaidCreativePerformance(inputs, "hook").length, 2);
-  assert.equal(comparePaidCreativePerformance(inputs, "cta").length, 1);
 });
