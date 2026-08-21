@@ -19,7 +19,10 @@ test("Master AI is a real top-level route and nav item, not nested only inside C
   assert.match(constants, /label:\s*"Master AI",\s*path:\s*ROUTES\.masterAi/);
 
   const app = src("../src/App.tsx");
-  assert.match(app, /import \{ MasterAIPage \} from "@\/pages\/MasterAIPage"/);
+  // Repo cleanup (Track A): route pages are lazy-loaded for code-splitting,
+  // so the import is now a dynamic import assigned to a lazy() component
+  // rather than a static named import -- the route wiring itself is unchanged.
+  assert.match(app, /const MasterAIPage = lazy\(\(\) => import\("@\/pages\/MasterAIPage"\)\.then\(\(m\) => \(\{ default: m\.MasterAIPage \}\)\)\);/);
   assert.match(app, /<Route path=\{ROUTES\.masterAi\} element=\{<MasterAIPage \/>\} \/>/);
 });
 
