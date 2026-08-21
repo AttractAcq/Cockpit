@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check:edge-functions": "node scripts/check-edge-function-registry.mjs",
+    "check:edge-functions-types": "cd supabase/functions && deno check */index.ts",
     "lint": "eslint src supabase/functions tests scripts *.config.js *.config.ts --report-unused-disable-directives",
     "typecheck": "tsc --noEmit"
   },

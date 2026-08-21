@@ -74,9 +74,11 @@ export default tseslint.config(
   {
     files: ["**/*.{ts,tsx,js,mjs}"],
     rules: {
-      // `any` is already banned by repository convention and enforced by
-      // `npm run typecheck`; flagging it again here would only add noise.
-      "@typescript-eslint/no-explicit-any": "off",
+      // `any` is banned by repository convention (prefer `unknown` + narrow).
+      // `tsc --noEmit` only catches *implicit* any (noImplicitAny) — an
+      // explicit `: any` or `as any` compiles cleanly, so this rule is the
+      // actual enforcement for the house rule, not a duplicate of typecheck.
+      "@typescript-eslint/no-explicit-any": "error",
       // Unused code is a real signal, but an intentionally-ignored argument or
       // caught error is not. Underscore marks intent.
       "@typescript-eslint/no-unused-vars": [

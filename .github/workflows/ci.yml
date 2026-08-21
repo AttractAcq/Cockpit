@@ -33,6 +33,28 @@ jobs:
       - name: Edge Function registry
         run: npm run check:edge-functions
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # `npm run typecheck` only covers src/, so this is the only type-check
+      # supabase/functions/ gets. Diagnostic only, not a required gate: once
+      # a real npm-resolution bug in the command itself was fixed (it needs
+      # to run from supabase/functions/ for deno.json's nodeModulesDir:auto
+      # to apply), deno check could finally actually run for the first time
+      # ever against this codebase -- and surfaced 74 pre-existing type
+      # errors (run 32468781407), never caught before because nothing
+      # type-checked this code until now. Fixing 74 errors of unknown scope
+      # (at least one real, systemic pattern: sb.rpc() returns a
+      # PostgrestFilterBuilder, not literally a Promise<RpcResult>, which
+      # this codebase's own RpcResult-typed handler signatures assume) is
+      # real cleanup work, not something to bulk-fix inline here. Leave
+      # diagnostic until that's triaged and fixed as its own scoped effort.
+      - name: Edge Function types (diagnostic)
+        run: npm run check:edge-functions-types
+        continue-on-error: true
+
       - name: Test
         run: node --test tests/*.test.ts
 

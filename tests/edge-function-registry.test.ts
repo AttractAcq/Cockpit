@@ -25,7 +25,8 @@ async function state() {
     readdir(new URL("supabase/functions/", root), { withFileTypes: true }),
   ]);
   const registry = JSON.parse(registryText) as Registry;
-  const localFunctionNames = entries.filter((entry) => entry.isDirectory() && entry.name !== "_shared").map((entry) => entry.name);
+  // node_modules is Deno-managed (nodeModulesDir: "auto"), not a function directory.
+  const localFunctionNames = entries.filter((entry) => entry.isDirectory() && entry.name !== "_shared" && entry.name !== "node_modules").map((entry) => entry.name);
   const ledgerIds = new Set([...ledgerText.matchAll(/`(EF-[A-Z0-9-]+)`/g)].map((match) => match[1]));
   const existingPaths = new Set([
     ...registry.authority.sourceAudits,

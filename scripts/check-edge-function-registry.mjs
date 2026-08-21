@@ -219,7 +219,11 @@ export async function validateRepositoryRegistry() {
   ]);
   const registry = JSON.parse(registryText);
   const localFunctionNames = functionEntries
-    .filter((entry) => entry.isDirectory() && entry.name !== "_shared")
+    // node_modules is Deno-managed (nodeModulesDir: "auto" in
+    // supabase/functions/deno.json, materialized by `deno check`/`deno install`
+    // -- eslint.config.js already excludes it for the same reason), not a
+    // function directory.
+    .filter((entry) => entry.isDirectory() && entry.name !== "_shared" && entry.name !== "node_modules")
     .map((entry) => entry.name);
   const ledgerIds = new Set([...ledgerText.matchAll(/`(EF-[A-Z0-9-]+)`/g)].map((match) => match[1]));
   const referencedPaths = new Set([

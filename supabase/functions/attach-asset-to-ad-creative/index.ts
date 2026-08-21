@@ -49,8 +49,19 @@ Deno.serve(async (req) => {
     return json({ code: "ASSET_GROUP_NOT_APPROVED", message: "Every asset in the group must be approved before it can attach as a creative." }, 409);
   }
   const asset = rows[0];
-  // deno-lint-ignore no-explicit-any
-  const brief = asset.production_brief as any;
+  // Supabase-js types a to-one FK join (production_brief:client_production_briefs(...))
+  // as an array even though the query returns a single row — narrow through
+  // unknown to the actual selected shape rather than reaching for `any`.
+  interface ProductionBriefRef {
+    id: string;
+    source_table: string;
+    source_row_id: string;
+    source_ref: string;
+    execution_month: string;
+    title: string;
+    content_md: string;
+  }
+  const brief = asset.production_brief as unknown as ProductionBriefRef | null;
   if (!brief) return json({ code: "PRODUCTION_BRIEF_NOT_FOUND" }, 404);
   if (brief.source_table !== "ads_master") {
     return json({ code: "NOT_A_PAID_ASSET", message: "This function only attaches ads_master-origin assets. Organic assets promote to distribution instead." }, 400);
