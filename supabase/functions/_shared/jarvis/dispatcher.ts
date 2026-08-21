@@ -252,6 +252,38 @@ export async function executeJarvisTool(
       return ok(data);
     }
 
+    // Cockpit v3 Step 5 — cross-department reads. Sales is business-scoped
+    // (Phase 06/Cockpit v3 Step 4's own dependency-trace decision), not
+    // client-scoped like every other tool in this dispatcher, so this is
+    // the one case that needs a resolution step first.
+    case "list_sales_pipeline": {
+      const { data: business, error: businessError } = await userClient
+        .from("businesses").select("id").eq("client_id", clientId).maybeSingle();
+      if (businessError) return fail(businessError.message);
+      if (!business) return ok({ note: "No business is linked to this client yet, so there is no Sales pipeline to read.", leads: [] });
+      const { data, error } = await userClient.from("sales_leads")
+        .select("id, name, company, stage, estimated_value_cents, follow_up_at, created_at")
+        .eq("business_id", business.id).order("created_at", { ascending: false }).limit(100);
+      if (error) return fail(error.message);
+      return ok(data);
+    }
+
+    case "list_finance_periods": {
+      const { data, error } = await userClient.from("client_finance_periods")
+        .select("id, period_start, period_end, status, actual_revenue, total_cost, margin")
+        .eq("client_id", clientId).order("period_start", { ascending: false }).limit(50);
+      if (error) return fail(error.message);
+      return ok(data);
+    }
+
+    case "list_opportunity_findings": {
+      const { data, error } = await userClient.from("opportunity_os_findings")
+        .select("id, finding_type, title, explanation, score, status, generated_at")
+        .eq("client_id", clientId).order("score", { ascending: false }).limit(50);
+      if (error) return fail(error.message);
+      return ok(data);
+    }
+
     default:
       return fail(`Unknown tool: ${toolName}`);
   }
