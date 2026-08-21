@@ -28,6 +28,14 @@ export const JARVIS_TOOL_GATES: Record<string, JarvisToolGate> = {
   list_content_items_needing_review: "free",
   list_production_briefs_needing_review: "free",
   list_asset_groups_needing_review: "free",
+  // Cockpit v3 Step 5 — cross-department reads (Sales, Finance, Opportunity
+  // OS), all read-only, so all 'free' like every other list_* tool above.
+  // No write/execution tool for any of these three departments yet —
+  // deliberately: this step's own text defers gated execution until
+  // read/recommend has real usage first.
+  list_sales_pipeline: "free",
+  list_finance_periods: "free",
+  list_opportunity_findings: "free",
   add_manual_idea: "free",
   add_proof: "free",
   run_ideation: "free",
@@ -411,5 +419,25 @@ export const JARVIS_TOOLS: Array<{ name: string; description: string; input_sche
       required: ["distribution_record_id"],
       additionalProperties: false,
     },
+  },
+
+  // Cockpit v3 Step 5 — cross-department reads. Each returns raw rows, same
+  // convention as list_pending_sources/list_content_items_needing_review
+  // above: no server-side pre-summarization, the model reasons over the
+  // real rows itself.
+  {
+    name: "list_sales_pipeline",
+    description: "List sales_leads for the business linked to this client (Sales is business-scoped, not client-scoped — resolved via the businesses table). Returns an empty list with a note if this client has no linked business, which is the common case.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_finance_periods",
+    description: "List this client's client_finance_periods — both open and reconciled. Reconciled periods carry a permanent actual_revenue/total_cost/margin snapshot; open periods do not yet.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_opportunity_findings",
+    description: "List this client's opportunity_os_findings (margin_risk/stalled_lead/underperforming_channel), most recent first, including their review status.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
 ];

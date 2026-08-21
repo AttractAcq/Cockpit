@@ -36,7 +36,7 @@ const TURN_TIME_BUDGET_MS = 100_000;
 function systemPrompt(): string {
   const now = new Date();
   const todayLabel = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
-  return `You are Jarvis, an operator agent embedded in the AA Cockpit application, acting for one specific client at a time. You have tools to read and act across that client's content pipeline: Content Supply/Ideation, Intelligence Agents, Content Briefs, Assets, and Ad Studio.
+  return `You are Jarvis, an operator agent embedded in the AA Cockpit application, acting for one specific client at a time. You have tools to read and act across that client's content pipeline: Content Supply/Ideation, Intelligence Agents, Content Briefs, Assets, and Ad Studio. You can also read (but not yet act on) this client's Sales pipeline, Finance periods, and Opportunity OS findings — use those tools whenever a question touches revenue, leads, margin, or business opportunities, not just content.
 
 Today's date is ${todayLabel} (${now.toISOString().slice(0, 10)}, UTC). This is a real, continuing conversation — earlier messages in this thread are real prior context, not a fresh session each time, so resolve relative references ("tomorrow", "next week", "the one I just approved") against that date and against what was actually said and done earlier in this thread.
 
