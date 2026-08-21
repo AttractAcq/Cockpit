@@ -96,6 +96,8 @@ interface DeliveryPage {
   defaultSection?: Section;
   /** Stage 2 Phase 05: purely visual clustering in the page-pill row — no new nav level, no route changes. */
   group?: string;
+  /** Keep an old deep link working without showing the page pill — for a page whose tabs have no built content yet. */
+  hidden?: boolean;
 }
 
 // The first row follows the client delivery lifecycle. Stable internal section
@@ -219,6 +221,10 @@ const DELIVERY_PAGES: DeliveryPage[] = [
   {
     label: "Website",
     defaultSection: "lead_magnets",
+    // Both tabs render an empty placeholder today (no panel built yet) —
+    // hidden from the nav pill row so there's no dead-end click path in the
+    // live product; old deep links to either section still resolve.
+    hidden: true,
     tabs: [
       { label: "Lead Magnets", section: "lead_magnets" },
       { label: "Landing Pages", section: "landing_pages" },
@@ -901,6 +907,7 @@ export function ClientDetailPage() {
         {/* Primary delivery pages */}
         <nav aria-label="Delivery pages" className="flex flex-wrap items-center gap-1">
           {DELIVERY_PAGES.map((page, index) => {
+            if (page.hidden) return null;
             const isActive = page === activePage;
             const inGroup = Boolean(page.group);
             const entersGroup = inGroup && DELIVERY_PAGES[index - 1]?.group !== page.group;
