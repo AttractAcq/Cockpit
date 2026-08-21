@@ -1,5 +1,7 @@
 # Preflight Readiness
 
+> **DEPRECATED (2026-08-21).** This audit validates the retired `entities`/`aicos-act`/`lead-score`/`brief-generator`-era app, not the live Reel Studio/Intelligence-Agent/Cockpit v3 system — see `../CLAUDE.md`'s Reference docs section. Kept for historical reference only.
+
 Audit date: 2026-06-13  
 Supabase project ref: `xivewedajschthjlblfb`
 Old verdict: **NOT-READY**  

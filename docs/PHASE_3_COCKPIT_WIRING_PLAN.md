@@ -1,5 +1,7 @@
 # Phase 3 Cockpit Wiring Plan
 
+> **DEPRECATED (2026-08-21).** This plan describes the retired `entities`/`campaigns`/MRR-era app — it references `MoneyPage.tsx`, `PipelinePage.tsx`, `entities` reads, and other surfaces from that architecture, all removed from `src/` in the Cockpit v3 repo-cleanup pass. See `../CLAUDE.md`'s Reference docs section. Kept for historical reference only.
+
 Date: 2026-06-13  
 Supabase project: `xivewedajschthjlblfb`
 Source checkpoint: `PREFLIGHT_READINESS.md` says Phase 1 is GREEN and overall preflight is GREEN-with-external-blocks.
