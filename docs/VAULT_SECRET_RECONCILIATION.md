@@ -1,5 +1,7 @@
 # Vault Secret Reconciliation
 
+> **DEPRECATED (2026-08-21).** This audit covers the retired `entities`-era app's `credential_registry`/`_GLOBAL_` Vault convention. Global AI-provider keys in the current codebase are plain `Deno.env` secrets, not this Vault convention (see CLAUDE.md's Reel Studio Phase B notes) — see `../CLAUDE.md`'s Reference docs section. Kept for historical reference only.
+
 Audit date: 2026-06-13  
 Project ref: `xivewedajschthjlblfb`
 Scope: repo files, n8n workflow files, deployed Supabase Edge Function source downloaded read-only to `/private/tmp/aa-os-functions-audit`, live Supabase Vault/function env metadata, and live database functions/credential registry. Names only; no secret values were printed.

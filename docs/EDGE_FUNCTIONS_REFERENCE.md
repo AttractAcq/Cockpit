@@ -1,5 +1,7 @@
 # Supabase Edge Functions Reference
 
+> **DEPRECATED (2026-08-21).** This document describes the retired `entities`/`campaigns`/`triage_items`/MRR-era app (16 functions total) — the same architecture `../CLAUDE.md`'s own opening line says is retired and doesn't exist in the live database. Verified 2026-08-21: 8 of the 16 functions documented below no longer exist anywhere in the repo, not even as retired stubs; the other 8 exist only as `retired`-profile tombstones in `supabase/functions/registry.json`. Covers 0 of the 92 non-retired functions in the current, live 105-function registry. Kept for historical reference only — for current edge-function inventory use `supabase/functions/registry.json` (self-consistency-checked by `npm run check:edge-functions`) plus `docs/edge-function-audits/` and `docs/edge-function-remediation/`, both current as of 2026-08-15.
+
 Project: Attract Acquisition / Attract  
 Supabase project ref: `xivewedajschthjlblfb`
 Base URL: `https://xivewedajschthjlblfb.supabase.co/functions/v1`

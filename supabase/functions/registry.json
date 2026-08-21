@@ -2210,10 +2210,10 @@
       ],
       "storageBuckets": [],
       "externalProviders": [
-        "openai"
+        "anthropic"
       ],
       "requiredEnvironment": [
-        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "SUPABASE_ANON_KEY"
       ],
       "auditPhases": [
@@ -2330,10 +2330,10 @@
       ],
       "storageBuckets": [],
       "externalProviders": [
-        "openai"
+        "anthropic"
       ],
       "requiredEnvironment": [
-        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "SUPABASE_ANON_KEY"
       ],
       "auditPhases": [
@@ -2421,10 +2421,10 @@
       ],
       "storageBuckets": [],
       "externalProviders": [
-        "openai"
+        "anthropic"
       ],
       "requiredEnvironment": [
-        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "SUPABASE_ANON_KEY"
       ],
       "auditPhases": [
@@ -2481,10 +2481,10 @@
       ],
       "storageBuckets": [],
       "externalProviders": [
-        "openai"
+        "anthropic"
       ],
       "requiredEnvironment": [
-        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "SUPABASE_ANON_KEY"
       ],
       "auditPhases": [
@@ -2545,10 +2545,10 @@
       ],
       "storageBuckets": [],
       "externalProviders": [
-        "openai"
+        "anthropic"
       ],
       "requiredEnvironment": [
-        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "SUPABASE_ANON_KEY"
       ],
       "auditPhases": [
