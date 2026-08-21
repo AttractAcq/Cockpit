@@ -18,6 +18,7 @@ import { AutomationsPage } from "@/pages/AutomationsPage";
 import { TeamPage } from "@/pages/TeamPage";
 import { KnowledgePage } from "@/pages/KnowledgePage";
 import { FinancePage } from "@/pages/FinancePage";
+import { MasterAIPage } from "@/pages/MasterAIPage";
 import { MarketingPage } from "@/pages/MarketingPage";
 import { OperationsPage } from "@/pages/OperationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -54,6 +55,7 @@ export function App() {
             <Route path={ROUTES.team} element={<TeamPage />} />
             <Route path={ROUTES.knowledge} element={<KnowledgePage />} />
             <Route path={ROUTES.finance} element={<FinancePage />} />
+            <Route path={ROUTES.masterAi} element={<MasterAIPage />} />
             <Route path={ROUTES.marketing} element={<MarketingPage />} />
             <Route path={ROUTES.operations} element={<OperationsPage />} />
             <Route path={ROUTES.settings} element={<SettingsPage />} />
