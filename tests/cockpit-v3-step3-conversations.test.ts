@@ -37,7 +37,7 @@ test("a conversation linked to a Sales lead shows stage/source/value/assignee an
   assert.match(src, /const linkedLead = identity\.matched_lead_id/);
   assert.match(src, /SALES_STAGE_LABEL\[linkedLead\.stage\]/);
   assert.match(src, /linkedLead\.source/);
-  assert.match(src, /fmtValue\(linkedLead\.estimated_value_cents\)/);
+  assert.match(src, /fmtCents\(linkedLead\.estimated_value_cents\)/);
   assert.match(src, /staffLabel\(linkedLead\.assignee_id\)/);
   assert.match(src, /navigate\(ROUTES\.salesLead\(linkedLead\.id\)\)/);
 });

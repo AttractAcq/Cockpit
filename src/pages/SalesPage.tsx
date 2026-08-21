@@ -9,24 +9,16 @@ import { Button, EmptyState, Panel } from "@/components/primitives";
 import { fetchSalesLeads, createSalesLead } from "@/lib/sales";
 import { useBusinessContext } from "@/lib/business-context";
 import type { SalesLeadRow, SalesLeadStage } from "@/types/sales";
+import { SALES_STAGE_LABEL } from "@/types/sales";
 import { ROUTES } from "@/lib/constants";
-import { fmtRelative } from "@/lib/format";
+import { fmtRelative, fmtCents } from "@/lib/format";
 
 const field = "rounded border border-line bg-ink px-2 py-1 text-xs text-paper outline-none focus:border-teal/50";
 
-const STAGE_LABEL: Record<SalesLeadStage, string> = {
-  lead: "Lead", conversation: "Conversation", opportunity: "Opportunity",
-  follow_up: "Follow-Up", closed_won: "Closed Won", closed_lost: "Closed Lost",
-};
 const STAGE_COLOR: Record<SalesLeadStage, string> = {
   lead: "text-paper-3", conversation: "text-info", opportunity: "text-teal",
   follow_up: "text-warn", closed_won: "text-pos", closed_lost: "text-neg",
 };
-
-function fmtValue(cents: number | null): string {
-  if (cents === null) return "—";
-  return (cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
 
 export function SalesPage() {
   const navigate = useNavigate();
@@ -128,7 +120,7 @@ export function SalesPage() {
         </select>
         <select className={field} value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
           <option value="">All stages</option>
-          {(Object.keys(STAGE_LABEL) as SalesLeadStage[]).map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
+          {(Object.keys(SALES_STAGE_LABEL) as SalesLeadStage[]).map((s) => <option key={s} value={s}>{SALES_STAGE_LABEL[s]}</option>)}
         </select>
       </div>
 
@@ -153,8 +145,8 @@ export function SalesPage() {
                 >
                   <td className="px-3 py-2.5 text-paper font-medium">{l.name}</td>
                   <td className="px-3 py-2.5 text-paper-2">{businessName(l.business_id)}</td>
-                  <td className={`px-3 py-2.5 font-mono uppercase ${STAGE_COLOR[l.stage]}`}>{STAGE_LABEL[l.stage]}</td>
-                  <td className="px-3 py-2.5 text-paper-2 font-mono tabular-nums">{fmtValue(l.estimated_value_cents)}</td>
+                  <td className={`px-3 py-2.5 font-mono uppercase ${STAGE_COLOR[l.stage]}`}>{SALES_STAGE_LABEL[l.stage]}</td>
+                  <td className="px-3 py-2.5 text-paper-2 font-mono tabular-nums">{fmtCents(l.estimated_value_cents)}</td>
                   <td className="px-3 py-2.5 text-paper-3">{l.source ?? "—"}</td>
                   <td className="px-3 py-2.5 text-paper-3 font-mono">{fmtRelative(l.created_at)}</td>
                 </tr>

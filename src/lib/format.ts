@@ -29,6 +29,20 @@ export const fmtPercent = (v: number, dp = 0): string => {
 };
 
 /** 1.4 (no unit) */
+/**
+ * A plain, currency-symbol-free number for a *_cents column -- Sales'
+ * estimated_value_cents, e.g. Deliberately no currency symbol: this
+ * codebase's only currency-specific formatter (fmtZAR) is tied to a
+ * still-open, already-flagged conflict between hardcoded South African
+ * defaults and current EUR/Europe commercial positioning (see
+ * COCKPIT_V3_TRANSFORMATION_PLAN.md's open items) -- a plain number sidesteps
+ * guessing at a currency this data doesn't actually specify.
+ */
+export const fmtCents = (cents: number | null): string => {
+  if (cents === null) return "—";
+  return (cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
 export const fmtNumber = (v: number, dp = 1): string => {
   return v.toLocaleString("en-ZA", {
     minimumFractionDigits: dp,

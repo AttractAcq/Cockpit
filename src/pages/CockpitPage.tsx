@@ -6,18 +6,20 @@ import { fetchClients, fetchActivityLog, fetchStage3StatusMap } from "@/lib/api"
 import type { Client, ActivityLogEntry } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
-import { fmtRelative } from "@/lib/format";
+import { fmtRelative, fmtCents } from "@/lib/format";
 import { currentExecutionMonth, type Stage3Status } from "@/lib/stage3";
 import { ContractorManagerModal } from "@/components/ContractorManagerModal";
 import { resolveOperationDestination } from "@/lib/operation-destination";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import {
-  computePublishSuccessRate, summariseExceptions, summariseQueueAge, summariseApprovalDelays,
-  type PublishAttemptLike, type ExceptionLike, type WorkItemLike,
+  computePublishSuccessRate, summariseExceptions, summariseQueueAge, summariseApprovalDelays, summariseSalesPipeline,
+  type PublishAttemptLike, type ExceptionLike, type WorkItemLike, type SalesLeadLike,
 } from "@/lib/observability";
 import { fetchCommandCenterNotes, addCommandCenterNote, resolveCommandCenterNote } from "@/lib/command-center";
 import type { CommandCenterNoteRow, CommandCenterNoteCategory } from "@/types/operations";
+import { fetchSalesLeads } from "@/lib/sales";
+import { fetchOpportunityFindings } from "@/lib/opportunity";
 
 function StageBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -64,6 +66,8 @@ export function CockpitPage() {
   const [exceptions, setExceptions] = useState<ExceptionLike[]>([]);
   const [workItems, setWorkItems] = useState<WorkItemLike[]>([]);
   const [notes, setNotes] = useState<CommandCenterNoteRow[]>([]);
+  const [salesLeads, setSalesLeads] = useState<SalesLeadLike[]>([]);
+  const [pendingOpportunities, setPendingOpportunities] = useState(0);
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [noteForm, setNoteForm] = useState<{ category: CommandCenterNoteCategory; body: string }>({ category: "bottleneck", body: "" });
@@ -72,12 +76,14 @@ export function CockpitPage() {
     setLoading(true); setError(null);
     // Clients is essential; everything else is an enhancement. allSettled
     // keeps the dashboard rendering if a secondary query drops under load.
-    const [clientsResult, activityResult, stage3Result, publishResult, exceptionResult, workItemResult, notesResult] = await Promise.allSettled([
+    const [clientsResult, activityResult, stage3Result, publishResult, exceptionResult, workItemResult, notesResult, salesResult, opportunityResult] = await Promise.allSettled([
       fetchClients(), fetchActivityLog({ limit: 8 }), fetchStage3StatusMap(currentExecutionMonth()),
       supabase.from("client_publish_attempts").select("result, completed_at, started_at").order("started_at", { ascending: false }).limit(500),
       supabase.from("client_exception_queue").select("status, severity, created_at").limit(500),
       supabase.from("client_work_items").select("status, due_at, priority").limit(500),
       fetchCommandCenterNotes(),
+      fetchSalesLeads(),
+      fetchOpportunityFindings(),
     ]);
     if (clientsResult.status === "fulfilled") setClients(clientsResult.value);
     else setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : String(clientsResult.reason));
@@ -87,6 +93,8 @@ export function CockpitPage() {
     setExceptions(exceptionResult.status === "fulfilled" ? ((exceptionResult.value.data ?? []) as ExceptionLike[]) : []);
     setWorkItems(workItemResult.status === "fulfilled" ? ((workItemResult.value.data ?? []) as WorkItemLike[]) : []);
     setNotes(notesResult.status === "fulfilled" ? notesResult.value : []);
+    setSalesLeads(salesResult.status === "fulfilled" ? salesResult.value : []);
+    setPendingOpportunities(opportunityResult.status === "fulfilled" ? opportunityResult.value.filter((f) => f.status === "pending_review").length : 0);
     setLoading(false);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -144,10 +152,42 @@ export function CockpitPage() {
   const openNotes = notes.filter((n) => !n.resolved_at);
   const resolvedNotes = notes.filter((n) => n.resolved_at);
 
+  // Business Health — Cockpit v3 Step 4. Real Sales pipeline (sales_leads),
+  // real estimated revenue (clients.monthly_revenue_estimate, already
+  // fetched above), real Opportunity OS findings awaiting review. No "Cash"
+  // tile: nothing in this schema yet represents actual cash on hand (only
+  // an estimate and a per-client margin snapshot), so it's honestly not
+  // shown rather than approximated from an unrelated number.
+  const pipeline = summariseSalesPipeline(salesLeads);
+  // monthly_revenue_estimate is a plain currency amount (unlike sales_leads'
+  // *_cents columns) -- summed and formatted as-is, not run through fmtCents.
+  const estMonthlyRevenue = clients.reduce((sum, c) => sum + (c.monthly_revenue_estimate ?? 0), 0);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
     <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
       <div className="shrink-0 flex justify-end"><Button variant="ghost" size="sm" onClick={() => setContractorsOpen(true)}>Manage Contractors</Button></div>
+
+      {/* Business Health — Cockpit v3 Step 4. Real Sales/Finance/Opportunity data, not fabricated forecasts. */}
+      <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Open Pipeline", value: pipeline.openCount, sub: `${fmtCents(pipeline.openValueCents)} est. value`, onClick: () => navigate(ROUTES.sales) },
+          { label: "Est. Monthly Revenue", value: estMonthlyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 }), sub: `${activeClients.length} active clients`, onClick: undefined },
+          { label: "Opportunities", value: pendingOpportunities, sub: "awaiting review", onClick: () => navigate(ROUTES.opportunities) },
+          { label: "Closed Won", value: pipeline.wonCount, sub: `${fmtCents(pipeline.wonValueCents)} total value`, onClick: () => navigate(ROUTES.sales) },
+        ].map((tile) => (
+          <div
+            key={tile.label}
+            onClick={tile.onClick}
+            className={`bg-ink-200 border border-line rounded-[10px] p-3.5 flex flex-col gap-1 ${tile.onClick ? "cursor-pointer hover:bg-ink-100 transition-colors" : ""}`}
+          >
+            <span className="text-2xs uppercase tracking-cap text-paper-3">{tile.label}</span>
+            <span className="text-2xl font-mono text-paper">{tile.value}</span>
+            <span className="text-2xs text-paper-3">{tile.sub}</span>
+          </div>
+        ))}
+      </div>
+
       {/* System Readiness Band */}
       <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
