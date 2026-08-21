@@ -38,14 +38,14 @@ jobs:
         with:
           deno-version: v2.x
 
-      # Diagnostic only for now, not a required gate: `npm run typecheck`
-      # only covers src/, so supabase/functions/ has never had a type-check
-      # step before this. `continue-on-error` until a first clean run
-      # confirms the existing ~105 functions pass, since this could not be
-      # verified locally before adding it (no Deno CLI in that environment).
-      - name: Edge Function types (diagnostic)
+      # `npm run typecheck` only covers src/, so this is the only type-check
+      # supabase/functions/ gets. Started as continue-on-error (this repo
+      # had no Deno CLI to verify locally before adding it) -- promoted to a
+      # real gate once this same PR's own first CI run confirmed all ~105
+      # functions pass cleanly (run 32467820406, step "Edge Function types
+      # (diagnostic)", conclusion: success).
+      - name: Edge Function types
         run: npm run check:edge-functions-types
-        continue-on-error: true
 
       - name: Test
         run: node --test tests/*.test.ts
