@@ -33,6 +33,20 @@ jobs:
       - name: Edge Function registry
         run: npm run check:edge-functions
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Diagnostic only for now, not a required gate: `npm run typecheck`
+      # only covers src/, so supabase/functions/ has never had a type-check
+      # step before this. `continue-on-error` until a first clean run
+      # confirms the existing ~105 functions pass, since this could not be
+      # verified locally before adding it (no Deno CLI in that environment).
+      - name: Edge Function types (diagnostic)
+        run: npm run check:edge-functions-types
+        continue-on-error: true
+
       - name: Test
         run: node --test tests/*.test.ts
 
