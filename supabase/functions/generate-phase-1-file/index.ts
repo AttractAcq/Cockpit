@@ -643,8 +643,9 @@ Deno.serve(async (req: Request) => {
       system: systemPrompt,
       user: userMessage,
       model: Deno.env.get("AA_AI_MODEL") ?? "claude-opus-4-8",
-      maxTokens: 3000,
+      maxTokens: 8000,
       timeoutMs: 120_000,
+      rejectTruncation: true,
     });
 
     if (!aiResult.ok) {
@@ -666,8 +667,9 @@ Deno.serve(async (req: Request) => {
         system: `${systemPrompt}\n\nFORMAT RETRY: The previous response was not parseable JSON. Return a single compact JSON object. Escape every newline inside string values as \\n. Do not use markdown fences or text outside the object.`,
         user: userMessage,
         model: Deno.env.get("AA_AI_MODEL") ?? "claude-opus-4-8",
-        maxTokens: 3000,
+        maxTokens: 8000,
         timeoutMs: 120_000,
+        rejectTruncation: true,
       });
       if (!retryResult.ok) {
         return failure(retryResult.error.includes("timed out") ? 504 : 502, "retry_ai_provider", "AI provider format retry failed.", {

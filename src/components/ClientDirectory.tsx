@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState, Icon } from "@/components/primitives";
 import { Button } from "@/components/primitives";
-import { fetchClients, createClient, generateSlug, fetchStage3StatusMap } from "@/lib/api";
+import { fetchClients, fetchClient, updateClient, generateSlug, fetchStage3StatusMap } from "@/lib/api";
+import { onboardClient } from "@/lib/operations-admin";
 import type { Client, PackageTier } from "@/types/client";
 import { ROUTES } from "@/lib/constants";
 import { TIER_LABELS as TL } from "@/types/client";
@@ -51,13 +52,23 @@ function CreateClientModal({ onClose, onCreated }: CreateModalProps) {
     setLoading(true);
     setError(null);
     try {
-      const client = await createClient({
+      // onboard_client (not a raw insert) -- inserting into clients directly and
+      // reading the row back in the same statement (.insert().select()) fails RLS:
+      // auth_client_ids() re-queries public.clients for its admin branch, and a
+      // freshly-inserted row isn't visible to that subquery within the same
+      // statement (Postgres self-insert-visibility), so PostgREST 403s and the
+      // whole insert rolls back. onboard_client is SECURITY DEFINER and returns
+      // the id via a plpgsql OUT variable instead of a client-visible RETURNING,
+      // so it doesn't hit this. See docs/COCKPIT_V3_TRANSFORMATION_PLAN.md Step 6.
+      const clientId = await onboardClient({
         name: name.trim(),
         slug: generateSlug(name.trim()),
-        package_tier: tier,
-        geography: geography || undefined,
-        primary_platform: platform || undefined,
+        packageTier: tier,
+        geography: geography || null,
       });
+      if (platform) await updateClient(clientId, { primary_platform: platform });
+      const client = await fetchClient(clientId);
+      if (!client) throw new Error("Client was created but could not be reloaded.");
       onCreated(client);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create client");

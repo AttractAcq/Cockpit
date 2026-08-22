@@ -308,6 +308,8 @@ export function ContextFilesPanel({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<{ file: ClientContextFile; mode: ViewMode } | null>(null);
+  const [generatingNumber, setGeneratingNumber] = useState<number | null>(null);
+  const [generateError, setGenerateError] = useState<{ number: number; message: string } | null>(null);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -351,6 +353,21 @@ export function ContextFilesPanel({
     setFiles(next);
     setOpen((current) => current ? { ...current, file: updated } : current);
     onFilesLoaded?.(next);
+  }
+
+  async function generateMissing(fileNumber: number, fileName: string) {
+    setGeneratingNumber(fileNumber);
+    setGenerateError(null);
+    try {
+      const result = await generatePhase1File(clientId, fileNumber, fileName);
+      if (!result.ok) throw new Error(result.message);
+      await loadFiles();
+      void logActivity(clientId, "context_file_generated_individually", `${fileName} generated individually (missing file).`, { file_number: fileNumber });
+    } catch (error) {
+      setGenerateError({ number: fileNumber, message: formatError(error) });
+    } finally {
+      setGeneratingNumber(null);
+    }
   }
 
   if (loading && files.length === 0) return <div className="p-6 text-xs text-paper-3">Loading context files…</div>;
@@ -410,6 +427,20 @@ export function ContextFilesPanel({
                 <div className="flex items-center gap-2">
                   <button className="text-2xs text-teal hover:underline" onClick={() => setOpen({ file, mode: "preview" })}>View</button>
                   <button className="text-2xs text-teal hover:underline" onClick={() => setOpen({ file, mode: "edit" })}>Edit</button>
+                </div>
+              )}
+              {!file && (
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    className="text-2xs text-teal hover:underline disabled:cursor-not-allowed disabled:text-paper-3"
+                    disabled={generatingNumber !== null}
+                    onClick={() => void generateMissing(definition.number, definition.file_name)}
+                  >
+                    {generatingNumber === definition.number ? "Generating…" : "Generate"}
+                  </button>
+                  {generateError?.number === definition.number && (
+                    <span className="max-w-xs text-right text-2xs text-neg">{generateError.message}</span>
+                  )}
                 </div>
               )}
             </div>
