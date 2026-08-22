@@ -36,9 +36,29 @@ function fail(message: string): JarvisToolResult {
   return { ok: false, output: { error: message } };
 }
 
+// FunctionsHttpError.context is the raw, unconsumed Response from the failed
+// call (thrown before the SDK ever reads its body) -- read it here so tool
+// failures surface the callee's actual { message, code } instead of the
+// SDK's generic "Edge Function returned a non-2xx status code", which told
+// neither Jarvis nor the human anything about *why* a call failed.
+async function invokeErrorDetail(error: { message?: unknown; context?: unknown }): Promise<string> {
+  const context = error.context;
+  if (context instanceof Response) {
+    try {
+      const body = await context.json();
+      if (body && typeof body === "object") {
+        const message = "message" in body && typeof body.message === "string" ? body.message : undefined;
+        const code = "code" in body && typeof body.code === "string" ? body.code : undefined;
+        if (message) return code ? `${message} (${code})` : message;
+      }
+    } catch { /* non-JSON or already-consumed body -- fall through to the SDK message */ }
+  }
+  return typeof error.message === "string" ? error.message : String(error);
+}
+
 async function invokeFn(userClient: SupabaseClient, name: string, body: Record<string, unknown>): Promise<JarvisToolResult> {
   const { data, error } = await userClient.functions.invoke(name, { body });
-  if (error) return fail(`${name} failed: ${error.message}`);
+  if (error) return fail(`${name} failed: ${await invokeErrorDetail(error)}`);
   return ok(data);
 }
 
@@ -293,7 +313,7 @@ export async function executeJarvisTool(
 async function driveIntelligenceAgent(userClient: SupabaseClient, clientId: string, domain: string): Promise<JarvisToolResult> {
   const fnName = `run-${domain.replace(/_/g, "-")}`;
   const prepared = await userClient.functions.invoke(fnName, { body: { action: "prepare", client_id: clientId } });
-  if (prepared.error) return fail(`${fnName} prepare failed: ${prepared.error.message}`);
+  if (prepared.error) return fail(`${fnName} prepare failed: ${await invokeErrorDetail(prepared.error)}`);
   const researchRunId = (prepared.data as { research_run_id?: string }).research_run_id;
   if (!researchRunId) return ok({ ...prepared.data, note: "No run to advance (likely blocked on missing approved context)." });
 
@@ -302,12 +322,12 @@ async function driveIntelligenceAgent(userClient: SupabaseClient, clientId: stri
   let last: unknown = prepared.data;
   for (let guard = 0; guard < 30 && Date.now() - startedAt < SUB_BUDGET_MS; guard += 1) {
     const stepped = await userClient.functions.invoke(fnName, { body: { action: "step", client_id: clientId, research_run_id: researchRunId } });
-    if (stepped.error) return fail(`${fnName} step failed: ${stepped.error.message}`);
+    if (stepped.error) return fail(`${fnName} step failed: ${await invokeErrorDetail(stepped.error)}`);
     last = stepped.data;
     const data = stepped.data as { terminal?: boolean; progress?: { completed: number; failed: number; total: number } };
     if (data.terminal) {
       const finalized = await userClient.functions.invoke(fnName, { body: { action: "finalize", client_id: clientId, research_run_id: researchRunId } });
-      if (finalized.error) return fail(`${fnName} finalize failed: ${finalized.error.message}`);
+      if (finalized.error) return fail(`${fnName} finalize failed: ${await invokeErrorDetail(finalized.error)}`);
       return ok({ ...finalized.data, note: "Release created at needs_review — call approve_intelligence_release to move it forward." });
     }
   }
@@ -340,7 +360,7 @@ async function generateAiAsset(userClient: SupabaseClient, clientId: string, inp
   let jobId = input.generation_job_id as string | undefined;
   if (!jobId) {
     const started = await userClient.functions.invoke("start-carousel-generation", { body: visualBody });
-    if (started.error) return fail(`start-carousel-generation failed: ${started.error.message}`);
+    if (started.error) return fail(`start-carousel-generation failed: ${await invokeErrorDetail(started.error)}`);
     jobId = (started.data as { job?: { id?: string } }).job?.id;
     if (!jobId) return fail("start-carousel-generation did not return a job id.");
   }
@@ -350,7 +370,7 @@ async function generateAiAsset(userClient: SupabaseClient, clientId: string, inp
   let last: unknown = null;
   for (let guard = 0; guard < 30 && Date.now() - startedAt < SUB_BUDGET_MS; guard += 1) {
     const slide = await userClient.functions.invoke("generate-carousel-slide", { body: { generation_job_id: jobId } });
-    if (slide.error) return fail(`generate-carousel-slide failed: ${slide.error.message}`);
+    if (slide.error) return fail(`generate-carousel-slide failed: ${await invokeErrorDetail(slide.error)}`);
     last = slide.data;
     const progress = slide.data as { terminal?: boolean };
     if (progress.terminal) return ok(progress);
